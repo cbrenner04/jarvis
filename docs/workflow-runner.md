@@ -2,7 +2,7 @@
 
 src gains a runner that executes an ordered array of steps: each step binds a behavior (loop primitive), a prompt, and a role, and the runner loops that step's behavior until its completion condition before advancing to the next step.
 
-See [`v2-architecture.md`](v2-architecture.md) (orchestration; multi-step workflows, resume) and [`role-resolution.md`](role-resolution.md) (step binding vocabulary) for broader context.
+See [`architecture.md`](architecture.md) (orchestration; multi-step workflows, resume) and [`role-resolution.md`](role-resolution.md) (step binding vocabulary) for broader context.
 
 ## Module map
 
@@ -437,7 +437,7 @@ Implement completion uses `deriveSpecRunBodySummary` (same renderer as plan) wit
 
 ## PR body narrative markers
 
-v2 `refreshPrBody` manages a reserved narrative marker block in PR body text: `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->`. The block carries machine-authored narrative text (e.g., generated intent summary, run context, or authored notes).
+`refreshPrBody` manages a reserved narrative marker block in PR body text: `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->`. The block carries machine-authored narrative text (e.g., generated intent summary, run context, or authored notes).
 
 Full section order after the `Spec:` line (see [Implement PR body template](#implement-pr-body-template) above): `## Overview` → `## Subspecs` → `## Risk cues` → `## Change summary` → narrative block → attribution footer.
 

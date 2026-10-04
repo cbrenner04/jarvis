@@ -1,4 +1,4 @@
-# v2 TUI reference
+# TUI reference
 
 Full rendering and interaction contract for `jarvis tui` and `jarvis tui log`. Operator quick paths (which command to reach for, quiescence checks, recovery) live in [operator-runbook.md § Observe](./operator-runbook.md#observe); this doc is the detailed behavior reference consolidated from the runbook.
 

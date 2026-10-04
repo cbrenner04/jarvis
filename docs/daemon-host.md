@@ -1,12 +1,12 @@
 # Daemon host IPC
 
-Hermetic Unix-domain-socket transport for the v2 daemon host. Wire shape only in this slice — run orchestration verbs and log payload semantics land in sibling work.
+Hermetic Unix-domain-socket transport for the daemon host. Wire shape only in this slice — run orchestration verbs and log payload semantics land in sibling work.
 
-See [v2-architecture.md](./v2-architecture.md) Interface for daemon-first placement; this doc pins the transport contract only.
+See [architecture.md](./architecture.md) Interface for daemon-first placement; this doc pins the transport contract only.
 
 Operator-facing `jarvis daemon ...` and `jarvis run ...` behavior lives in [`write-behavior.md`](./write-behavior.md).
 
-Daemon-hosted work, including finalization (the ready gate and draft-to-ready flip), must not block unrelated IPC. No daemon-hosted path may use a synchronous child process; `bun run check` guards `v2/**` and `src/shared/**` against it.
+Daemon-hosted work, including finalization (the ready gate and draft-to-ready flip), must not block unrelated IPC. No daemon-hosted path may use a synchronous child process; `bun run check` guards `src/**` and `src/shared/**` against it.
 
 ## Restart reconciliation and recovery
 

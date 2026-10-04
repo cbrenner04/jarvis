@@ -20,9 +20,9 @@ Without automation, live-engine `v2` prose can return after the editorial sweep;
 
 ## Acceptance criteria
 
-- [ ] `scripts/guard-operator-doc-v2-language.test.ts` fails against the pre-fix operator corpus (e.g. `docs/operator-runbook.md` title line with `\bv2\b`, constructible on main) and passes after subspecs 00–01.
-- [ ] `bun run check` runs the new guard; fails against pre-fix tree when the guard is wired but prose is unchanged.
-- [ ] `bun run typecheck` passes.
+- [x] `scripts/guard-operator-doc-v2-language.test.ts` fails against the pre-fix operator corpus (e.g. `docs/operator-runbook.md` title line with `\bv2\b`, constructible on main) and passes after subspecs 00–01.
+- [x] `bun run check` runs the new guard; fails against pre-fix tree when the guard is wired but prose is unchanged.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

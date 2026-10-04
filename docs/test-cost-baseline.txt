@@ -225,7 +225,7 @@ ok       wall=161ms inFile=154ms residual=7ms src/tui/tui-monitor-terminal-windo
 ok       wall=148ms inFile=140ms residual=8ms src/tui/tui-monitor-workflow-collapse.test.ts
 ok       wall=144ms inFile=136ms residual=8ms src/tui/tui-shell-layout.test.ts
 ok       wall=103ms inFile=95ms residual=8ms src/tui/tui-timestamp-format.test.ts
-ok       wall=150ms inFile=142ms residual=8ms v2/test/mutation-checkpoint-regression.test.ts
+ok       wall=150ms inFile=142ms residual=8ms test/mutation-checkpoint-regression.test.ts
 ok       wall=212ms inFile=205ms residual=7ms shared/executable-tree.test.ts
 ok       wall=608ms inFile=601ms residual=7ms shared/git.test.ts
 ok       wall=1958ms inFile=1950ms residual=8ms shared/intent-stage.test.ts

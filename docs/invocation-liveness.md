@@ -41,7 +41,7 @@ Multi-category, outcome-oriented; weights, intervals, and thresholds deferred to
 
 Read-only debate roles (`adversary`, `advocate`, `adjudicator`) progress via **agent output** and **step-completion markers** only — not workspace activity. The workspace row applies when the resolved role may write toward the step outcome (`actuator`, `implement` under `write`, etc.).
 
-v1 ≈ `max(output idle, file idle)` under one global `idleOutputTimeoutMs` plus `iterationTimeoutMs` — [`v1-behaviors.md`](./v1-behaviors.md). v2 currently enforces stdout/stderr idle budgets only: workflow writes and review roles use the same configured `idleOutputTimeoutMs` policy, including the review fallback and disabled state above.
+v1 ≈ `max(output idle, file idle)` under one global `idleOutputTimeoutMs` plus `iterationTimeoutMs` — [`v1-behaviors.md`](./v1-behaviors.md). The harness currently enforces stdout/stderr idle budgets only: workflow writes and review roles use the same configured `idleOutputTimeoutMs` policy, including the review fallback and disabled state above.
 
 ## Stall-response categories
 
@@ -57,7 +57,7 @@ Recorded at policy level; kill-path wiring deferred.
 
 Outcome handling varies by **behavior** and **role**, but workflow write and review roles share the machine-wide `idleOutputTimeoutMs` configuration. Taxonomy: [`role-resolution.md`](./role-resolution.md).
 
-Each profile combines the current output-idle detection budget with an optional absolute ceiling (bounded steps; v1's parallel idle + wall is the contrast baseline, not the v2 default everywhere). Profile tables deferred.
+Each profile combines the current output-idle detection budget with an optional absolute ceiling (bounded steps; v1's parallel idle + wall is the contrast baseline, not the default everywhere). Profile tables deferred.
 
 Exemplars:
 

@@ -267,5 +267,5 @@ Land the documentation spec before that restructure, or replan this page against
 
 - [`workflow-runner.md`](./workflow-runner.md) — preset builders, workflow steps, per-stage completion publication (component scope).
 - [`daemon-host.md`](./daemon-host.md) — RPC methods, startup sweep, malformed transport (component scope).
-- [`v2-architecture.md`](./v2-architecture.md) — layered model summary.
+- [`architecture.md`](./architecture.md) — layered model summary.
 - [`operator-runbook.md`](./operator-runbook.md) — CLI recipes for start, approve, resume, recover.

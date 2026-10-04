@@ -1,6 +1,6 @@
-# Jarvis v2 — Architecture
+# Jarvis — Architecture
 
-The decided v2 architecture, worked out through design interviews. Companion to `v2-vision.md`: the vision owns the *why* and the constraints/guiding principles that govern the design; this doc owns the *how* — the layered model, prompts, workflows, config, the execution model, and the runtime.
+The decided architecture, worked out through design interviews. Companion to `vision.md`: the vision owns the *why* and the constraints/guiding principles that govern the design; this doc owns the *how* — the layered model, prompts, workflows, config, the execution model, and the runtime.
 
 ## Source layout
 
@@ -78,7 +78,7 @@ Decided:
 
 Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the override syntax, and the rendered-prompt snapshot test standard (a prompt edit shifts rendered output, so changes are kept visible via the `revision` field and render-observer tests). The canonical contract is [`prompt-governance.md`](./prompt-governance.md).
 
-**v2's own renderer (`src/execution/write-prompt.ts`, `renderStepPrompt`) only implements the global half of this layering.** It prepends every `behavior: global` fragment (order-ranked, minus the step's own `remove` list) ahead of the step's task text, but does not layer behavior-specific fragments — those a step still injects itself via its own placeholders (e.g. `write.execute`'s `PRINCIPLES`). This means `plan.prompt.draft` renders two different ways depending on caller: through `src/shared/prompts/plan-draft.ts` (`assemblePromptForStep`, used by `jarvis1`) it also gets `plan.decisions-ledger` / `plan.defer-to-consumer` and honors `metadata.add`; through v2's `renderStepPrompt` it gets only the global fragments. Converging v2 onto `assemblePromptForStep` is the correct end state; tracked as follow-up, not yet done.
+**The harness renderer (`src/execution/write-prompt.ts`, `renderStepPrompt`) only implements the global half of this layering.** It prepends every `behavior: global` fragment (order-ranked, minus the step's own `remove` list) ahead of the step's task text, but does not layer behavior-specific fragments — those a step still injects itself via its own placeholders (e.g. `write.execute`'s `PRINCIPLES`). This means `plan.prompt.draft` renders two different ways depending on caller: through `src/shared/prompts/plan-draft.ts` (`assemblePromptForStep`, used by `jarvis1`) it also gets `plan.decisions-ledger` / `plan.defer-to-consumer` and honors `metadata.add`; through `renderStepPrompt` it gets only the global fragments. Converging onto `assemblePromptForStep` is the correct end state; tracked as follow-up, not yet done.
 
 ## Pipelines
 
@@ -120,7 +120,7 @@ Per-project config:
 - **Narrow exception: explicit contained queue scaffolding.** `jarvis init --scaffold` is the one repository-mutating init mode — it creates only `<targetDir>/seeds/.gitkeep` and `<targetDir>/ready-intents/.gitkeep`, opt-in per invocation, gated by a physical containment preflight (resolved ancestors must stay inside the resolved project root) so the two sentinels can never land outside the target directory. No other init mode touches the target repo's tree.
 - **Two axes: agent fallback order vs. model resolution.** v1 conflated them — each
   `modes.{patch,plan}.agentOrder` entry is one `{agent, model}` pair, so the
-  availability chain and the model choice are a single list. v2 splits them, since
+  availability chain and the model choice are a single list. Jarvis splits them, since
   the hierarchy exists for *agents* (preference-then-fallback) and a model always
   attaches to a specific agent (codex can't serve a Claude model):
   - **Agent fallback order** — one ordered list of agents (`claude → codex →
@@ -371,7 +371,7 @@ The exact columns are grown behind their consumers, not designed ahead of them: 
 
 ### Persistence
 
-- **SQLite under `~/.jarvis/state/v2.sqlite` for orchestration state.**
+- **SQLite under `orchestrationStorePath()` (see [state-store.md](state-store.md)) for orchestration state.**
   A library-owned bootstrap opens this file (or an explicit caller override for
   tests/temp stores) and applies forward-only, idempotent migrations before
   repository operations are exposed. The store is a host-agnostic library:
@@ -381,7 +381,7 @@ The exact columns are grown behind their consumers, not designed ahead of them: 
   resume; the store is not built before a consumer reads it.
 - **Observability log stream stays separate from orchestration state.** The
   structured event log is a distinct injectable artifact, not persisted in
-  `v2.sqlite`. Append/read/follow are stateless interfaces; log persistence is
+  the orchestration store file. Append/read/follow are stateless interfaces; log persistence is
   independent of run recovery.
 - **Telemetry facts are a third persistence role.** Append-only analysis
   substrate (default `~/.jarvis/telemetry.jsonl`, injectable) — per-invocation
@@ -400,7 +400,7 @@ The exact columns are grown behind their consumers, not designed ahead of them: 
 - **Identifier-driven API contract.** Operations accept and return durable IDs so
   caller code never needs direct SQL addressing knowledge.
 - **Internal-only implementation surfaces.** SQL text, row mappers, migration
-  helpers, and raw DB access stay internal and are not public v2 contracts.
+  helpers, and raw DB access stay internal and are not public harness contracts.
 - **Chosen over Postgres deliberately.** Postgres is available and always-on on
   both machines, so memory/install weren't the deciding factor — keeping the
   daemon **hermetic** was. The tool whose job is reliability shouldn't gain a new
@@ -511,7 +511,7 @@ The unit is the **run**: workflows are linear, so a run has at most one agent su
 Most of v1's git/GitHub machinery is sound and carries forward unchanged: harness-authored commits (not agent git automation), `Spec:`-line + embedded acceptance-criteria commit bodies, `index.md` checkbox flips, `Jarvis-Agent` trailers + the PR attribution footer, idempotent draft-PR creation (OPEN-only), narrative-marker body rewrites, two-phase push, base branch via `gh`, the `gh auth` preflight, and the git toggle (global + per-project, incl. git:false loop-only runs). What the long-lived daemon and the "no artifacts in target repos" principle change is smaller:
 
 - **Worktrees live outside the repo.** v1 puts them at in-repo `.worktree/<name>`.
-  v2 moves them to `~/.jarvis/worktrees/<project>/<branch>/` as linked worktrees.
+  Jarvis moves them to `~/.jarvis/worktrees/<project>/<branch>/` as linked worktrees.
   Git supports worktrees anywhere; the only in-repo trace is `.git/worktrees/<id>`
   metadata, invisible in normal diffs, so the working tree stays pristine. This
   extends the same no-artifacts reasoning that drove config out of target repos —
@@ -646,4 +646,4 @@ Run orchestration verbs over the daemon's IPC interface:
 
 ## Constraints & guiding principles
 
-The constraints and guiding principles that govern this architecture — cost, memory, configurability, composability, extendibility, reliability; terseness, capped PR size, strong architectural decisions — are the canonical list in [`v2-vision.md`](v2-vision.md). They are not duplicated here, to avoid drift; this doc is checked against them.
+The constraints and guiding principles that govern this architecture — cost, memory, configurability, composability, extendibility, reliability; terseness, capped PR size, strong architectural decisions — are the canonical list in [`vision.md`](vision.md). They are not duplicated here, to avoid drift; this doc is checked against them.

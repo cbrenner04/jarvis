@@ -28,13 +28,13 @@ From a target repo's Git worktree root, run `jarvis init --profile <name>` to co
 
 ## `jarvis`
 
-The engine: a host-agnostic write loop, a long-running daemon, durable run state in SQLite (`~/.jarvis/state/v2.sqlite`), Unix-socket IPC, workflow presets, review behaviors, draft-PR publication, cleanup, and an ink TUI are all implemented. Remaining gaps are listed under [Status](#status).
+The engine: a host-agnostic write loop, a long-running daemon, durable run state in SQLite (`orchestrationStorePath()`), Unix-socket IPC, workflow presets, review behaviors, draft-PR publication, cleanup, and an ink TUI are all implemented. Remaining gaps are listed under [Status](#status).
 
 ### Configuration
 
 `jarvis init --profile <name>` is the primary setup and preflight command: run from the target repo's Git worktree root, it bootstraps `agents` and `machineProfile`, registers the current repo, and reports readiness. Safe to re-run any time; `--check` reports readiness without writing. Full flag reference and merge semantics: [docs/install-and-config.md](docs/install-and-config.md).
 
-v2 splits configuration into two layers, still hand-editable as the underlying reference:
+Jarvis splits configuration into two layers, still hand-editable as the underlying reference:
 
 - `~/.jarvis/config.json` (per machine): `agents` — the ordered agent
   fallback chain, hand-edited (`jarvis init` seeds it) — plus a required
@@ -80,7 +80,7 @@ jarvis run resume|kill|wait <run-id>
 jarvis run workflow intent|plan|implement ...
 jarvis tui [log <run-id>]   Live ink monitor / per-run log follow.
 jarvis cleanup [<project>] [--dry-run] [--yes|-y] [--abandon <name> [--discard-unlanded]]
-                            Retire merged v2 worktrees; archive completed v2 specs. `<project>` and `--abandon <name>` are mutually exclusive.
+                            Retire merged worktrees; archive completed specs. `<project>` and `--abandon <name>` are mutually exclusive.
 jarvis help                 List top-level commands.
 jarvis --version
 ```
@@ -107,11 +107,11 @@ Implemented: write loop, daemon host with restart reconciliation and memory-wate
 
 Not yet: resuming a paused _ad-hoc_ run (workflow-started steps do resume), per-invocation `--agent`/`--model` overrides, the local-model terminal fallback, and the natural-language prompt router (`jarvis "<intent>"`).
 
-### v2 documentation
+### Documentation
 
-- [docs/v2-vision.md](docs/v2-vision.md) — why v2 exists: guiding
+- [docs/vision.md](docs/vision.md) — vision and constraints: guiding
   principles and architectural constraints.
-- [docs/v2-architecture.md](docs/v2-architecture.md) — layered model,
+- [docs/architecture.md](docs/architecture.md) — layered model,
   workflows, IPC, runs and state, git/PRs.
 - [docs/install-and-config.md](docs/install-and-config.md) — install,
   configure, daemon lifecycle, recovery.

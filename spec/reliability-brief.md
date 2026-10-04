@@ -28,7 +28,7 @@ There are **0 open active spec plans, 33 ready-intents, and 0 seeds**. Every see
 ## Execution order and boundaries
 
 - Load is the main gate-flake source: `src/commands/cleanup.test.ts` runs ~69 s alone and times out under load; re-run named failures in isolation before believing a red gate.
-- Plan chained intents in `(delivered by: …)` order, one at a time against the merged predecessor ([spec-guidance.md § Plan same-seam siblings serially](../docs/spec-guidance.md#plan-same-seam-siblings-serially)). Cross-split chains: tui grammar after `retire-run-pause`; `move-v2-to-top-level` after the shared fold; free-text dispatch and the toolset after `shared-git-operations-boundary`.
+- Plan chained intents in `(delivered by: …)` order, one at a time against the merged predecessor ([spec-guidance.md § Plan same-seam siblings serially](../docs/spec-guidance.md#plan-same-seam-siblings-serially)). Cross-split chains: tui grammar after `retire-run-pause`; `move-the harness-to-top-level` after the shared fold; free-text dispatch and the toolset after `shared-git-operations-boundary`.
 - WAL work requires a real captured rejection. The toolset intents require explicit owner sign-off.
 
 ## Maintenance

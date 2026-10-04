@@ -186,7 +186,7 @@ Spec: spec/your-spec/index.md
 2 files changed (+18/-4)
 
 - src: 1 file (+15/-3)
-- v2/test: 1 file (+3/-1)
+- test: 1 file (+3/-1)
 ```
 
 Plan and implement PR bodies contain the deterministic template after `Spec:`: linked subspec why lines, risk cues, and a diff summary. The template is regenerated on each publication retry; plain narrative markers and the attribution footer remain around it. Commits appear once, in the attribution footer. Intent PRs retain their landed-file summary.
@@ -202,7 +202,7 @@ If `gh` auth or `origin` is missing, publication failure settles the run `failed
 
 ## Session close-out
 
-After the implementation PR lands, run `jarvis cleanup your-project --dry-run`, then confirm `jarvis cleanup your-project`. It retires that project's merged worktree and local branch, archives the completed v2 spec under `spec/completed/`, and prunes its ready-intent only when it byte-matches `intent.md`. Use bare `jarvis cleanup` only for intentional all-project maintenance. Durable run history remains available; incomplete, open-PR, or worktree-owned specs remain in place with a refusal reason.
+After the implementation PR lands, run `jarvis cleanup your-project --dry-run`, then confirm `jarvis cleanup your-project`. It retires that project's merged worktree and local branch, archives the completed spec under `spec/completed/`, and prunes its ready-intent only when it byte-matches `intent.md`. Use bare `jarvis cleanup` only for intentional all-project maintenance. Durable run history remains available; incomplete, open-PR, or worktree-owned specs remain in place with a refusal reason.
 
 ## Optional daemon lifecycle control
 

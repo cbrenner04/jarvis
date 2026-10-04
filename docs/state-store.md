@@ -1,6 +1,6 @@
 # State store
 
-Durable state for v2 runs and execution history: SQLite at `~/.jarvis/state/v2.sqlite`.
+Durable state for harness runs and execution history: SQLite at `orchestrationStorePath()` (see [state-store.md](state-store.md)).
 
 `openStateStore(path?)` creates or opens the file and bootstraps the schema idempotently before any operation; tests pass a path override and write nothing under `~/.jarvis`. Fresh stores receive a baselined `CREATE` matching the current on-disk contract. Stores that already ran pre-squash migrations `004`–`030` upgrade once on open to that same shape via `031-baseline-squash` in `_migrations`; row load/save semantics are unchanged and no operator action is required.
 
@@ -18,7 +18,7 @@ Overlapping workflows and routine TUI polling are safe against the store on one 
 
 ## On-disk maintenance
 
-Backup, purge, or hand-copy of the orchestration store must move or delete `v2.sqlite`, `v2.sqlite-wal`, and `v2.sqlite-shm` under `~/.jarvis/state/` together. Copying or removing only the main file can strand committed rows or leave a torn store. In-repo helpers `copyOrchestrationStore` and `removeOrchestrationStore` in [`state-store-on-disk.ts`](../src/persistence/state-store-on-disk.ts) apply the same rule for tests and tooling.
+Backup, purge, or hand-copy of the orchestration store must move or delete the orchestration store file and its `-wal`/`-shm` sidecars under `~/.jarvis/state/` together. Copying or removing only the main file can strand committed rows or leave a torn store. In-repo helpers `copyOrchestrationStore` and `removeOrchestrationStore` in [`state-store-on-disk.ts`](../src/persistence/state-store-on-disk.ts) apply the same rule for tests and tooling.
 
 ## Schema
 
@@ -126,4 +126,4 @@ The pipeline-level `status` stores only restart-reconciliation state: `active` o
 - Three durable finish sources record when a run stopped, each owned by a different write path: run `finished_at` (`setRunStatus`, `commitGuardedKill`, `commitTerminalRunSettlement`, and terminal `commitCompletionBoundary`), attempt `completed_at` (`commitCompletionBoundary`), and `reconciled_at` (orphan settlement).
 - `beginRunReconciliation` (async) scopes admission to a run's admitting process, not merely its status: a non-terminal row is a candidate only when `owner_identity` is `NULL` or names a different process that is no longer alive (`isOwnerAlive`, an injectable `(identity) => Promise<boolean>` — dead only on `ESRCH` or a start epoch proving pid reuse; the epoch is `Date.now() - ps -o etime=` at record and read time, zone-independent, so a later start beyond a 5 s tolerance means reuse, while an unreadable epoch, an earlier start, or a gap shaped like a whole zone offset (legacy `lstart` identities) counts as alive). A row owned by the sweeping process itself, or by any other live process, is never touched. `openStateStore(path?, { currentIdentity?, isOwnerAlive? })` overrides let tests simulate a prior incarnation and inject liveness. An `in-progress` attempt's non-boundary `completed_at` is intentional — max-`completedAt` readers are the intended consumers; boundary semantics still require `outcome_kind` or attempt status `completed`. When `reconciled_at` is set, prior attempt `completed_at` values may remain stale; raw max-attempt readers must not treat attempt `completed_at` as authoritative when `reconciled_at` is set (list/TUI precedence is owned by `list-row-step-honesty`). Idempotence is split across layers: pending prevents repeated admission stamps, and daemon terminal guards prevent repeated or concurrent sweeps from re-settling or re-timing an already terminal row.
 
-See `v2-architecture.md` (**Runs & state**, **Persistence**, **Recovery**) for the broader design.
+See `architecture.md` (**Runs & state**, **Persistence**, **Recovery**) for the broader design.

@@ -41,8 +41,8 @@
 
 ## Acceptance criteria
 
-- [ ] `rg '\[v2' docs/v1-behaviors.md docs/test-writing.md` prints no matches (reachable on main today via ~350 catalog tags).
-- [ ] `bun run lint:md` passes.
+- [x] `rg '\[v2' docs/v1-behaviors.md docs/test-writing.md` prints no matches (reachable on main today via ~350 catalog tags).
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

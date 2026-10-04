@@ -147,7 +147,7 @@ Original inputs are retained in this worktree at `.scratch/research-input/`. Fro
 ```sh
 python3 docs/research/20260919T151848Z-september-api-cost.py \
   --telemetry .scratch/research-input/telemetry.jsonl \
-  --state .scratch/research-input/v2.sqlite \
+  --state .scratch/research-input/orchestration.sqlite \
   --prices .scratch/research-input/prices.json \
   --start 2026-09-01T00:00:00Z \
   --end 2026-09-19T15:18:48.559706+00:00 \

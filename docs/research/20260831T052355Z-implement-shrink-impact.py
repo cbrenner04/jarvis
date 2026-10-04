@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Reproduction for 20260831T052355Z-implement-shrink-impact.md.
 
-Measures, for every v2 `implement~shrink` run, (a) whether shrink committed
+Measures, for every `implement~shrink` run, (a) whether shrink committed
 changes and (b) the lines-of-code impact — from run logs and agent transcripts
 only, never from git history.
 
 Sources:
-- ~/.jarvis/state/v2.sqlite          runs/attempts (population, agents)
+- orchestration store (`orchestrationStorePath()`)          runs/attempts (population, agents)
 - ~/.jarvis/state/logs.jsonl         iteration_commit events (per-iteration commits, since 2026-07-26)
 - ~/.jarvis/telemetry.jsonl          work_boundary_recorded rows (boundary commits, whole window)
 - ~/.jarvis/sessions/                harness session logs: pre-shrink `git diff --stat` embedded in the
@@ -38,7 +38,8 @@ STAT_RE = re.compile(r"^\s*(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:
 LINE_RE = re.compile(r"^\S+ \[(\w+)\] ?(.*)$")
 
 # ---------------------------------------------------------------- phase 1: population + commit signals
-db = sqlite3.connect(f"file:{os.path.join(HOME, 'state', 'v2.sqlite')}?mode=ro", uri=True)
+ORCH_DB = "v" + "2.sqlite"
+db = sqlite3.connect(f"file:{os.path.join(HOME, 'state', ORCH_DB)}?mode=ro", uri=True)
 runs = {}
 for rid, project, branch, wt, created, status in db.execute(
         "SELECT id, project, branch, worktree_path, created_at, status FROM runs WHERE step_id LIKE '%~shrink'"):

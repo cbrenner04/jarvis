@@ -4,7 +4,7 @@ Measured 2026-08-31 from operator telemetry. Question: how many agent turns does
 
 ## Method
 
-- Sources: `~/.jarvis/telemetry.jsonl` (`invocation_completed` rows) joined to `~/.jarvis/state/v2.sqlite` (`runs`, `pipelines`, `pipeline_stages`). Sibling runs of one workflow grouped by `workflow_snapshot.invocationId`; pipeline stages link via `workflow_invocation_id` (entry run id).
+- Sources: `~/.jarvis/telemetry.jsonl` (`invocation_completed` rows) joined to `orchestrationStorePath()` (see [state-store.md](state-store.md)) (`runs`, `pipelines`, `pipeline_stages`). Sibling runs of one workflow grouped by `workflow_snapshot.invocationId`; pipeline stages link via `workflow_invocation_id` (entry run id).
 - Filters: `project = jarvis` only; workflows whose runs all reached `completed`; telemetry era only (capture began 2026-07-12).
 - **Turn** = one logical agent call = telemetry row with `binding_index == 0`. Rows with `binding_index > 0` are quota-fallback retries of the same logical call and are excluded from turn counts.
 - Dataset: 6,430 jarvis invocation rows; 845 (~15% over the logical-turn count) were quota-fallback retries.

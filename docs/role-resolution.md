@@ -1,6 +1,6 @@
 # Role resolution
 
-Canonical home for the v2 **role** taxonomy and how roles bind to workflow steps. The layered model and orchestration context live in [`v2-architecture.md`](v2-architecture.md). The `AgentModelConfig` schema and inner rung resolution are documented in [`agent-model-config.md`](agent-model-config.md).
+Canonical home for the harness **role** taxonomy and how roles bind to workflow steps. The layered model and orchestration context live in [`architecture.md`](architecture.md). The `AgentModelConfig` schema and inner rung resolution are documented in [`agent-model-config.md`](agent-model-config.md).
 
 ## Closed `Role` union
 
@@ -51,7 +51,7 @@ Inner rung detail (consumption modes, flattening, terminal outcomes): [`agent-mo
 Load-bearing taxonomy choices recorded here:
 
 - **Durable home is this file** — the closed `Role` union does not fold into
-  `v2-architecture.md`; architecture cross-links here instead of duplicating
+  `architecture.md`; architecture cross-links here instead of duplicating
   the contract.
 - **Categories retired** — `thinking` / `reviewing` / `executing` are not
   model-resolution keys. Roles align with how agents are actually invoked.
@@ -66,7 +66,7 @@ Load-bearing taxonomy choices recorded here:
 - **Model-resolution `shrink` is separate from telemetry phase** —
   `patch_phase: "shrink"` is a telemetry/workflow phase label, not a `Role`
   member alias or validation source.
-- **`implement` collapses two independently configurable v1 tiers** — v1's `patchActuator` and `reviewActuator` (implement-side) each map to different configurable tiers; v2 maps both to `implement`, yielding one `(agent, implement) → model` binding per agent. When those v1 tiers differ, v2 cannot represent both independently without disambiguation beyond bare `(agent, role)`. Agent-model-config must not assume full v1 tier parity through a single `implement` key.
+- **`implement` collapses two independently configurable v1 tiers** — v1's `patchActuator` and `reviewActuator` (implement-side) each map to different configurable tiers; the harness maps both to `implement`, yielding one `(agent, implement) → model` binding per agent. When those v1 tiers differ, the harness cannot represent both independently without disambiguation beyond bare `(agent, role)`. Agent-model-config must not assume full v1 tier parity through a single `implement` key.
 - **`operator` documented now, wired in Phase 9** — taxonomy is not blocked on
   NL-router implementation; behavior binding for `operator` is deferred until
   Phase 9 routes NL prompts.

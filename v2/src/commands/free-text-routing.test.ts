@@ -369,6 +369,40 @@ describe("runFreeTextRouting", () => {
     expectNoDaemonRpc(harness);
   });
 
+  test("pipeline.approve rejects invalid pipeline id before runPipelineCommand", async () => {
+    const harness = makeAdmissionHarness();
+    const io = captureIo();
+    let pipelineCommandCalls = 0;
+    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
+      invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.approve", pipelineId: "not-a-uuid" })),
+      runPipelineCommand: async () => {
+        pipelineCommandCalls += 1;
+        return 0;
+      },
+    });
+    expect(exit).toBe(1);
+    expectRoutingStderr(io, "invalid-target-id");
+    expect(pipelineCommandCalls).toBe(0);
+    expectNoDaemonRpc(harness);
+  });
+
+  test("pipeline.approve dispatches valid pipeline id to runPipelineCommand", async () => {
+    const pipelineId = "00000000-0000-4000-8000-000000000001";
+    const harness = makeAdmissionHarness();
+    const io = captureIo();
+    const pipelineArgv: string[][] = [];
+    const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
+      invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.approve", pipelineId })),
+      runPipelineCommand: async (argv) => {
+        pipelineArgv.push(argv);
+        return 0;
+      },
+    });
+    expect(exit).toBe(0);
+    expect(pipelineArgv).toEqual([["approve", pipelineId]]);
+    expectNoDaemonRpc(harness);
+  });
+
   test("rejects unsupported routing output with no daemon RPC", async () => {
     const harness = makeAdmissionHarness();
     const io = captureIo();

@@ -1,0 +1,1145 @@
+import { describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { openStateStore } from "../persistence/state-store.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
+import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
+
+/**
+ * Waits for a real spawned child to cold-start, print, and flush into `logPath`.
+ *
+ * The budget bounds a hang; it is not an estimate of expected latency. The aggregate suite
+ * deliberately saturates the machine, so a `bun` cold start here can take seconds — the previous
+ * 3 s budget made this a race and it failed roughly one run in three under load.
+ *
+ * Sleeps between reads rather than spinning on `setImmediate`: a busy loop steals CPU from the very
+ * process being waited on, which made the race worse the more loaded the machine was. Tolerates the
+ * log file not existing yet, which is its own startup race.
+ */
+async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs = 30_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let content = "";
+  while (Date.now() < deadline) {
+    content = existsSync(logPath) ? readFileSync(logPath, "utf-8") : "";
+    if (markers.every((marker) => content.includes(marker))) {
+      return content;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return content;
+}
+
+import { DaemonSocketBindFailureError, formatDaemonBindFailureLogLine } from "../ipc/server.ts";
+import type { Run } from "../persistence/state-store";
+import { makeIpcClient } from "../testing/cli-test-helpers.ts";
+import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import {
+  DaemonHandoffFailedError,
+  DaemonReadinessTimeoutError,
+  DaemonStopInspectionError,
+  DaemonStopRefusedError,
+  getDaemonStatus,
+  type ProcessProber,
+  type SocketProber,
+  startDaemon,
+  stopDaemon,
+} from "./daemon-lifecycle";
+import { enumerateOtherDaemonSockets, supersedePeerDaemon } from "./daemon-peer-socket.ts";
+
+/** True while `pid` is running and not a zombie awaiting reap. */
+function isChildRunning(pid: number): boolean {
+  const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)]);
+  const stat = result.stdout.toString().trim();
+  return stat.length > 0 && !stat.startsWith("Z");
+}
+
+const CHANGEOVER_OUTCOME = {
+  kind: "changeover" as const,
+  privateSocketPath: "/fake/private.sock",
+  handoffId: "handoff-1",
+};
+
+/**
+ * Records every `requestHandoffResolution` call as a `[privateSocketPath, handoffId, resolution]` tuple
+ * and replies with the matching settled state unless `commitReply` overrides the commit answer.
+ */
+function recordingHandoffResolution(commitReply: "committed" | "rolled_back" | "unparsed" = "committed"): {
+  resolutions: unknown[][];
+  requestHandoffResolution: (
+    privateSocketPath: string,
+    handoffId: string,
+    resolution: "commit" | "rollback",
+  ) => Promise<"committed" | "rolled_back" | undefined>;
+} {
+  const resolutions: unknown[][] = [];
+  return {
+    resolutions,
+    requestHandoffResolution: async (privateSocketPath, handoffId, resolution) => {
+      resolutions.push([privateSocketPath, handoffId, resolution]);
+      if (resolution === "rollback") return "rolled_back";
+      return commitReply === "unparsed" ? undefined : commitReply;
+    },
+  };
+}
+
+describe("daemon-lifecycle", () => {
+  describe("startDaemon", () => {
+    test("does not attempt changeover when nothing occupies the address", async () => {
+      let changeoverCalls = 0;
+      let resolutionCalls = 0;
+      const socketProber: SocketProber = { probe: async () => false };
+      const processProber: ProcessProber = { isAlive: () => true };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          processProber,
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+          requestChangeover: async () => {
+            changeoverCalls += 1;
+            return { kind: "handoff-failed" };
+          },
+          requestHandoffResolution: async () => {
+            resolutionCalls += 1;
+            return undefined;
+          },
+        }),
+      ).rejects.toThrow(DaemonReadinessTimeoutError);
+      expect(changeoverCalls).toBe(0);
+      expect(resolutionCalls).toBe(0);
+    });
+
+    test("throws DaemonHandoffFailedError when the occupying peer's changeover request fails", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          readinessTimeoutMs: 1000,
+          requestChangeover: async () => ({ kind: "handoff-failed" }),
+        }),
+      ).rejects.toThrow(DaemonHandoffFailedError);
+    });
+
+    test("throws DaemonHandoffFailedError when the occupying peer never releases the address", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          readinessTimeoutMs: 1000,
+          requestChangeover: async () => CHANGEOVER_OUTCOME,
+          requestHandoffResolution,
+          changeoverReleaseTimeoutMs: 50,
+        }),
+      ).rejects.toThrow(DaemonHandoffFailedError);
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+    });
+
+    test("proceeds past occupancy once changeover succeeds and the address is released", async () => {
+      let probeCount = 0;
+      const socketProber: SocketProber = {
+        probe: async () => {
+          probeCount += 1;
+          // Occupied on the initial occupancy check, released on every probe after.
+          return probeCount === 1;
+        },
+      };
+      const processProber: ProcessProber = { isAlive: () => true };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          processProber,
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+          requestChangeover: async () => CHANGEOVER_OUTCOME,
+        }),
+      ).rejects.toThrow(DaemonReadinessTimeoutError);
+      expect(probeCount).toBeGreaterThan(1);
+    });
+
+    test("requests rollback with the carried identity when successor bind fails", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const socketPath = join(tmpDir, "daemon.sock");
+        const logPath = join(tmpDir, "daemon.log");
+        let probeCount = 0;
+        const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+
+        await expect(
+          startDaemon(socketPath, {
+            socketProber: { probe: async () => ++probeCount === 1 },
+            processProber: { isAlive: () => false },
+            daemonScript: "/fake/script",
+            logPath,
+            requestChangeover: async () => CHANGEOVER_OUTCOME,
+            requestHandoffResolution,
+            onSpawn: () => {
+              writeFileSync(
+                logPath,
+                `${formatDaemonBindFailureLogLine(new DaemonSocketBindFailureError(socketPath, "EADDRINUSE"))}\n`,
+                { flag: "a" },
+              );
+            },
+          }),
+        ).rejects.toBeInstanceOf(DaemonSocketBindFailureError);
+        expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("requests rollback with the carried identity when readiness probes never succeed", async () => {
+      let probeCount = 0;
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber: { probe: async () => ++probeCount === 1 },
+          processProber: { isAlive: () => true },
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+          requestChangeover: async () => CHANGEOVER_OUTCOME,
+          requestHandoffResolution,
+        }),
+      ).rejects.toThrow(DaemonReadinessTimeoutError);
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+    });
+
+    test("requests rollback with the carried identity when startup throws after cutoff", async () => {
+      let probeCount = 0;
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber: { probe: async () => ++probeCount === 1 },
+          daemonScript: "/fake/script",
+          requestChangeover: async () => CHANGEOVER_OUTCOME,
+          requestHandoffResolution,
+          onSpawn: () => {
+            throw new Error("startup failed");
+          },
+        }),
+      ).rejects.toThrow("startup failed");
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+    });
+
+    test("requests commit exactly once with the carried identity after readiness", async () => {
+      let probeCount = 0;
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+      const metadata = await startDaemon("/fake/socket", {
+        socketProber: { probe: async () => probeCount++ !== 1 },
+        processProber: { isAlive: () => true },
+        daemonScript: "/fake/script",
+        requestChangeover: async () => CHANGEOVER_OUTCOME,
+        requestHandoffResolution,
+      });
+
+      expect(metadata.socketPath).toBe("/fake/socket");
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "commit"]]);
+    });
+
+    test("fails without writing the pid file when the incumbent's commit reply is not committed", async () => {
+      // Regression: a slow successor's readiness probe can be answered by a rolled-back incumbent.
+      // The commit reply then says `rolled_back`; startup must fail rather than record a dead pid.
+      for (const commitReply of ["rolled_back", "unparsed"] as const) {
+        let probeCount = 0;
+        const { resolutions, requestHandoffResolution } = recordingHandoffResolution(commitReply);
+        const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}-${commitReply}`);
+        mkdirSync(tmpDir, { recursive: true });
+        const pidPath = join(tmpDir, "daemon.pid");
+        try {
+          await expect(
+            startDaemon("/fake/socket", {
+              socketProber: { probe: async () => probeCount++ !== 1 },
+              processProber: { isAlive: () => true },
+              daemonScript: "/fake/script",
+              pidPath,
+              requestChangeover: async () => CHANGEOVER_OUTCOME,
+              requestHandoffResolution,
+            }),
+          ).rejects.toBeInstanceOf(DaemonHandoffFailedError);
+          expect(existsSync(pidPath)).toBe(false);
+          expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "commit"]]);
+        } finally {
+          rmSync(tmpDir, { recursive: true, force: true });
+        }
+      }
+    });
+
+    test("fails without writing the pid file when the successor is dead once the address answers", async () => {
+      let probeCount = 0;
+      let aliveChecks = 0;
+      const { requestHandoffResolution } = recordingHandoffResolution();
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}-dead`);
+      mkdirSync(tmpDir, { recursive: true });
+      const pidPath = join(tmpDir, "daemon.pid");
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber: { probe: async () => probeCount++ !== 1 },
+            processProber: { isAlive: () => aliveChecks++ === 0 },
+            daemonScript: "/fake/script",
+            pidPath,
+            requestChangeover: async () => CHANGEOVER_OUTCOME,
+            requestHandoffResolution,
+          }),
+        ).rejects.toThrow("died during startup");
+        expect(existsSync(pidPath)).toBe(false);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("kills the spawned successor before requesting rollback on readiness timeout", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}-kill`);
+      mkdirSync(tmpDir, { recursive: true });
+      const script = join(tmpDir, "linger.ts");
+      writeFileSync(script, "setInterval(() => {}, 1000);\n");
+      let probeCount = 0;
+      let spawnedPid: number | undefined;
+      let aliveAtRollback: boolean | undefined;
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber: { probe: async () => ++probeCount === 1 },
+            readinessTimeoutMs: 200,
+            daemonScript: script,
+            onSpawn: (pid) => {
+              spawnedPid = pid;
+            },
+            requestChangeover: async () => CHANGEOVER_OUTCOME,
+            requestHandoffResolution: async () => {
+              aliveAtRollback = spawnedPid !== undefined && isChildRunning(spawnedPid);
+              return "rolled_back";
+            },
+          }),
+        ).rejects.toThrow(DaemonReadinessTimeoutError);
+        expect(aliveAtRollback).toBe(false);
+      } finally {
+        if (spawnedPid !== undefined && isChildRunning(spawnedPid)) process.kill(spawnedPid, "SIGKILL");
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("does not ask the incumbent again when startup throws after readiness commit", async () => {
+      let probeCount = 0;
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber: { probe: async () => probeCount++ !== 1 },
+            processProber: { isAlive: () => true },
+            daemonScript: "/fake/script",
+            pidPath: tmpDir,
+            requestChangeover: async () => CHANGEOVER_OUTCOME,
+            requestHandoffResolution,
+          }),
+        ).rejects.toThrow();
+        expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "commit"]]);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("throws DaemonReadinessTimeoutError if socket never becomes ready", async () => {
+      const socketProber: SocketProber = {
+        probe: async () => false,
+      };
+
+      const processProber: ProcessProber = {
+        isAlive: () => true,
+      };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          processProber,
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+        }),
+      ).rejects.toThrow(DaemonReadinessTimeoutError);
+    });
+
+    test("throws if process dies during startup", async () => {
+      let aliveCount = 0;
+      const processProber: ProcessProber = {
+        isAlive: () => {
+          aliveCount++;
+          return aliveCount <= 2;
+        },
+      };
+
+      const socketProber: SocketProber = {
+        probe: async () => false,
+      };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          processProber,
+          readinessTimeoutMs: 1000,
+          daemonScript: "/fake/script",
+        }),
+      ).rejects.toThrow("died during startup");
+    });
+
+    test("startup death ignores bind-failure markers from prior spawns in the same log", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const socketPath = join(tmpDir, "daemon.sock");
+        const logPath = join(tmpDir, "daemon.log");
+        const staleMarker = formatDaemonBindFailureLogLine(new DaemonSocketBindFailureError(socketPath, "EADDRINUSE"));
+        writeFileSync(logPath, `prior run\n${staleMarker}\n`);
+
+        const daemonScript = join(tmpDir, "exit-immediately.ts");
+        writeFileSync(daemonScript, `process.exit(1);\n`);
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        let aliveChecks = 0;
+        const processProber: ProcessProber = {
+          isAlive: () => {
+            aliveChecks++;
+            return aliveChecks <= 2;
+          },
+        };
+
+        await expect(
+          startDaemon(socketPath, {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 5_000,
+            daemonScript,
+            logPath,
+          }),
+        ).rejects.toThrow("died during startup");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("unrecoverable socket bind names path errno and cleanup recovery", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const socketPath = join(tmpDir, "daemon.sock");
+        const logPath = join(tmpDir, "daemon.log");
+        const serverModule = join(import.meta.dir, "../ipc/server.ts");
+        const daemonScript = join(tmpDir, "bind-fail-daemon.ts");
+        writeFileSync(
+          daemonScript,
+          [
+            `import { writeFileSync } from "node:fs";`,
+            `import { startIpcServer, formatDaemonBindFailureLogLine, DaemonSocketBindFailureError } from ${JSON.stringify(serverModule)};`,
+            `const socketPath = process.argv[process.argv.indexOf("--socket") + 1]!;`,
+            `writeFileSync(socketPath, "");`,
+            `try { await startIpcServer(socketPath, undefined, undefined, async () => ({ liveness: "absent", peerConnected: false })); }`,
+            `catch (err) { if (err instanceof DaemonSocketBindFailureError) console.error(formatDaemonBindFailureLogLine(err)); process.exit(1); }`,
+          ].join("\n"),
+        );
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        await expect(
+          startDaemon(socketPath, {
+            socketProber,
+            readinessTimeoutMs: 10_000,
+            daemonScript,
+            logPath,
+          }),
+        ).rejects.toMatchObject({
+          name: "DaemonSocketBindFailureError",
+          socketPath,
+          errno: "EADDRINUSE",
+          message: expect.stringContaining("jarvis cleanup"),
+        });
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("returns metadata when socket becomes ready", async () => {
+      let probeCount = 0;
+      const socketProber: SocketProber = {
+        probe: async () => {
+          probeCount++;
+          return probeCount > 2;
+        },
+      };
+
+      const processProber: ProcessProber = {
+        isAlive: () => true,
+      };
+
+      const metadata = await startDaemon("/fake/socket", {
+        socketProber,
+        processProber,
+        readinessTimeoutMs: 1000,
+        daemonScript: "/fake/script",
+      });
+
+      expect(metadata.socketPath).toBe("/fake/socket");
+      expect(typeof metadata.pid).toBe("number");
+    });
+
+    test("writes PID to pidPath if provided", async () => {
+      const socketProber: SocketProber = {
+        probe: async () => false,
+      };
+
+      const processProber: ProcessProber = {
+        isAlive: () => true,
+      };
+
+      const pidPath = "/tmp/nonexistent/daemon.pid";
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          processProber,
+          readinessTimeoutMs: 100,
+          pidPath,
+          daemonScript: "/fake/script",
+        }),
+      ).rejects.toThrow("PID file directory does not exist");
+    });
+
+    test("writes to logPath when provided", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 100,
+            daemonScript: "/fake/script",
+            logPath,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        // Verify the log file was created
+        expect(existsSync(logPath)).toBe(true);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("throws when logPath directory does not exist", async () => {
+      const logPath = "/nonexistent/dir/daemon.log";
+
+      const socketProber: SocketProber = {
+        probe: async () => false,
+      };
+
+      const processProber: ProcessProber = {
+        isAlive: () => true,
+      };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          processProber,
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+          logPath,
+        }),
+      ).rejects.toThrow("Log file directory does not exist");
+    });
+
+    test("throws when logPath cannot be opened for writing", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        // A directory at logPath cannot be opened for writing as a file
+        const logPath = join(tmpDir, "daemon.log");
+        mkdirSync(logPath);
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 100,
+            daemonScript: "/fake/script",
+            logPath,
+          }),
+        ).rejects.toThrow("Failed to open log file for writing");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("rotates log file when at capacity", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+        const capBytes = 50;
+
+        // Create initial log file with content that exceeds cap
+        writeFileSync(logPath, "x".repeat(100));
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 100,
+            daemonScript: "/fake/script",
+            logPath,
+            logCapBytes: capBytes,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        // Verify rotation happened
+        expect(existsSync(`${logPath}.1`)).toBe(true);
+        const rotatedContent = readFileSync(`${logPath}.1`, "utf-8");
+        expect(rotatedContent).toBe("x".repeat(100));
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("does not create log file when logPath not provided", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "should-not-exist.log");
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 100,
+            daemonScript: "/fake/script",
+            // logPath omitted
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        // Verify no log file was created
+        expect(existsSync(logPath)).toBe(false);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("captures a real child's stdout into logPath", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+        const daemonScript = join(tmpDir, "fake-daemon.ts");
+        writeFileSync(daemonScript, `console.log("child-output-marker");\n`);
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 500,
+            daemonScript,
+            logPath,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        const content = await waitForLogMarkers(logPath, ["child-output-marker"]);
+        expect(content).toContain("child-output-marker");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("appends the new daemon's output alongside a prior daemon's after restart", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        const processProber: ProcessProber = {
+          isAlive: () => true,
+        };
+
+        const firstScript = join(tmpDir, "fake-daemon-1.ts");
+        writeFileSync(firstScript, `console.log("first-daemon-marker");\n`);
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 500,
+            daemonScript: firstScript,
+            logPath,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        const secondScript = join(tmpDir, "fake-daemon-2.ts");
+        writeFileSync(secondScript, `console.log("second-daemon-marker");\n`);
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 500,
+            daemonScript: secondScript,
+            logPath,
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        const content = await waitForLogMarkers(logPath, ["first-daemon-marker", "second-daemon-marker"]);
+        expect(content).toContain("first-daemon-marker");
+        expect(content).toContain("second-daemon-marker");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("stopDaemon", () => {
+    const run = (id: string, status: Run["status"]): Run => ({
+      id,
+      project: "demo",
+      specRef: "spec.md",
+      createdAt: 1,
+      status,
+      attemptCount: 0,
+      worktreePath: "/tmp/worktree",
+      branch: "branch",
+      specPath: "spec.md",
+    });
+
+    const nonTerminalRows = () => [
+      run("queued-id", "queued"),
+      run("live-id", "in-progress"),
+      run("paused-id", "paused"),
+      run("non-live-id", "budget-soft-stopped"),
+    ];
+
+    test("refuses every non-terminal durable run before shutdown", async () => {
+      // No daemon answers on this socket, so liveness is unknown and every non-terminal row counts as live.
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = { listRuns: nonTerminalRows, close: () => {} };
+
+      await expect(stopDaemon("/nonexistent/socket", { stateStore, processProber })).rejects.toEqual(
+        new DaemonStopRefusedError(["queued-id", "live-id", "paused-id", "non-live-id"]),
+      );
+    });
+
+    test("stopDaemon treats an unreachable daemon as all-live", async () => {
+      // @mutate src/daemon/daemon-lifecycle.ts "if (liveRunIds === undefined) return { live: nonTerminal, orphaned: [] };" -> "if (liveRunIds === undefined) return { live: [], orphaned: nonTerminal };"
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = { listRuns: nonTerminalRows, close: () => {} };
+      const reconciled: string[][] = [];
+
+      await expect(
+        stopDaemon("/nonexistent/socket", {
+          stateStore,
+          processProber,
+          listLiveRunIds: async () => {
+            throw new Error("connect ENOENT");
+          },
+          reconcileOrphans: async (ids) => {
+            reconciled.push([...ids]);
+            return [...ids];
+          },
+        }),
+      ).rejects.toEqual(new DaemonStopRefusedError(["queued-id", "live-id", "paused-id", "non-live-id"]));
+      expect(reconciled).toEqual([]);
+    });
+
+    test("stopDaemon still refuses a live non-terminal row and names it live", async () => {
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = {
+        listRuns: () => [run("live-id", "in-progress"), run("done-id", "completed")],
+        close: () => {},
+      };
+
+      const refusal = stopDaemon("/nonexistent/socket", {
+        stateStore,
+        processProber,
+        listLiveRunIds: async () => ["live-id"],
+        reconcileOrphans: async () => [],
+      });
+      await expect(refusal).rejects.toBeInstanceOf(DaemonStopRefusedError);
+      await refusal.catch((error: DaemonStopRefusedError) => {
+        expect(error.liveRunIds).toEqual(["live-id"]);
+        expect(error.orphanedRunIds).toEqual([]);
+        expect(error.message).toBe("live durable runs: live-id");
+      });
+    });
+
+    test("stopDaemon refusal names live and orphaned rows separately", async () => {
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = { listRuns: nonTerminalRows, close: () => {} };
+
+      const refusal = stopDaemon("/nonexistent/socket", {
+        stateStore,
+        processProber,
+        listLiveRunIds: async () => ["live-id", "paused-id"],
+        reconcileOrphans: async () => [],
+      });
+      await refusal.catch((error: DaemonStopRefusedError) => {
+        expect(error.liveRunIds).toEqual(["live-id", "paused-id"]);
+        expect(error.orphanedRunIds).toEqual(["queued-id", "non-live-id"]);
+        expect(error.message).toBe(
+          "live durable runs: live-id, paused-id; orphaned (reconciled on stop): queued-id, non-live-id",
+        );
+      });
+      await expect(refusal).rejects.toBeInstanceOf(DaemonStopRefusedError);
+    });
+
+    test("stopDaemon settles an orphaned non-terminal row instead of refusing", async () => {
+      // @mutate src/daemon/daemon-lifecycle.ts "if (!options?.force && rows.live.length > 0) {" -> "if (!options?.force && rows.live.length + rows.orphaned.length > 0) {"
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-stop-reconcile-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+      const dbPath = join(tmpDir, "state.sqlite");
+      const logsPath = join(tmpDir, "logs.jsonl");
+      // The row belongs to a daemon incarnation that is gone; the stopping CLI is a different process.
+      const ownerStore = openStateStore(dbPath, { currentIdentity: "daemon-old:1" });
+      const orphanId = ownerStore.createRun({
+        project: "demo",
+        specRef: "spec.md",
+        worktreePath: "/tmp/worktree",
+        branch: "orphan",
+        specPath: "spec.md",
+      });
+      ownerStore.close();
+      const store = openStateStore(dbPath, { currentIdentity: "cli:2", isOwnerAlive: async () => false });
+      try {
+        const stopped = await stopDaemon("/nonexistent/socket", {
+          stateStore: store,
+          processProber: { isAlive: () => false },
+          listLiveRunIds: async () => [],
+          reconcileOrphans: async () => {
+            const sink = openLogSink(logsPath);
+            try {
+              return await reconcileOrphanedRuns(store, sink, openLogReader(logsPath));
+            } finally {
+              sink.close();
+            }
+          },
+        });
+        expect(stopped.reconciledRunIds).toEqual([orphanId]);
+        expect(store.loadRun(orphanId)?.status).toBe("killed");
+        const records = openLogReader(logsPath).tail(orphanId);
+        expect(records.some((record) => record.event.kind === "run_reconciled")).toBe(true);
+      } finally {
+        store.close();
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("allows all durable terminal statuses and refuses store failures", async () => {
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = {
+        listRuns: () => [
+          run("completed-id", "completed"),
+          run("failed-id", "failed"),
+          run("blocked-id", "blocked"),
+          run("killed-id", "killed"),
+        ],
+        close: () => {},
+      };
+
+      await expect(
+        stopDaemon("/nonexistent/socket", { stateStore, processProber, listLiveRunIds: async () => [] }),
+      ).resolves.toEqual({ reconciledRunIds: [] });
+      await expect(
+        stopDaemon("/nonexistent/socket", {
+          stateStore: {
+            listRuns: () => {
+              throw new Error("store unavailable");
+            },
+            close: () => {},
+          },
+          processProber,
+        }),
+      ).rejects.toEqual(new DaemonStopInspectionError(new Error("store unavailable")));
+    });
+
+    test("completes without error when process not alive", async () => {
+      const processProber: ProcessProber = {
+        isAlive: () => false,
+      };
+
+      await expect(
+        stopDaemon("/nonexistent/socket", {
+          force: true,
+          processProber,
+          drainTimeoutMs: 100,
+          killTimeoutMs: 100,
+          stateStore: { listRuns: () => [], close: () => {} },
+        }),
+      ).resolves.toEqual({ reconciledRunIds: [] });
+    });
+
+    test("completes without error when pidPath file missing", async () => {
+      const processProber: ProcessProber = {
+        isAlive: () => false,
+      };
+
+      await expect(
+        stopDaemon("/fake/socket", {
+          force: true,
+          pidPath: "/nonexistent/pid",
+          processProber,
+          drainTimeoutMs: 100,
+          killTimeoutMs: 100,
+          stateStore: { listRuns: () => [], close: () => {} },
+        }),
+      ).resolves.toEqual({ reconciledRunIds: [] });
+    });
+  });
+
+  describe("getDaemonStatus", () => {
+    test("returns the serving daemon revision without comparing executable digests", async () => {
+      const socketProber: SocketProber = {
+        probe: async () => true,
+      };
+      const status = await getDaemonStatus("/fake/socket", {
+        socketProber,
+        connectIpcClient: async () =>
+          makeIpcClient([], {
+            statusResult: { loadedRevision: "daemon-head", loadedExecutableDigest: "definitely-not-the-tree-digest" },
+          }),
+      });
+      expect(status).toEqual({
+        state: "running",
+        loadedRevision: "daemon-head",
+      });
+    });
+
+    test("returns running with an unknown revision when the status RPC fails", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
+      const status = await getDaemonStatus("/fake/socket", {
+        socketProber,
+        connectIpcClient: async () => ({
+          send: () => {},
+          nextFrame: async () => {
+            throw new Error("status unavailable");
+          },
+          close: () => {},
+        }),
+      });
+      expect(status).toEqual({ state: "running", loadedRevision: "unknown" });
+    });
+
+    test("returns running with an unknown revision when status metadata is incomplete", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
+      let requestId = "";
+      const status = await getDaemonStatus("/fake/socket", {
+        socketProber,
+        connectIpcClient: async () => ({
+          send: (frame) => {
+            requestId = (frame as { id?: string }).id ?? "";
+          },
+          nextFrame: async () => ({
+            kind: "response",
+            id: requestId,
+            result: { state: "running", loadedRevision: "daemon-head" },
+          }),
+          close: () => {},
+        }),
+      });
+      expect(status).toEqual({ state: "running", loadedRevision: "unknown" });
+    });
+
+    // A doomed start used to overwrite the pid file with a pid that never served, and status
+    // short-circuited on it — reporting `stopped` for a daemon answering normally and sending
+    // operators into destructive recovery on a healthy machine.
+    // A dead daemon is still reported stopped — its socket stops answering. The pid is simply
+    // no longer what decides that.
+    test("returns stopped if process not alive", async () => {
+      const socketProber: SocketProber = { probe: async () => false };
+
+      const status = await getDaemonStatus("/fake/socket", { socketProber });
+      expect(status).toEqual({ state: "stopped" });
+    });
+
+    test("reports running from the socket even when no live pid is recorded", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
+
+      const status = await getDaemonStatus("/fake/socket", {
+        socketProber,
+        connectIpcClient: async () =>
+          makeIpcClient([], {
+            statusResult: { loadedRevision: "head", loadedExecutableDigest: "digest" },
+          }),
+      });
+      expect(status).toEqual({ state: "running", loadedRevision: "head" });
+    });
+
+    test("a socket that accepts connections but never answers health is inconclusive, not stopped (real probers)", async () => {
+      if (!canUseUnixSockets()) return;
+      const dir = trackedMkdtempSync(join(tmpdir(), "jarvis-status-busy-"));
+      const socketPath = join(dir, "busy.sock");
+      const sockets: Socket[] = [];
+      const server = createServer((socket) => {
+        sockets.push(socket);
+      });
+      await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+      try {
+        const status = await getDaemonStatus(socketPath, { healthTimeoutMs: 50, retryHealthTimeoutMs: 100 });
+        expect(status).toEqual({ state: "inconclusive", healthTimeoutMs: 50, retryHealthTimeoutMs: 100 });
+      } finally {
+        for (const socket of sockets) socket.destroy();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+
+    test("health answering on the retry reports running and the status RPC gets the retry budget", async () => {
+      const budgets: number[] = [];
+      let requestId = "";
+      const status = await getDaemonStatus("/fake/socket", {
+        healthTimeoutMs: 20,
+        retryHealthTimeoutMs: 2_000,
+        socketProber: {
+          probe: async (_path, timeoutMs) => {
+            budgets.push(timeoutMs);
+            return budgets.length > 1;
+          },
+        },
+        classifySocketLiveness: async () => "live",
+        connectIpcClient: async () => ({
+          send: (frame) => {
+            requestId = (frame as { id?: string }).id ?? "";
+          },
+          // Answers after the short budget: only a status RPC given the retry budget survives.
+          nextFrame: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            return {
+              kind: "response",
+              id: requestId,
+              result: { state: "running", loadedRevision: "retry-head", loadedExecutableDigest: "digest" },
+            };
+          },
+          close: () => {},
+        }),
+      });
+      expect(budgets).toEqual([20, 2_000]);
+      expect(status).toEqual({ state: "running", loadedRevision: "retry-head" });
+    });
+
+    test("returns stopped if socket probe fails", async () => {
+      const socketProber: SocketProber = {
+        probe: async () => false,
+      };
+
+      const status = await getDaemonStatus("/fake/socket", {
+        socketProber,
+        healthTimeoutMs: 100,
+      });
+      expect(status).toEqual({ state: "stopped" });
+    });
+  });
+
+  describe("supersede", () => {
+    test("enumerateOtherDaemonSockets returns daemon-*.sock files excluding own socket", () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const ownSocket = join(tmpDir, "daemon-0123456789abcdef.sock");
+        const otherSocket1 = join(tmpDir, "daemon-123456789abcdef0.sock");
+        const otherSocket2 = join(tmpDir, "daemon-fedcba9876543210.sock");
+
+        // Create socket files
+        writeFileSync(ownSocket, "");
+        writeFileSync(otherSocket1, "");
+        writeFileSync(otherSocket2, "");
+
+        // Add non-matching files
+        writeFileSync(join(tmpDir, "daemon-short.sock"), "");
+        writeFileSync(join(tmpDir, "daemon-0123456789abcdef.pid"), "");
+        writeFileSync(join(tmpDir, "daemon-0123456789abcdef.log"), "");
+        writeFileSync(join(tmpDir, "config.json"), "");
+
+        const result = enumerateOtherDaemonSockets(tmpDir, ownSocket);
+
+        expect(result).toContain(otherSocket1);
+        expect(result).toContain(otherSocket2);
+        expect(result).not.toContain(ownSocket);
+        expect(result.length).toBe(2);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("enumerateOtherDaemonSockets returns empty array when jarvisHome is missing", () => {
+      const result = enumerateOtherDaemonSockets("/nonexistent/dir", "/nonexistent/socket");
+      expect(result).toEqual([]);
+    });
+
+    test("supersedePeerDaemon silently ignores unreachable sockets", async () => {
+      // Should not throw or reject for unreachable sockets
+      await expect(supersedePeerDaemon("/nonexistent/socket")).resolves.toBeUndefined();
+    });
+  });
+});

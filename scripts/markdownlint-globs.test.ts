@@ -2,16 +2,16 @@ import { describe, expect, test } from "bun:test";
 import config from "../.markdownlint-cli2.jsonc";
 
 describe("markdownlint glob configuration", () => {
-  test("globs include v2/docs/**/*.md", () => {
-    expect(config.globs).toContain("v2/docs/**/*.md");
+  test("globs include docs/**/*.md", () => {
+    expect(config.globs).toContain("docs/**/*.md");
   });
 
-  test("globs include v2/spec/**/*.md", () => {
-    expect(config.globs).toContain("v2/spec/**/*.md");
+  test("globs include spec/**/*.md", () => {
+    expect(config.globs).toContain("spec/**/*.md");
   });
 
-  test("globs do not include v2/docs/onboarding.md", () => {
-    expect(config.globs).not.toContain("v2/docs/onboarding.md");
+  test("globs do not include docs/onboarding.md", () => {
+    expect(config.globs).not.toContain("docs/onboarding.md");
   });
 
   test("ignores include **/completed/**", () => {

@@ -6,8 +6,8 @@ import { TEST_SUPPORT_SUFFIX } from "./production-files.ts";
 export type GuardViolation = { file: string; line: number; shape: string };
 type GuardFile = { file: string; source: string };
 
-const SKIPPED_PATHS = new Set(["v2/src/shared/prompts/step-rules.ts"]);
-const SCAN_ROOTS = ["v2/src"] as const;
+const SKIPPED_PATHS = new Set(["src/shared/prompts/step-rules.ts"]);
+const SCAN_ROOTS = ["src"] as const;
 
 const SHAPES = {
   setInvertExport: "setInvert*ForTest export",

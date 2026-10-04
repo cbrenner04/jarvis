@@ -1,0 +1,1403 @@
+import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { acquireGateInvocationLease, HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE } from "../execution/gate-invocation-lease.ts";
+import { createReadyFinalizer, formatReadyGateOutOfScopeDetail } from "../execution/ready-finalize.ts";
+import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
+import type { Attempt, RunStatus } from "../persistence/state-store.ts";
+import { openStateStore } from "../persistence/state-store.ts";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import type { GateRefusalRecoveryCause } from "../shared/gate-refusal-recovery-state.ts";
+import { confinementRefusalMessage } from "../shared/invocation/confinement-policy.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { MAX_SLOT_REDRIVES } from "./daemon-slot-redrive.ts";
+import type {
+  RunOperatorError,
+  RunOperatorErrorReason,
+  RunOperatorNextAction,
+  TerminalLogRecord,
+} from "./run-operator-error.ts";
+import {
+  composeRunOperatorError,
+  findTerminalLogRecord,
+  isPostBoundaryStateStoreLockTimeout,
+  isStalePublicationCause,
+  RUN_OPERATOR_ERROR_RECOVERY,
+  resolveFailedBlockedAttemptPrecedence,
+  resolveRunLanePrOutcome,
+} from "./run-operator-error.ts";
+
+function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
+  return { status, attempts };
+}
+
+function attempt(outcomeKind: Attempt["outcomeKind"], detail: Attempt["invocationFailureDetail"] = null): Attempt {
+  return {
+    id: "attempt-1",
+    runId: "run-1",
+    attemptNumber: 1,
+    startedAt: 1,
+    status: "completed",
+    outcomeKind,
+    completedAt: 2,
+    invocationFailureDetail: detail,
+  };
+}
+
+function loopFinished(
+  loopOutcomeKind: WriteLoopOutcomeKind,
+  extra: Partial<Extract<TerminalLogRecord["event"], { kind: "loop_finished" }>> = {},
+): TerminalLogRecord {
+  return {
+    runId: "run-1",
+    seq: 1,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: { kind: "loop_finished", loopOutcomeKind, iterationsConsumed: 1, resumable: false, ...extra },
+  };
+}
+
+function loopFinishedEvent(
+  loopOutcomeKind: WriteLoopOutcomeKind,
+  extra: Partial<Extract<TerminalLogRecord["event"], { kind: "loop_finished" }>> = {},
+): LoopFinishedEvent {
+  return loopFinished(loopOutcomeKind, extra).event as LoopFinishedEvent;
+}
+
+function runExecutionFailed(seq = 2, message?: string): TerminalLogRecord {
+  return {
+    runId: "run-1",
+    seq,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: { kind: "run_execution_failed", ...(message !== undefined ? { message } : {}) },
+  };
+}
+
+function persistedTerminal(seq: number, event: TerminalLogRecord["event"]): PersistedRecord {
+  return { runId: "run-1", seq, ts: "2026-01-01T00:00:00.000Z", event };
+}
+
+function contractMissDetailRecord(
+  seq: number,
+  opts: { failureReason?: string; failedContractId?: string } = {},
+): PersistedRecord {
+  return {
+    runId: "run-1",
+    seq,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: {
+      kind: "contract_miss_detail",
+      attemptId: "attempt-1",
+      failedContractId: opts.failedContractId ?? "plan.draft.shape",
+      responseText: "agent stdout",
+      ...(opts.failureReason !== undefined ? { failureReason: opts.failureReason } : {}),
+    },
+  };
+}
+
+function err(reason: RunOperatorErrorReason, nextAction: RunOperatorNextAction, retryable = false): RunOperatorError {
+  return { reason, retryable, nextAction };
+}
+
+const resume = (reason: "resumable_pause" | "resumable_budget" | "resumable_kill") => err(reason, "resume", true);
+
+test("composeRunOperatorError returns resumable_pause for loop_finished paused", () => {
+  expect(composeRunOperatorError(runWith("paused"), loopFinished("paused"))).toEqual(resume("resumable_pause"));
+});
+
+test("composeRunOperatorError returns resumable_pause for store-only paused without terminal log", () => {
+  expect(composeRunOperatorError(runWith("paused"))).toEqual(resume("resumable_pause"));
+});
+
+test("composeRunOperatorError returns resumable_budget for log budget-exhausted and store-only budget-soft-stopped", () => {
+  expect(composeRunOperatorError(runWith("budget-soft-stopped"), loopFinished("budget-exhausted"))).toEqual(
+    resume("resumable_budget"),
+  );
+  expect(composeRunOperatorError(runWith("budget-soft-stopped"))).toEqual(resume("resumable_budget"));
+});
+
+test("composeRunOperatorError returns resumable_kill for durable killed without loop_finished", () => {
+  expect(composeRunOperatorError(runWith("killed"))).toEqual(resume("resumable_kill"));
+});
+
+test("composeRunOperatorError returns resumable_kill when killed and loop_finished progress", () => {
+  expect(composeRunOperatorError(runWith("killed"), loopFinished("progress"))).toEqual(resume("resumable_kill"));
+});
+
+test("composeRunOperatorError returns agent_blocked and contract_miss from loop_finished", () => {
+  expect(composeRunOperatorError(runWith("blocked"), loopFinished("blocked"))).toEqual(
+    err("agent_blocked", "inspect_spec"),
+  );
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"))).toEqual(
+    err("contract_miss", "inspect_spec"),
+  );
+});
+
+test("composeRunOperatorError projects contract_miss_detail.failureReason onto contractMissDetail", () => {
+  const failureReason = "plan draft normalizer: broken index link";
+  const logRecords: PersistedRecord[] = [
+    contractMissDetailRecord(1, { failureReason }),
+    persistedTerminal(2, {
+      kind: "loop_finished",
+      loopOutcomeKind: "contract_miss",
+      iterationsConsumed: 1,
+      resumable: false,
+    }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"), logRecords)).toEqual({
+    reason: "contract_miss",
+    retryable: false,
+    nextAction: "inspect_spec",
+    contractMissDetail: failureReason,
+  });
+});
+
+test("composeRunOperatorError omits contractMissDetail when contract_miss_detail lacks failureReason", () => {
+  const logRecords: PersistedRecord[] = [
+    contractMissDetailRecord(1, { failedContractId: "spec.criteria-ticked" }),
+    persistedTerminal(2, {
+      kind: "loop_finished",
+      loopOutcomeKind: "contract_miss",
+      iterationsConsumed: 1,
+      resumable: false,
+    }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"), logRecords)).toEqual(
+    err("contract_miss", "inspect_spec"),
+  );
+});
+
+test("composeRunOperatorError omits contractMissDetail when last contract_miss_detail lacks failureReason", () => {
+  const failureReason = "plan draft normalizer: broken index link";
+  const logRecords: PersistedRecord[] = [
+    contractMissDetailRecord(1, { failureReason }),
+    contractMissDetailRecord(2, { failedContractId: "spec.criteria-ticked" }),
+    persistedTerminal(3, {
+      kind: "loop_finished",
+      loopOutcomeKind: "contract_miss",
+      iterationsConsumed: 1,
+      resumable: false,
+    }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"), logRecords)).toEqual(
+    err("contract_miss", "inspect_spec"),
+  );
+});
+
+test("composeRunOperatorError projects contractMissDetail from last contract_miss_detail with failureReason", () => {
+  const failureReason = "plan draft normalizer: broken index link";
+  const logRecords: PersistedRecord[] = [
+    contractMissDetailRecord(1, { failedContractId: "spec.criteria-ticked" }),
+    contractMissDetailRecord(2, { failureReason }),
+    persistedTerminal(3, {
+      kind: "loop_finished",
+      loopOutcomeKind: "contract_miss",
+      iterationsConsumed: 1,
+      resumable: false,
+    }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"), logRecords)).toEqual({
+    reason: "contract_miss",
+    retryable: false,
+    nextAction: "inspect_spec",
+    contractMissDetail: failureReason,
+  });
+});
+
+test("post-commit shrink contract_miss composes to resume", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("paused", [attempt("contract_miss")]),
+      loopFinished("contract_miss", { resumable: true }),
+    ),
+  ).toEqual(err("contract_miss", "resume", true));
+  expect(
+    composeRunOperatorError(
+      runWith("blocked", [attempt("contract_miss")]),
+      loopFinished("contract_miss", { resumable: true }),
+    ),
+  ).toEqual(err("contract_miss", "resume", true));
+});
+
+test("post-commit shrink invocation_failure error composes to resume", () => {
+  expect(
+    composeRunOperatorError(
+      {
+        ...runWith("paused", [attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] })]),
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: { failureKind: "error", bindingAttempts: [] },
+      },
+      loopFinished("invocation_failure", { resumable: true }),
+    ),
+  ).toEqual(err("invocation_error", "resume", true));
+});
+
+test("composeRunOperatorError projects iteration_timeout inventoryError", () => {
+  const inventoryError = "cannot relativize subspec path: /tmp/outside.md";
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("iteration_timeout")]),
+      loopFinished("iteration_timeout", {
+        resumable: false,
+        completedSubspecPaths: [],
+        remainingSubspecPaths: [],
+        inventoryError,
+      }),
+    ),
+  ).toEqual({
+    reason: "iteration_timeout",
+    retryable: false,
+    nextAction: "stop",
+    completedSubspecPaths: [],
+    remainingSubspecPaths: [],
+    inventoryError,
+  });
+});
+
+test("composeRunOperatorError maps gate_invocation_refused to resume", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("gate_invocation_refused")]),
+      loopFinished("gate_invocation_refused", { resumable: true, gateCommand: "bun run test:agent" }),
+    ),
+  ).toEqual({
+    reason: "gate_invocation_refused",
+    retryable: true,
+    nextAction: "resume",
+    message: "Gate invocation refused: bun run test:agent",
+  });
+});
+
+function refusedRun(gateRefusalRecoveryState: { cause: GateRefusalRecoveryCause; slotRedriveCount?: number } | null) {
+  return { ...runWith("failed", [attempt("gate_invocation_refused")]), gateRefusalRecoveryState };
+}
+
+const refusedLog = () =>
+  loopFinished("gate_invocation_refused", { resumable: true, gateCommand: "bun run test:agent" });
+
+test("composeRunOperatorError carries gate refusal cause distinct per cause, with slot count and bound", () => {
+  const ceiling = composeRunOperatorError(refusedRun({ cause: "ceiling_headroom" }), refusedLog());
+  const slot = composeRunOperatorError(
+    refusedRun({ cause: "slot_contention", slotRedriveCount: MAX_SLOT_REDRIVES }),
+    refusedLog(),
+  );
+  expect(ceiling?.gateRefusalCause).toBe("ceiling_headroom");
+  expect(ceiling).not.toHaveProperty("slotRedriveCount");
+  expect(ceiling).not.toHaveProperty("slotRedriveBound");
+  expect(slot?.gateRefusalCause).toBe("slot_contention");
+  expect(slot?.slotRedriveCount).toBe(MAX_SLOT_REDRIVES);
+  expect(slot?.slotRedriveBound).toBe(MAX_SLOT_REDRIVES);
+});
+
+test("composeRunOperatorError gate refusal message: ordinary for ceiling/legacy, cause-specific for slot contention", () => {
+  const ordinary = "Gate invocation refused: bun run test:agent";
+  expect(composeRunOperatorError(refusedRun({ cause: "ceiling_headroom" }), refusedLog())?.message).toBe(ordinary);
+  const legacy = composeRunOperatorError(refusedRun({ cause: "legacy_unknown" }), refusedLog());
+  expect(legacy?.message).toBe(ordinary);
+  expect(legacy).not.toHaveProperty("slotRedriveCount");
+  const exhausted = composeRunOperatorError(
+    refusedRun({ cause: "slot_contention", slotRedriveCount: MAX_SLOT_REDRIVES }),
+    refusedLog(),
+  );
+  expect(exhausted?.message).toStartWith(`${ordinary} — automatic slot re-drives exhausted (3/3)`);
+  expect(exhausted?.nextAction).toBe("resume");
+  const below = composeRunOperatorError(refusedRun({ cause: "slot_contention", slotRedriveCount: 1 }), refusedLog());
+  expect(below?.message).toStartWith(`${ordinary} — automatic re-drive may be pending (1/3 used)`);
+  expect(below?.message).toContain("jarvis run resume");
+  expect(below?.message).not.toContain("exhausted");
+  expect(below?.slotRedriveCount).toBe(1);
+  expect(below?.nextAction).toBe("resume");
+});
+
+test("composeRunOperatorError below-bound slot refusal keeps the same message when the lane was dropped", () => {
+  const run = { ...refusedRun({ cause: "slot_contention", slotRedriveCount: 0 }), attempts: [] };
+  const error = composeRunOperatorError(run, refusedLog());
+  expect(error).toMatchObject({ nextAction: "resume", slotRedriveCount: 0, slotRedriveBound: MAX_SLOT_REDRIVES });
+  expect(error?.message).toContain("automatic re-drive may be pending (0/3 used)");
+});
+
+test("composeRunOperatorError projects slot remedy without a log event via terminalCause", () => {
+  const run = {
+    ...refusedRun({ cause: "slot_contention", slotRedriveCount: 2 }),
+    terminalCause: "gate_invocation_refused" as const,
+  };
+  const error = composeRunOperatorError(run);
+  expect(error?.reason).toBe("gate_invocation_refused");
+  expect(error?.message).toStartWith("Gate invocation refused — automatic re-drive may be pending (2/3 used)");
+  expect(error?.gateRefusalCause).toBe("slot_contention");
+});
+
+test("composeRunOperatorError projects an unparseable stored gate refusal column as legacy_unknown without slot fields", () => {
+  const dbPath = join(tmpdir(), `jarvis-run-operator-error-${process.pid}-${Date.now()}.sqlite`);
+  removeOrchestrationStore(dbPath);
+  const store = openStateStore(dbPath);
+  try {
+    const runId = store.createRun({
+      project: "test-project",
+      specRef: "main",
+      worktreePath: "/tmp/worktree",
+      branch: "test-branch",
+      specPath: "spec.md",
+    });
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "gate_invocation_refused",
+      gateRefusalRecoveryState: { cause: "slot_contention", gateCommand: "bun run test:agent", slotRedriveCount: 2 },
+    });
+    // Corrupt the stored column behind the store's back: the decode, not the caller, must collapse it.
+    const raw = new Database(dbPath);
+    raw.prepare("UPDATE runs SET gate_refusal_recovery_state = ? WHERE id = ?").run("{not-json", runId);
+    raw.close();
+
+    const loaded = store.loadRun(runId);
+    if (loaded === null || loaded === undefined) throw new Error("run should exist");
+    expect(loaded.gateRefusalRecoveryStateCorrupt).toBe(true);
+
+    const error = composeRunOperatorError({ ...loaded, attempts: [] }, refusedLog());
+    expect(error?.reason).toBe("gate_invocation_refused");
+    expect(error?.gateRefusalCause).toBe("legacy_unknown");
+    expect(error).not.toHaveProperty("slotRedriveCount");
+    expect(error).not.toHaveProperty("slotRedriveBound");
+    expect(error?.nextAction).toBe("resume");
+    expect(error?.message).toBe("Gate invocation refused: bun run test:agent");
+  } finally {
+    store.close();
+    removeOrchestrationStore(dbPath);
+  }
+});
+
+test("composeRunOperatorError maps enriched resumable iteration_timeout to resume", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("iteration_timeout")]),
+      loopFinished("iteration_timeout", {
+        resumable: true,
+        gateInvocationCommand: "bun run test:agent",
+        gateInvocationElapsedMs: 42_000,
+      }),
+    ),
+  ).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+  });
+});
+
+test("composeRunOperatorError maps iteration_timeout as a failed terminal", () => {
+  expect(
+    composeRunOperatorError(runWith("failed", [attempt("iteration_timeout")]), loopFinished("iteration_timeout")),
+  ).toEqual(err("iteration_timeout", "stop"));
+});
+
+test("composeRunOperatorError maps resumable iteration_timeout with completion inventory", () => {
+  const completedSubspecPaths = ["spec/implement/00-first.md"];
+  const remainingSubspecPaths = ["spec/implement/01-second.md"];
+  const publicationFailure = { operation: "push" as const, message: "remote rejected", exitCode: 7 };
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("iteration_timeout")]),
+      loopFinished("iteration_timeout", {
+        resumable: true,
+        completedSubspecPaths,
+        remainingSubspecPaths,
+        publicationFailure,
+      }),
+    ),
+  ).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+    publicationFailure,
+  });
+});
+
+test("iteration_timeout recovery copy directs resume when terminal row is resumable", () => {
+  expect(RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout).toContain("jarvis run resume");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout).not.toEqual(
+    "inspect the stall in jarvis run log, then re-dispatch the workflow",
+  );
+});
+
+test("composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal", () => {
+  expect(
+    composeRunOperatorError(runWith("failed", [attempt("idle_output_timeout")]), loopFinished("idle_output_timeout")),
+  ).toEqual(err("idle_output_timeout", "stop"));
+});
+
+test("composeRunOperatorError maps resumable idle_output_timeout with checkpoint progress", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("idle_output_timeout")]),
+      loopFinished("idle_output_timeout", { resumable: true }),
+    ),
+  ).toEqual(err("idle_output_timeout", "resume", true));
+});
+
+test("idle_output_timeout recovery copy directs resume", () => {
+  expect(RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout).toContain("jarvis run resume");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout).not.toEqual(
+    "inspect the stall in jarvis run log, then re-dispatch the workflow",
+  );
+});
+
+test("composeRunOperatorError maps idle_output_timeout from attempt detail alone (no matching loop_finished)", () => {
+  expect(composeRunOperatorError(runWith("failed", [attempt("idle_output_timeout")]))).toEqual(
+    err("idle_output_timeout", "stop"),
+  );
+});
+
+test("composeRunOperatorError returns agent_blocked and contract_miss from store-only blocked status and outcome_kind", () => {
+  expect(composeRunOperatorError(runWith("blocked", [attempt("blocked")]))).toEqual(
+    err("agent_blocked", "inspect_spec"),
+  );
+  expect(composeRunOperatorError(runWith("failed", [attempt("contract_miss")]))).toEqual(
+    err("contract_miss", "inspect_spec"),
+  );
+});
+
+test.each([
+  ["quota", "quota_exhausted", "retry_later"],
+  ["model_config", "model_config", "fix_config"],
+  ["no_binding", "no_binding", "fix_config"],
+  ["landing", "landing_failed", "resume"],
+  ["error", "invocation_error", "stop"],
+  ["timeout", "role_timeout", "retry_later"],
+  ["stall", "role_stalled", "retry_later"],
+] as const)("composeRunOperatorError maps failureKind %s from log and store-only failed paths", (failureKind, reason, nextAction) => {
+  const storeRun = runWith("failed", [attempt("invocation_failure", { failureKind, bindingAttempts: [] })]);
+  const retryable = failureKind === "landing" || failureKind === "timeout" || failureKind === "stall";
+  const expected = err(reason, nextAction, retryable);
+
+  expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
+  expect(composeRunOperatorError(storeRun)).toEqual(expected);
+});
+
+test("composeRunOperatorError returns invalid_token from log and store-only last-attempt invalid_token", () => {
+  const storeRun = runWith("paused", [attempt("invalid_token")]);
+  const expected = err("invalid_token", "resume", true);
+
+  expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
+  expect(composeRunOperatorError(storeRun)).toEqual(expected);
+});
+
+test("composeRunOperatorError returns missing_blocker from log and store-only last-attempt missing_blocker", () => {
+  const storeRun = runWith("paused", [attempt("missing_blocker")]);
+  const expected = err("missing_blocker", "resume", true);
+
+  expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
+  expect(composeRunOperatorError(storeRun)).toEqual(expected);
+  expect(composeRunOperatorError(runWith("paused", [attempt("missing_blocker")]), loopFinished("paused"))).toEqual(
+    expected,
+  );
+});
+
+test("composeRunOperatorError maps exhausted role-timeout to stop/non-retryable, not retry_later", () => {
+  const storeRun = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "timeout", bindingAttempts: [], exhaustedRoleTimeout: true }),
+  ]);
+  const expected = err("role_timeout", "stop", false);
+
+  expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
+  expect(composeRunOperatorError(storeRun)).toEqual(expected);
+
+  // Inverting the exhausted guard falls back to the non-exhausted retry_later mapping.
+  const nonExhaustedRun = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "timeout", bindingAttempts: [], exhaustedRoleTimeout: false }),
+  ]);
+  expect(composeRunOperatorError(nonExhaustedRun)).toEqual(err("role_timeout", "retry_later", true));
+});
+
+test("composeRunOperatorError returns invocation_error for legacy detail-free binding-chain invocation_failure", () => {
+  const storeRun = runWith("failed", [attempt("invocation_failure", null)]);
+  const expected = err("invocation_error", "stop");
+
+  expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
+  expect(composeRunOperatorError(storeRun)).toEqual(expected);
+});
+
+test("composeRunOperatorError projects binding-chain invocation stderr when present and omits it when absent", () => {
+  const message = "final binding stderr\nsecond line";
+  const withMessage = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "error", bindingAttempts: [], message }),
+  ]);
+  const withoutMessage = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] }),
+  ]);
+
+  expect(composeRunOperatorError(withMessage)).toEqual({ ...err("invocation_error", "stop"), message });
+  expect(composeRunOperatorError(withoutMessage)).toEqual(err("invocation_error", "stop"));
+});
+
+test("composeRunOperatorError attributes an echoed-input error failure to its binding chain", () => {
+  const run = runWith("failed", [
+    attempt("invocation_failure", {
+      failureKind: "error",
+      echoedInput: true,
+      bindingAttempts: [
+        { bindingId: "claude-1", resultKind: "error", agent: "claude", model: "sonnet" },
+        { bindingId: "codex-1", resultKind: "quota" },
+      ],
+    }),
+  ]);
+
+  const composed = composeRunOperatorError(run);
+  expect(composed?.reason).toBe("invocation_error");
+  expect(composed?.message).toBe(
+    "invocation_error: claude-1 (claude/sonnet): error; codex-1 (unknown-agent/unknown-model): quota",
+  );
+});
+
+test("composeRunOperatorError attributes an echoed-input error failure with no binding attempts to the failure class only", () => {
+  const run = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "error", echoedInput: true, bindingAttempts: [] }),
+  ]);
+
+  const composed = composeRunOperatorError(run);
+  expect(composed?.reason).toBe("invocation_error");
+  expect(composed?.message).toBe("invocation_error");
+});
+
+test.each([
+  ["quota", "quota_exhausted", "retry_later", false],
+  ["model_config", "model_config", "fix_config", false],
+  ["no_binding", "no_binding", "fix_config", false],
+  ["landing", "landing_failed", "resume", true],
+  ["timeout", "role_timeout", "retry_later", true],
+  ["stall", "role_stalled", "retry_later", true],
+] as const)("composeRunOperatorError does not project message for %s invocation failure", (failureKind, reason, nextAction, retryable) => {
+  const message = `synthetic ${failureKind} message`;
+  const run = runWith("failed", [attempt("invocation_failure", { failureKind, bindingAttempts: [], message })]);
+
+  expect(composeRunOperatorError(run)).toEqual(err(reason, nextAction, retryable));
+});
+
+test("composeRunOperatorError differs for stall vs error failureKind", () => {
+  const stallRun = runWith("failed", [attempt("invocation_failure", { failureKind: "stall", bindingAttempts: [] })]);
+  const errorRun = runWith("failed", [attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] })]);
+
+  const stallErr = composeRunOperatorError(stallRun);
+  const errorErr = composeRunOperatorError(errorRun);
+
+  expect(stallErr?.reason).toBe("role_stalled");
+  expect(errorErr?.reason).toBe("invocation_error");
+  expect(stallErr?.reason).not.toEqual(errorErr?.reason);
+});
+
+test("composeRunOperatorError returns harness_failure for run_execution_failed and failed without mappable attempt detail", () => {
+  expect(composeRunOperatorError(runWith("failed"), runExecutionFailed())).toEqual(err("harness_failure", "stop"));
+  expect(composeRunOperatorError(runWith("failed"))).toEqual(err("harness_failure", "stop"));
+});
+
+test("composeRunOperatorError returns invocation reason for failed with store invocation detail and no terminal log", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("invocation_failure", { failureKind: "quota", bindingAttempts: [] })]),
+    ),
+  ).toEqual(err("quota_exhausted", "retry_later"));
+});
+
+test("composeRunOperatorError resolves failed plus loop_finished complete to store attempt detail", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("invocation_failure", { failureKind: "model_config", bindingAttempts: [] })]),
+      loopFinished("complete"),
+    ),
+  ).toEqual(err("model_config", "fix_config"));
+});
+
+test("composeRunOperatorError never returns an empty failed row when log disagrees with a done boundary", () => {
+  // Split-vs-log disagreement (occurrence #8/#9): the run settled `failed` durably, but its own
+  // log records `loop_finished complete` and the last committed attempt maps to no resumable
+  // reason (`done` isn't a mappable invocation-failure outcome). The row must still name
+  // something non-empty rather than silently return undefined.
+  const doneAttemptRun = runWith("failed", [attempt("done")]);
+  const withLog = composeRunOperatorError(doneAttemptRun, loopFinished("complete"));
+  const withoutLog = composeRunOperatorError(doneAttemptRun);
+  expect(withLog).toBeDefined();
+  expect(withLog?.reason).toBeTruthy();
+  expect(withLog?.nextAction).toBeTruthy();
+  expect(withoutLog).toBeDefined();
+  expect(withoutLog?.reason).toBeTruthy();
+  expect(withoutLog?.nextAction).toBeTruthy();
+});
+
+test("composeRunOperatorError keeps landing_failed distinct from completion_commit_failed for pending promotion", () => {
+  const landingRun = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "landing", bindingAttempts: [] }),
+  ]);
+  const landingError = composeRunOperatorError(landingRun);
+  expect(landingError).toEqual(err("landing_failed", "resume", true));
+
+  const commitRun = runWith("failed");
+  const commitError = composeRunOperatorError(commitRun, loopFinished("completion_commit_failed", { resumable: true }));
+  expect(commitError).toEqual(err("completion_commit_failed", "resume", true));
+
+  expect(landingError?.reason).not.toEqual(commitError?.reason);
+});
+
+test("composeRunOperatorError omits message for cause-less landing_failed", () => {
+  const error = composeRunOperatorError(runWith("failed"), loopFinished("landing_failed", { resumable: true }));
+  expect(error).toEqual(err("landing_failed", "resume", true));
+  expect(error).not.toHaveProperty("message");
+});
+
+test("composeRunOperatorError stops a landing_failed the settlement marked non-resumable", () => {
+  // Plan-tree shape checks settle `resumable: false` because direct-landing recovery re-validates
+  // the same on-disk bytes. Advertising `resume` there admits a reissue that re-fails identically —
+  // `daemon-run-resume-admission` gates on exactly `nextAction === "resume"`.
+  const stopped = composeRunOperatorError(runWith("failed"), loopFinished("landing_failed", { resumable: false }));
+  expect(stopped).toEqual(err("landing_failed", "stop"));
+
+  // The intent-finalization path still settles `true` and keeps its documented resume recovery.
+  const resumable = composeRunOperatorError(runWith("failed"), loopFinished("landing_failed", { resumable: true }));
+  expect(resumable).toEqual(err("landing_failed", "resume", true));
+});
+
+test("composeRunOperatorError maps ready_gate_command_missing to fix_config without resume", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_command_missing", {
+        resumable: false,
+        readyGateCommand: "bun run ready",
+        readyGateOutput: 'Script not found "ready"',
+      }),
+    ),
+  ).toEqual({
+    reason: "ready_gate_command_missing",
+    retryable: false,
+    nextAction: "fix_config",
+    message: 'Ready gate command missing: bun run ready\nScript not found "ready"',
+  });
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_command_missing).not.toContain("jarvis run resume");
+});
+
+test("composeRunOperatorError maps configured-source ready_gate_command_missing to fix_config naming the source", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_command_missing", {
+        resumable: false,
+        readyGateCommand: "bun run custom-gate",
+        readyGateCommandSource: "configured",
+      }),
+    ),
+  ).toEqual({
+    reason: "ready_gate_command_missing",
+    retryable: false,
+    nextAction: "fix_config",
+    message: "Ready gate command missing (configured): bun run custom-gate",
+  });
+});
+
+test("composeRunOperatorError maps default-source ready_gate_command_missing to stop naming the source", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_command_missing", {
+        resumable: false,
+        readyGateCommand: "bun run ready",
+        readyGateCommandSource: "default",
+      }),
+    ),
+  ).toEqual({
+    reason: "ready_gate_command_missing",
+    retryable: false,
+    nextAction: "stop",
+    message: "Ready gate command missing (default): bun run ready",
+  });
+});
+
+test("composeRunOperatorError maps exhausted-red terminal evidence as ready_gate_failed without origin on the operator error", () => {
+  const event = loopFinished("ready_gate_failed", {
+    resumable: true,
+    readyGateOrigin: "repair_budget_exhausted",
+    readyGateRepairCount: 3,
+  });
+  const error = composeRunOperatorError(runWith("failed"), event);
+  expect(error).toEqual(err("ready_gate_failed", "resume", true));
+  expect(error).not.toHaveProperty("readyGateOrigin");
+  expect(error).not.toHaveProperty("readyGateRepairCount");
+});
+
+test("composeRunOperatorError names ready gate command and output", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_failed", {
+        resumable: true,
+        readyGateCommand: "bun run configured-ready",
+        readyGateOutput: 'Script not found "ready"',
+      }),
+    ),
+  ).toEqual({
+    reason: "ready_gate_failed",
+    retryable: true,
+    nextAction: "resume",
+    message: 'Ready gate failed: bun run configured-ready\nScript not found "ready"',
+  });
+});
+
+test("composeRunOperatorError omits ready gate message without command evidence", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_failed", { resumable: true, readyGateOutput: 'Script not found "ready"' }),
+    ),
+  ).toEqual(err("ready_gate_failed", "resume", true));
+});
+
+test("composeRunOperatorError maps unchanged-path ready_gate_out_of_scope as terminal stop", () => {
+  const outsidePath = "src/untouched.test.ts";
+  const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath}`;
+  const event = loopFinished("ready_gate_out_of_scope", {
+    resumable: false,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+
+  expect(composeRunOperatorError(runWith("failed"), event)).toEqual({
+    reason: "ready_gate_out_of_scope",
+    retryable: false,
+    nextAction: "stop",
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+  expect(composeRunOperatorError(runWith("failed"), event)).not.toHaveProperty("message");
+  expect(
+    resolveFailedBlockedAttemptPrecedence(
+      attempt("blocked"),
+      loopFinishedEvent("ready_gate_out_of_scope", {
+        resumable: false,
+        readyGateOutsidePaths: [outsidePath],
+        readyGateOutOfScopeDetail: detail,
+      }),
+    ),
+  ).toEqual(err("agent_blocked", "inspect_spec"));
+});
+
+test("composeRunOperatorError maps changed-path ready_gate_out_of_scope as resumable", () => {
+  const outsidePath = "src/other-untouched.test.ts";
+  const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath}`;
+  const event = loopFinished("ready_gate_out_of_scope", {
+    resumable: true,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+
+  expect(composeRunOperatorError(runWith("failed"), event)).toEqual({
+    reason: "ready_gate_out_of_scope",
+    retryable: true,
+    nextAction: "resume",
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+});
+
+test("composeRunOperatorError carries readyGateOutOfScopeObservations from the loop_finished event", () => {
+  const outsidePath = "src/untouched.test.ts";
+  const observations = { [outsidePath]: { pass: 3, fail: 2, baseCommit: "abc1234" } };
+  const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath} (base abc1234: 3 pass / 2 fail)`;
+  const event = loopFinished("ready_gate_out_of_scope", {
+    resumable: false,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+    readyGateOutOfScopeObservations: observations,
+  });
+
+  expect(composeRunOperatorError(runWith("failed"), event)).toEqual({
+    reason: "ready_gate_out_of_scope",
+    retryable: false,
+    nextAction: "stop",
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+    readyGateOutOfScopeObservations: observations,
+  });
+});
+
+test("composeRunOperatorError renders a legacy ready_gate_out_of_scope row with no observations", () => {
+  const outsidePath = "src/untouched.test.ts";
+  const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath}`;
+  const event = loopFinished("ready_gate_out_of_scope", {
+    resumable: false,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+
+  expect(() => composeRunOperatorError(runWith("failed"), event)).not.toThrow();
+  const composed = composeRunOperatorError(runWith("failed"), event);
+  expect(composed).toEqual({
+    reason: "ready_gate_out_of_scope",
+    retryable: false,
+    nextAction: "stop",
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+  expect(composed).not.toHaveProperty("readyGateOutOfScopeObservations");
+  expect(formatReadyGateOutOfScopeDetail([outsidePath], "baseRef")).toBe(
+    `ready gate failing paths also reproduce on baseRef: ${outsidePath}`,
+  );
+});
+
+test("ready_gate_out_of_scope recovery does not guide retry finalization", () => {
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).not.toContain("retry finalization");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).not.toContain("fix the ready gate failure");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).toContain("jarvis run resume");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_failed).toContain("fix the ready gate failure");
+});
+
+test("composeRunOperatorError prefers resumable ready_gate_failed over blocked last attempt", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("blocked")]),
+      loopFinished("ready_gate_failed", { resumable: true }),
+    ),
+  ).toEqual(err("ready_gate_failed", "resume", true));
+});
+
+test("composeRunOperatorError prefers resumable iteration_timeout over blocked last attempt", () => {
+  const completedSubspecPaths = ["spec/implement/00-first.md"];
+  const remainingSubspecPaths = ["spec/implement/01-second.md"];
+  const publicationFailure = { operation: "push" as const, message: "remote rejected", exitCode: 7 };
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("blocked")]),
+      loopFinished("iteration_timeout", {
+        resumable: true,
+        completedSubspecPaths,
+        remainingSubspecPaths,
+        publicationFailure,
+      }),
+    ),
+  ).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+    publicationFailure,
+  });
+  expect(
+    composeRunOperatorError(
+      runWith("blocked", [attempt("contract_miss")]),
+      loopFinished("iteration_timeout", { resumable: true, completedSubspecPaths, remainingSubspecPaths }),
+    ),
+  ).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+});
+
+test("resolveFailedBlockedAttemptPrecedence prefers resumable finalization over blocked attempt", () => {
+  const blocked = attempt("blocked");
+  expect(
+    resolveFailedBlockedAttemptPrecedence(blocked, loopFinishedEvent("ready_gate_failed", { resumable: true })),
+  ).toEqual(err("ready_gate_failed", "resume", true));
+  expect(resolveFailedBlockedAttemptPrecedence(blocked, loopFinishedEvent("complete"))).toEqual(
+    err("agent_blocked", "inspect_spec"),
+  );
+  expect(
+    resolveFailedBlockedAttemptPrecedence(blocked, loopFinishedEvent("ready_gate_failed", { resumable: false })),
+  ).toEqual(err("agent_blocked", "inspect_spec"));
+});
+
+test("resolveFailedBlockedAttemptPrecedence prefers resumable iteration_timeout over mappable attempt detail", () => {
+  const completedSubspecPaths = ["spec/implement/00-first.md"];
+  const remainingSubspecPaths = ["spec/implement/01-second.md"];
+  const resumableTimeout = loopFinishedEvent("iteration_timeout", {
+    resumable: true,
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("blocked"), resumableTimeout)).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("contract_miss"), resumableTimeout)).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+  expect(
+    resolveFailedBlockedAttemptPrecedence(
+      attempt("blocked"),
+      loopFinishedEvent("iteration_timeout", { resumable: false }),
+    ),
+  ).toEqual(err("agent_blocked", "inspect_spec"));
+});
+
+test("composeRunOperatorError and resolveFailedBlockedAttemptPrecedence prefer resumable idle_output_timeout over mappable attempt detail", () => {
+  const resumableIdleTimeout = loopFinishedEvent("idle_output_timeout", { resumable: true });
+  const expected = err("idle_output_timeout", "resume", true);
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("blocked")]),
+      loopFinished("idle_output_timeout", { resumable: true }),
+    ),
+  ).toEqual(expected);
+  expect(
+    composeRunOperatorError(
+      runWith("blocked", [attempt("contract_miss")]),
+      loopFinished("idle_output_timeout", { resumable: true }),
+    ),
+  ).toEqual(expected);
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("blocked"), resumableIdleTimeout)).toEqual(expected);
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("contract_miss"), resumableIdleTimeout)).toEqual(expected);
+  expect(
+    resolveFailedBlockedAttemptPrecedence(
+      attempt("blocked"),
+      loopFinishedEvent("idle_output_timeout", { resumable: false }),
+    ),
+  ).toEqual(err("agent_blocked", "inspect_spec"));
+});
+
+test("composeRunOperatorError projects completionCommitError from completion_commit_failed loop_finished", () => {
+  const completionCommitError = "failed to push some refs to 'origin/feature'";
+  const publicationFailure = {
+    operation: "push",
+    message: "remote rejected",
+    exitCode: 1,
+    stderrTail: "error: failed to push some refs",
+  } as const;
+  const base = { reason: "completion_commit_failed", retryable: true, nextAction: "resume" } as const;
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("completion_commit_failed", { resumable: true, completionCommitError, publicationFailure }),
+    ),
+  ).toEqual({ ...base, completionCommitError, publicationFailure });
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("completion_commit_failed", { resumable: true, publicationFailure }),
+    ),
+  ).toEqual({ ...base, publicationFailure });
+});
+
+test("composeRunOperatorError omits completionCommitError for iteration_commit_failed even when terminal row carries it", () => {
+  const completionCommitError = "synthetic completion commit message";
+  const publicationFailure = {
+    operation: "push",
+    message: "remote rejected",
+    exitCode: 1,
+    stderrTail: "error: failed to push some refs",
+  } as const;
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("iteration_commit_failed", { resumable: true, completionCommitError, publicationFailure }),
+    ),
+  ).toEqual({ reason: "iteration_commit_failed", retryable: true, nextAction: "resume", publicationFailure });
+});
+
+test("composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished", () => {
+  const survivingMutation = {
+    survivingMutation: "flip === to !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 12,
+    survivingMutationKillingTests: ["src/guard.test.ts"] as string[],
+    survivingMutationKillingSetResult: "passed-confirmed" as const,
+  } as const;
+  expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_gate_failed"))).toEqual(
+    err("ready_gate_failed", "resume", true),
+  );
+  expect(
+    composeRunOperatorError(runWith("failed"), loopFinished("iteration_commit_failed", { resumable: true })),
+  ).toEqual(err("iteration_commit_failed", "resume", true));
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("surviving_mutation_failed", { resumable: true, ...survivingMutation }),
+    ),
+  ).toEqual({
+    reason: "surviving_mutation_failed",
+    retryable: true,
+    nextAction: "resume",
+    ...survivingMutation,
+  });
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("ready_flip_failed"))).toEqual(
+    err("ready_flip_failed", "stop", false),
+  );
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("mutation_repair_exhausted"))).toEqual(
+    err("mutation_repair_exhausted", "inspect_spec", false),
+  );
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("mutation_repair_exhausted", { resumable: false, ...survivingMutation }),
+    ),
+  ).toEqual({
+    reason: "mutation_repair_exhausted",
+    retryable: false,
+    nextAction: "inspect_spec",
+    ...survivingMutation,
+  });
+});
+
+test("composeRunOperatorError omits killing-set fields for mutation_repair_exhausted when result is unknown", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("mutation_repair_exhausted", {
+        resumable: false,
+        survivingMutation: "legacy",
+        survivingMutationSourceFile: "src/legacy.ts",
+        survivingMutationSourceLine: 1,
+        survivingMutationKillingTests: [],
+        survivingMutationKillingSetResult: "unknown",
+      }),
+    ),
+  ).toEqual({
+    reason: "mutation_repair_exhausted",
+    retryable: false,
+    nextAction: "inspect_spec",
+    survivingMutation: "legacy",
+    survivingMutationSourceFile: "src/legacy.ts",
+    survivingMutationSourceLine: 1,
+  });
+});
+
+test("composeRunOperatorError returns undefined for in-progress and successful completed terminals", () => {
+  expect(composeRunOperatorError(runWith("in-progress"))).toBeUndefined();
+  expect(composeRunOperatorError(runWith("completed"), loopFinished("complete"))).toBeUndefined();
+});
+
+test("composeRunOperatorError surfaces harness gate slot wait for in-progress runs with an id", async () => {
+  const runId = "operator-error-slot-wait";
+  const agentLease = acquireGateInvocationLease();
+  let releaseGate!: () => void;
+  const gateHeld = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+  const runner: AsyncSubprocessRunner = {
+    runAsync: async () => {
+      await gateHeld;
+      return "";
+    },
+  };
+  const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+  const pending = finalizer({
+    worktreePath: "/tmp/worktree",
+    baseRef: "main",
+    branch: "feature",
+    prNumber: 1,
+    runId,
+  });
+  await Promise.resolve();
+  expect(composeRunOperatorError({ id: runId, status: "in-progress" })).toEqual({
+    reason: "harness_failure",
+    retryable: false,
+    nextAction: "stop",
+    message: HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE,
+  });
+  releaseGate();
+  agentLease?.release();
+  await pending;
+});
+
+test("findTerminalLogRecord selects chronologically last terminal event", () => {
+  const records = [
+    persistedTerminal(1, { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 1, resumable: true }),
+    persistedTerminal(2, { kind: "run_execution_failed" }),
+  ];
+  expect(findTerminalLogRecord(records)?.event.kind).toBe("run_execution_failed");
+});
+
+test("composeRunOperatorError prefers later run_execution_failed over earlier loop_finished on failed resume spawn", () => {
+  const records = [
+    persistedTerminal(1, {
+      kind: "loop_finished",
+      loopOutcomeKind: "budget-exhausted",
+      iterationsConsumed: 1,
+      resumable: true,
+    }),
+    persistedTerminal(2, { kind: "run_execution_failed" }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), findTerminalLogRecord(records))).toEqual(
+    err("harness_failure", "stop"),
+  );
+});
+
+test("composeRunOperatorError does not surface resumable log outcomes when durable status is failed without attempt detail", () => {
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("paused"))).toEqual(err("harness_failure", "stop"));
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("budget-exhausted"))).toEqual(
+    err("harness_failure", "stop"),
+  );
+});
+
+test("composeRunOperatorError returns harness_failure after budget-soft-stopped demotion with stale budget log", () => {
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("budget-exhausted"))).toEqual(
+    err("harness_failure", "stop"),
+  );
+});
+
+test("composeRunOperatorError surfaces run_execution_failed trailing a completed run", () => {
+  expect(composeRunOperatorError(runWith("completed"), runExecutionFailed())).toEqual(err("harness_failure", "stop"));
+});
+
+test("composeRunOperatorError maps post-boundary database lock to state_store_lock_timeout", () => {
+  const run = runWith("failed", [attempt("done")]);
+  const terminal = runExecutionFailed(2, "SQLiteError: database is locked");
+  expect(composeRunOperatorError(run, terminal)).toEqual(err("state_store_lock_timeout", "resume", true));
+  expect(composeRunOperatorError(runWith("completed", [attempt("done")]), terminal)).toEqual(
+    err("state_store_lock_timeout", "resume", true),
+  );
+});
+
+test("composeRunOperatorError keeps harness_failure for message-less run_execution_failed after committed done boundary", () => {
+  const terminal = runExecutionFailed(2);
+  const expected = err("harness_failure", "stop");
+  expect(composeRunOperatorError(runWith("failed", [attempt("done")]), terminal)).toEqual(expected);
+  expect(composeRunOperatorError(runWith("completed", [attempt("done")]), terminal)).toEqual(expected);
+});
+
+test("composeRunOperatorError keeps harness_failure for lock message without done boundary", () => {
+  const terminal = runExecutionFailed(2, "database is locked");
+  expect(composeRunOperatorError(runWith("failed"), terminal)).toEqual(err("harness_failure", "stop"));
+});
+
+test("post-boundary lock classifier guard inversion", () => {
+  const run = runWith("failed", [attempt("done")]);
+  const lockTerminal = runExecutionFailed(2, "database is locked");
+  const controlTerminal = runExecutionFailed(2, "recordAttemptStart boom");
+  const classify = (terminal: TerminalLogRecord) =>
+    isPostBoundaryStateStoreLockTimeout(terminal, run)
+      ? err("state_store_lock_timeout", "resume", true)
+      : err("harness_failure", "stop");
+  const inverted = (terminal: TerminalLogRecord) =>
+    !isPostBoundaryStateStoreLockTimeout(terminal, run)
+      ? err("state_store_lock_timeout", "resume", true)
+      : err("harness_failure", "stop");
+
+  expect(classify(lockTerminal)).toEqual(err("state_store_lock_timeout", "resume", true));
+  expect(classify(controlTerminal)).toEqual(err("harness_failure", "stop"));
+  expect(inverted(lockTerminal)).toEqual(err("harness_failure", "stop"));
+  expect(inverted(controlTerminal)).toEqual(err("state_store_lock_timeout", "resume", true));
+});
+
+test("composeRunOperatorError routes durable terminalCause invocation_failure through terminalFailureDetail", () => {
+  const run = {
+    status: "failed" as RunStatus,
+    attempts: [],
+    terminalCause: "invocation_failure" as const,
+    terminalFailureDetail: { failureKind: "error" as const, message: "boom", bindingAttempts: [] },
+  };
+  // The durable terminalCause === "invocation_failure" branch must map the detail so its message
+  // survives; flipping that guard to !== falls through to loop-outcome mapping and drops the message.
+  expect(composeRunOperatorError(run)).toEqual({
+    reason: "invocation_error",
+    nextAction: "stop",
+    retryable: false,
+    message: "boom",
+  });
+});
+
+test("composeRunOperatorError defaults durable completion_commit_failed to resumable without a terminal log", () => {
+  const durable = (terminalCause: "completion_commit_failed" | "landing_failed", status: RunStatus = "failed") => ({
+    status,
+    attempts: [],
+    terminalCause,
+  });
+  // Publication failures all settle `failed`: without a log the cause alone decides, and
+  // completion_commit_failed defaults to resume. Only a `loop_finished` carrying `resumable: false` demotes it to stop.
+  expect(composeRunOperatorError(durable("completion_commit_failed", "failed"))).toEqual(
+    err("completion_commit_failed", "resume", true),
+  );
+  expect(composeRunOperatorError(durable("landing_failed", "failed"))).toEqual(err("landing_failed", "stop"));
+});
+
+test("composeRunOperatorError resumes a failed completion_commit_failed row whose terminal log was reaped", () => {
+  // Mutation checkpoint: restoring the `run.status !== "failed"` conjunct on the log-less
+  // resumable fallback makes this row project stop/non-retryable, telling the operator to abandon
+  // a row `run resume` can still clear. Session-log reaping routinely removes the terminal record.
+  const run = {
+    status: "failed" as RunStatus,
+    attempts: [],
+    terminalCause: "completion_commit_failed" as const,
+  };
+  const projected = composeRunOperatorError(run);
+  expect(projected?.nextAction).toBe("resume");
+  expect(projected?.retryable).toBe(true);
+});
+
+test("composeRunOperatorError projects a confinement refusal message from attempt-level model_config detail", () => {
+  const refusal = confinementRefusalMessage("claude", "sandbox");
+  const projected = composeRunOperatorError(
+    runWith("failed", [
+      attempt("invocation_failure", { failureKind: "model_config", message: refusal, bindingAttempts: [] }),
+    ]),
+  );
+  expect(projected).toEqual({ ...err("model_config", "fix_config"), message: refusal });
+  // Agent-reported model_config stderr stays unprojected on the attempt path.
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [
+        attempt("invocation_failure", { failureKind: "model_config", message: "unknown model", bindingAttempts: [] }),
+      ]),
+    ),
+  ).toEqual(err("model_config", "fix_config"));
+});
+
+test("composeRunOperatorError projects model_config message from durable terminalFailureDetail", () => {
+  const run = {
+    status: "failed" as RunStatus,
+    attempts: [],
+    terminalCause: "invocation_failure" as const,
+    terminalFailureDetail: {
+      failureKind: "model_config" as const,
+      message: "Unable to resolve bindings",
+      bindingAttempts: [],
+    },
+  };
+  // The durable path passes projectModelConfigMessage=true; dropping that clause loses the
+  // operator-facing binding-resolution message, so a model_config detail must still carry it.
+  expect(composeRunOperatorError(run)).toEqual({
+    reason: "model_config",
+    nextAction: "fix_config",
+    retryable: false,
+    message: "Unable to resolve bindings",
+  });
+});
+
+const failureRecord = (retryable: boolean) => ({
+  expectation: "expected",
+  observation: "observed",
+  retryable,
+  referencedPaths: [],
+});
+
+test("composeRunOperatorError leaves a completed run undefined even when a failure record is stored", () => {
+  expect(
+    composeRunOperatorError({ ...runWith("completed"), operatorFailureRecord: failureRecord(true) }),
+  ).toBeUndefined();
+});
+
+test("composeRunOperatorError lets a retryable record promote a stop action to resume", () => {
+  expect(composeRunOperatorError({ ...runWith("failed"), operatorFailureRecord: failureRecord(true) })).toEqual(
+    err("harness_failure", "resume", true),
+  );
+});
+
+test("composeRunOperatorError lets a non-retryable record demote a resume action to stop", () => {
+  expect(composeRunOperatorError({ ...runWith("paused"), operatorFailureRecord: failureRecord(false) })).toEqual(
+    err("resumable_pause", "stop", false),
+  );
+});
+
+test("composeRunOperatorError composes completion_commit_failed on a failed row but not a completed row with the stale cause", () => {
+  const failed = { ...runWith("failed"), terminalCause: "completion_commit_failed" as const };
+  const completed = { ...runWith("completed"), terminalCause: "completion_commit_failed" as const };
+  const record = loopFinished("completion_commit_failed", { resumable: true });
+  expect(composeRunOperatorError(failed, record)).toEqual(err("completion_commit_failed", "resume", true));
+  expect(composeRunOperatorError(failed)).toEqual(err("completion_commit_failed", "resume", true));
+  expect(composeRunOperatorError(completed, record)).toBeUndefined();
+  expect(composeRunOperatorError(completed)).toBeUndefined();
+  expect(composeRunOperatorError(runWith("completed"), record)).toBeUndefined();
+});
+
+test("composeRunOperatorError composes ready_flip_failed on a failed row but not a completed row with the stale cause", () => {
+  const failed = { ...runWith("failed"), terminalCause: "ready_flip_failed" as const };
+  const completed = { ...runWith("completed"), terminalCause: "ready_flip_failed" as const };
+  const record = loopFinished("ready_flip_failed");
+  expect(composeRunOperatorError(failed, record)).toEqual(err("ready_flip_failed", "stop", false));
+  expect(composeRunOperatorError(failed)).toEqual(err("ready_flip_failed", "stop", false));
+  expect(composeRunOperatorError(completed, record)).toBeUndefined();
+  expect(composeRunOperatorError(completed)).toBeUndefined();
+  expect(composeRunOperatorError(runWith("completed"), record)).toBeUndefined();
+});
+
+test("composeRunOperatorError keeps trailing run_execution_failed over a stale publication cause on a completed row", () => {
+  for (const cause of ["completion_commit_failed", "ready_flip_failed"] as const) {
+    const completed = { ...runWith("completed"), terminalCause: cause };
+    expect(composeRunOperatorError(completed, runExecutionFailed())).toEqual(err("harness_failure", "stop"));
+  }
+});
+
+test("isStalePublicationCause is true only for the two publication causes on completed rows", () => {
+  expect(isStalePublicationCause("completed", "completion_commit_failed")).toBe(true);
+  expect(isStalePublicationCause("completed", "ready_flip_failed")).toBe(true);
+  expect(isStalePublicationCause("failed", "completion_commit_failed")).toBe(false);
+  expect(isStalePublicationCause("failed", "ready_flip_failed")).toBe(false);
+  expect(isStalePublicationCause("completed", "ready_gate_failed")).toBe(false);
+  expect(isStalePublicationCause("completed", undefined)).toBe(false);
+});
+
+test("resolveRunLanePrOutcome prefers loop_finished lanePrOutcome over run-row closed shape", () => {
+  const fromLog = { kind: "lane_pr_merged" as const, prNumber: 77 };
+  const runRow = {
+    status: "completed" as const,
+    terminalCause: "complete" as WriteLoopOutcomeKind,
+    prNumber: 88,
+    prUrl: null,
+  };
+  expect(resolveRunLanePrOutcome(runRow, loopFinished("complete", { lanePrOutcome: fromLog }))).toEqual(fromLog);
+});
+
+test("resolveRunLanePrOutcome infers lane_pr_closed from completed row with prNumber and no prUrl", () => {
+  expect(
+    resolveRunLanePrOutcome({
+      status: "completed",
+      terminalCause: "complete",
+      prNumber: 88,
+      prUrl: null,
+    }),
+  ).toEqual({ kind: "lane_pr_closed", prNumber: 88 });
+});
+
+test("resolveRunLanePrOutcome does not infer merged lane outcome from prNumber and prUrl alone", () => {
+  expect(
+    resolveRunLanePrOutcome({
+      status: "completed",
+      terminalCause: "complete",
+      prNumber: 77,
+      prUrl: "https://github.com/org/repo/pull/77",
+    }),
+  ).toBeUndefined();
+});
+
+test("composeRunOperatorError drops publication-failure reason when lane_pr_closed won on the run row", () => {
+  const publicationFailure = {
+    operation: "push" as const,
+    message: "remote rejected",
+    exitCode: 7,
+    stderrTail: "err",
+  };
+  expect(
+    composeRunOperatorError(
+      {
+        status: "completed",
+        terminalCause: "complete",
+        prNumber: 88,
+        prUrl: null,
+        attempts: [],
+      },
+      loopFinished("completion_commit_failed", { resumable: true, publicationFailure }),
+    ),
+  ).toBeUndefined();
+});
+
+test("composeRunOperatorError lane publication-failure suppression guard inversion", () => {
+  const publicationFailure = {
+    operation: "push" as const,
+    message: "remote rejected",
+    exitCode: 7,
+    stderrTail: "err",
+  };
+  const withoutLaneRow = composeRunOperatorError(
+    runWith("failed"),
+    loopFinished("completion_commit_failed", { resumable: true, publicationFailure }),
+  );
+  expect(withoutLaneRow?.reason).toBe("completion_commit_failed");
+});

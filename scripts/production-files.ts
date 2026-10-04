@@ -4,8 +4,8 @@ import { join, relative } from "node:path";
 export type SourceFile = { file: string; source: string };
 
 export const TEST_SUPPORT_SUFFIX = ".test-support.ts";
-const PRODUCTION_ROOTS = ["v2/"] as const;
-const TEST_HARNESS_ROOT = "v2/src/testing/";
+const PRODUCTION_ROOTS = ["src/"] as const;
+const TEST_HARNESS_ROOT = "src/testing/";
 
 /** True when the basename is test code: `*.test.ts`, `*.test.tsx`, or `*.test-support.ts`. */
 export function isTestCodePath(path: string): boolean {
@@ -13,7 +13,7 @@ export function isTestCodePath(path: string): boolean {
   return /\.test\.tsx?$/.test(basename) || basename.endsWith(TEST_SUPPORT_SUFFIX);
 }
 
-/** True for a shippable module: under v2/, a .ts/.tsx source, not a test, test-support, or v2/src/testing harness file. */
+/** True for a shippable module: under src/, a .ts/.tsx source, not a test, test-support, or src/testing harness file. */
 export function isProductionSourceFile(file: string): boolean {
   return (
     PRODUCTION_ROOTS.some((root) => file.startsWith(root)) &&
@@ -36,7 +36,7 @@ export function collectSourceFiles(root: string, cwd: string): SourceFile[] {
   });
 }
 
-/** Every production source file under the v2 root of `cwd`. */
+/** Every production source file under the engine src root of `cwd`. */
 export function collectProductionSourceFiles(cwd: string): SourceFile[] {
-  return collectSourceFiles(join(cwd, "v2"), cwd).filter(({ file }) => isProductionSourceFile(file));
+  return collectSourceFiles(join(cwd, "src"), cwd).filter(({ file }) => isProductionSourceFile(file));
 }

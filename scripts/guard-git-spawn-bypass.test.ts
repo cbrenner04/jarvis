@@ -9,7 +9,7 @@ import {
   runGitSpawnBypassGuard,
 } from "./guard-git-spawn-bypass.ts";
 
-const EXAMPLE_FILE = "v2/src/execution/example.ts";
+const EXAMPLE_FILE = "src/execution/example.ts";
 
 function violations(source: string, file = EXAMPLE_FILE) {
   return findGitSpawnBypassViolations([{ file, source }]);
@@ -21,10 +21,10 @@ describe("git spawn bypass guard", () => {
     expect(violations(source)).toEqual([{ file: EXAMPLE_FILE, line: 1, command: "git" }]);
   });
 
-  test("allows the Git boundary under v2/src/shared to spawn git", () => {
+  test("allows the Git boundary under src/shared to spawn git", () => {
     const source = 'await runner.runAsync("git", ["status"], cwd);\n';
     expect(findGitSpawnBypassViolations([{ file: `${GIT_OWNER_DIR}git.ts`, source }])).toEqual([]);
-    expect(findGitSpawnBypassViolations([{ file: "v2/src/execution/other.ts", source }])).toHaveLength(1);
+    expect(findGitSpawnBypassViolations([{ file: "src/execution/other.ts", source }])).toHaveLength(1);
   });
 
   test("allows github-operations gh owner", () => {
@@ -43,18 +43,18 @@ describe("git spawn bypass guard", () => {
 
   test("rejects deliberate new git spawn fixture on repository walk", () => {
     const executionViolations = runGitSpawnBypassGuard(process.cwd()).filter((violation) =>
-      violation.file.startsWith("v2/src/execution/"),
+      violation.file.startsWith("src/execution/"),
     );
     expect(executionViolations).toEqual([]);
     const synthetic = 'await runner.runAsync("git", ["status"], cwd);';
-    expect(violations(synthetic, "v2/src/execution/write-loop.ts")).toEqual([
-      { file: "v2/src/execution/write-loop.ts", line: 1, command: "git" },
+    expect(violations(synthetic, "src/execution/write-loop.ts")).toEqual([
+      { file: "src/execution/write-loop.ts", line: 1, command: "git" },
     ]);
   });
 
   test("ignores non-production paths under v2/src", () => {
     const source = 'await runner.runAsync("git", ["status"], cwd);';
-    expect(violations(source, "v2/src/execution/example.test.ts")).toEqual([]);
+    expect(violations(source, "src/execution/example.test.ts")).toEqual([]);
   });
 
   test("exit code is 1 when violations exist, 0 otherwise", () => {

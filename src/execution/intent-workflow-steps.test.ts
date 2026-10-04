@@ -1,0 +1,531 @@
+import { describe, expect, test } from "bun:test";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ProjectMatch } from "../shared/project-registry.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
+import { buildIntentWorkflowSteps, buildReviewedIntentWorkflowSteps } from "./publication-workflow-steps.ts";
+import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
+import type { ReviewWorkflowStep } from "./workflow-runner.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
+
+const match: ProjectMatch = { key: "demo", root: "/repo" };
+const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
+  steps.map((step) =>
+    step.behavior === "write"
+      ? { ...step, agents: ["claude"], agentModelConfig: {} }
+      : step.behavior === "review"
+        ? { ...step, agents: { critic: ["claude"], actuator: ["claude"] }, agentModelConfig: {} }
+        : {
+            ...step,
+            agents: {
+              adversary: ["claude"],
+              advocate: ["claude"],
+              adjudicator: ["claude"],
+              actuator: ["claude"],
+            },
+            agentModelConfig: {},
+          },
+  );
+
+describe("buildIntentWorkflowSteps", () => {
+  test("defaults to one light review pass when review options are omitted", async () => {
+    const result = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x" },
+      { resolveProjectMatch: () => match, loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[1]).toMatchObject({ behavior: "review", maxCycles: 1 });
+  });
+
+  test("omits review for explicit zero passes", async () => {
+    const result = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x", reviewPasses: 0 },
+      { resolveProjectMatch: () => match, loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0]).toMatchObject({
+      behavior: "write",
+      promptId: "intent.prompt.split",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+    });
+  });
+
+  test("defaults omitted reviewBehavior to light for multi-pass runs", async () => {
+    const result = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x", reviewPasses: 2 },
+      { resolveProjectMatch: () => match, loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[1]).toMatchObject({ behavior: "review", maxCycles: 2 });
+  });
+
+  test("selects light or debate review for positive passes", async () => {
+    const deps = { resolveProjectMatch: () => match, loadWorkflowSteps: load };
+    const light = await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: 1 }, deps);
+    const debate = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x", reviewPasses: 2, reviewBehavior: "debate" },
+      deps,
+    );
+    const debateDefaultPasses = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x", reviewBehavior: "debate" },
+      deps,
+    );
+    expect(light.ok && light.steps[1]?.behavior).toBe("review");
+    expect(debate.ok && debate.steps[1]?.behavior).toBe("review-debate");
+    expect(debateDefaultPasses.ok && debateDefaultPasses.steps[1]).toMatchObject({
+      behavior: "review-debate",
+      maxCycles: 1,
+    });
+  });
+
+  test("rejects invalid review options", async () => {
+    const deps = { resolveProjectMatch: () => match, loadWorkflowSteps: load };
+    expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: -1 }, deps)).ok).toBe(false);
+    expect(
+      (
+        await buildIntentWorkflowSteps(
+          { cwd: "/repo", seedText: "x", reviewPasses: 1, reviewBehavior: "heavy" as "light" },
+          deps,
+        )
+      ).ok,
+    ).toBe(false);
+  });
+  test("builds file and inline seeds with stable PR titles", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-builder-"));
+    const seed = join(root, "Seed Name.md");
+    writeFileSync(seed, "seed", "utf8");
+    const common = { cwd: root, targetDir: "specs" };
+    const deps = {
+      resolveProjectMatch: () => ({ ...match, root }),
+      loadWorkflowSteps: load,
+      resolveBaseBranch: () => "trunk",
+    };
+
+    const file = await buildIntentWorkflowSteps({ ...common, seed }, deps);
+    const inline = await buildIntentWorkflowSteps({ ...common, seedText: "Improve API" }, deps);
+    if (!file.ok || !inline.ok) return;
+    expect(file.steps).toHaveLength(2);
+    expect(inline.steps).toHaveLength(2);
+    expect(file.steps[0]).toMatchObject({
+      behavior: "write",
+      role: "plan",
+      promptId: "intent.prompt.split",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      specPath: "specs/ready-intents",
+      worktree: { branchName: "intent/seed-name", baseRef: "trunk" },
+      creationTitle: "intent: Seed Name",
+    });
+    expect(inline.steps[0]).toMatchObject({
+      role: "plan",
+      promptId: "intent.prompt.split",
+      creationTitle: "intent: improve-api",
+    });
+    expect(file.steps[0]).toMatchObject({
+      landing: { inputs: { sourceRoot: root, paths: [seed], consumeFrom: "worktree" } },
+    });
+    expect(inline.steps[0]).toMatchObject({ landing: { inputs: { paths: [], consumeFrom: "worktree" } } });
+  });
+
+  test("validates seed frontmatter ratings before loading steps", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-builder-ratings-"));
+    writeFileSync(join(root, "rated.md"), "---\nname: rated\nrisk: high\neffort: low\n---\n\n# Rated\n", "utf8");
+    writeFileSync(
+      join(root, "malformed.md"),
+      "---\nname: malformed\nrisk: low\neffort: extreme\n---\n\n# Malformed\n",
+      "utf8",
+    );
+    let loaded = 0;
+    const deps = {
+      resolveProjectMatch: () => ({ ...match, root }),
+      loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) => {
+        loaded += 1;
+        return load(steps);
+      },
+    };
+
+    const ok = await buildIntentWorkflowSteps({ cwd: root, seed: "rated.md" }, deps);
+    expect(ok).toMatchObject({ ok: true });
+    expect(loaded).toBe(1);
+    const rejected = await buildIntentWorkflowSteps({ cwd: root, seed: "malformed.md" }, deps);
+    expect(rejected).toEqual({
+      ok: false,
+      error: 'intent: seed frontmatter `effort:` must be one of low, medium, high; got "extreme"',
+    });
+    expect(loaded).toBe(1);
+  });
+
+  test("rejects dual seeds, traversal, and reserved slugs before loading steps", async () => {
+    let loaded = false;
+    const deps = {
+      resolveProjectMatch: () => match,
+      loadWorkflowSteps: () => {
+        loaded = true;
+        return [];
+      },
+    };
+    expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", seed: "x" }, deps)).ok).toBe(false);
+    expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "head" }, deps)).ok).toBe(false);
+    expect((await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", targetDir: "../spec" }, deps)).ok).toBe(
+      false,
+    );
+    expect((await buildIntentWorkflowSteps({ cwd: "/repo", seed: "/tmp/seed" }, deps)).ok).toBe(false);
+    expect(loaded).toBe(false);
+  });
+
+  test("uses external ready-intents storage when project specs is external", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-builder-"));
+    const config = join(root, "config.json");
+    writeFileSync(
+      config,
+      JSON.stringify({
+        projects: { "Org/Repo": { root, specs: "external" } },
+        modes: { plan: { targetDir: "configured" } },
+      }),
+    );
+    const result = await buildIntentWorkflowSteps(
+      { cwd: root, seedText: "one thing", targetDir: "override", configPath: config, jarvisRoot: "/jarvis" },
+      { loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps[0]).toMatchObject({
+      specPath: "/jarvis/specs/Org-Repo/ready-intents",
+      publishCompletion: false,
+      worktree: { baseRef: "none", git: false, localPath: "/jarvis/specs/Org-Repo/intent-work/one-thing" },
+    });
+  });
+
+  test("routes committed intent output from canonical seeds before configured targets", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-routing-"));
+    const config = join(root, "config.json");
+    for (const { targetDir, configuredTargetDir } of [
+      { targetDir: "v1/spec", configuredTargetDir: "spec" },
+      { targetDir: "spec", configuredTargetDir: "v1/spec" },
+    ]) {
+      writeFileSync(
+        config,
+        JSON.stringify({
+          projects: { demo: { root, specs: "repo" } },
+          modes: { plan: { targetDir: configuredTargetDir } },
+        }),
+      );
+      const seed = join(root, targetDir, "seeds", "feature.md");
+      mkdirSync(join(root, targetDir, "seeds"), { recursive: true });
+      writeFileSync(seed, "feature", "utf8");
+      for (const [name, build] of [
+        ["intent", buildIntentWorkflowSteps],
+        ["intent-reviewed", buildReviewedIntentWorkflowSteps],
+      ] as const) {
+        const result = await build(
+          { cwd: root, seed: join(targetDir, "seeds", "feature.md"), configPath: config },
+          {
+            loadWorkflowSteps: load,
+            resolveBaseBranch: () => "trunk",
+          },
+        );
+        expect(result.ok, name).toBe(true);
+        if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: `${targetDir}/ready-intents` });
+      }
+    }
+  });
+
+  test("preserves explicit, inline, and non-canonical target routing", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-routing-"));
+    const config = join(root, "config.json");
+    mkdirSync(join(root, "notes"), { recursive: true });
+    writeFileSync(join(root, "notes", "feature.md"), "feature", "utf8");
+    writeFileSync(
+      config,
+      JSON.stringify({ projects: { demo: { root, specs: "repo" } }, modes: { plan: { targetDir: "spec" } } }),
+    );
+    mkdirSync(join(root, "spec/seeds"), { recursive: true });
+    writeFileSync(join(root, "spec/seeds/override.md"), "override", "utf8");
+    const cases = [
+      { input: { seedText: "inline" }, expected: "spec/ready-intents" },
+      { input: { seed: "notes/feature.md" }, expected: "spec/ready-intents" },
+      { input: { seed: "spec/seeds/override.md", targetDir: "v1/spec" }, expected: "v1/spec/ready-intents" },
+      { input: { seedText: "override", targetDir: "v1/spec" }, expected: "v1/spec/ready-intents" },
+    ];
+    for (const { input, expected } of cases) {
+      const result = await buildIntentWorkflowSteps(
+        { cwd: root, configPath: config, ...input },
+        { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: expected });
+    }
+
+    const defaultResult = await buildIntentWorkflowSteps(
+      { cwd: root, seedText: "default" },
+      { resolveProjectMatch: () => ({ ...match, root }), loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+    );
+    expect(defaultResult.ok).toBe(true);
+    // No config: `specs` defaults to external.
+    if (defaultResult.ok)
+      expect(defaultResult.steps[0]).toMatchObject({
+        specPath: expect.stringMatching(/\/specs\/demo\/ready-intents$/),
+      });
+  });
+
+  test("keeps canonical seed output external when project specs is external", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "intent-routing-"));
+    const config = join(root, "config.json");
+    mkdirSync(join(root, "v1/spec/seeds"), { recursive: true });
+    writeFileSync(join(root, "v1/spec/seeds/feature.md"), "feature", "utf8");
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root, specs: "external" } } }));
+
+    const result = await buildIntentWorkflowSteps(
+      { cwd: root, seed: "v1/spec/seeds/feature.md", configPath: config, jarvisRoot: "/jarvis" },
+      { loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: "/jarvis/specs/demo/ready-intents" });
+  });
+
+  test("admits external seed under project specs home", async () => {
+    const { root, jarvisRoot, config, projectKey, externalSeed } = stageExternalSeed({ external: true });
+    const safeId = projectSafeId(projectKey);
+
+    const result = await buildIntentWorkflowSteps(
+      { cwd: root, seed: externalSeed, configPath: config, jarvisRoot },
+      { loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps[0]).toMatchObject({
+      specPath: join(jarvisRoot, "specs", safeId, "ready-intents"),
+      landing: { inputs: { paths: [realpathSync(externalSeed)], consumeFrom: "source" } },
+    });
+  });
+
+  test("rejects external seed paths for in-repo publication routing", async () => {
+    const { root, jarvisRoot, config, externalSeed } = stageExternalSeed({});
+
+    const result = await buildIntentWorkflowSteps(
+      { cwd: root, seed: externalSeed, configPath: config, jarvisRoot },
+      { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("intent: --seed must be a relative path");
+  });
+
+  test("only resumes a collision owned by the supplied invocation", async () => {
+    const inspect = (recordedInvocationId: string) => ({
+      resolveProjectMatch: () => match,
+      loadWorkflowSteps: load,
+      inspectIdentity: (identity: { invocationId: string }) => ({
+        message: "intent branch already exists",
+        recordedInvocationId,
+        ...(identity.invocationId === recordedInvocationId ? { resumable: true } : {}),
+      }),
+    });
+
+    const resumed = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "same", invocationId: "inv-1" },
+      inspect("inv-1"),
+    );
+    expect(resumed.ok).toBe(true);
+
+    const rejected = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "same", invocationId: "inv-2" },
+      inspect("inv-1"),
+    );
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error).toContain("resume the recorded invocation");
+  });
+});
+
+describe("buildReviewedIntentWorkflowSteps", () => {
+  test("matches buildIntentWorkflowSteps when review options are omitted", async () => {
+    const deps = { resolveProjectMatch: () => match, loadWorkflowSteps: load };
+    const input = { cwd: "/repo", seedText: "x", invocationId: "inv-match" };
+    expect(await buildReviewedIntentWorkflowSteps(input, deps)).toEqual(await buildIntentWorkflowSteps(input, deps));
+  });
+
+  test("rejects non-integer and negative review passes before daemon contact", async () => {
+    let loaded = false;
+    const deps = {
+      resolveProjectMatch: () => match,
+      loadWorkflowSteps: () => {
+        loaded = true;
+        return [];
+      },
+    };
+
+    const negative = await buildReviewedIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: -1 }, deps);
+    expect(negative.ok).toBe(false);
+    if (!negative.ok) expect(negative.error).toContain("non-negative integer");
+
+    const fractional = await buildReviewedIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: 1.5 }, deps);
+    expect(fractional.ok).toBe(false);
+    if (!fractional.ok) expect(fractional.error).toContain("non-negative integer");
+
+    expect(loaded).toBe(false);
+  });
+
+  test("delegates to split-only builder when reviewPasses is 0", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-"));
+    writeFileSync(join(root, "test.md"), "test", "utf8");
+
+    const result = await buildReviewedIntentWorkflowSteps(
+      { cwd: root, seed: "test.md", reviewPasses: 0, targetDir: "specs" },
+      {
+        resolveProjectMatch: () => ({ ...match, root }),
+        loadWorkflowSteps: load,
+        resolveBaseBranch: () => "trunk",
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0]).toMatchObject({
+      behavior: "write",
+      role: "plan",
+      promptId: "intent.prompt.split",
+    });
+  });
+
+  test("loads mixed reviewed intent sources once with forwarded machine options", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-"));
+    writeFileSync(join(root, "test.md"), "test", "utf8");
+    const configPath = join(root, "config.json");
+    writeFileSync(configPath, JSON.stringify({ projects: { demo: { root, specs: "repo" } } }), "utf8");
+    const calls: { steps: readonly WorkflowSourceStep[]; options: unknown }[] = [];
+    const createBinding = () => ({
+      id: "bound",
+      invoke: async () => ({ kind: "error" as const, exitCode: 1, stderr: "" }),
+    });
+
+    const result = await buildReviewedIntentWorkflowSteps(
+      { cwd: root, seed: "test.md", targetDir: "specs", reviewPasses: 3, jarvisRoot: "/jarvis", configPath },
+      {
+        resolveProjectMatch: () => ({ ...match, root }),
+        loadWorkflowSteps: (steps, options) => {
+          calls.push({ steps, options });
+          return load(steps);
+        },
+        resolveBaseBranch: () => "trunk",
+        machineConfigPath: "/config.json",
+        machineProfile: "local",
+        machinesDir: "/machines",
+        createBinding,
+      },
+    );
+
+    if (!result.ok) {
+      throw new Error(`Expected ok=true, got error: ${result.error}`);
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      options: { machineConfigPath: "/config.json", machineProfile: "local", machinesDir: "/machines" },
+      steps: [
+        { behavior: "write", stepId: "intent", role: "plan" },
+        { behavior: "review", stepId: "review", prompt: "intent.prompt.review", createBinding },
+      ],
+    });
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[0]).toMatchObject({ behavior: "write", role: "plan", stepId: "intent" });
+    expect(result.steps[0]).toMatchObject({ creationTitle: "intent: test" });
+
+    const reviewStep = result.steps[1] as ReviewWorkflowStep;
+    expect(reviewStep).toMatchObject({
+      behavior: "review",
+      stepId: "review",
+      maxCycles: 3,
+      cwd: "/jarvis/worktrees/demo/intent/test",
+      verdictPath: "/jarvis/worktrees/demo/intent/test/.jarvis-intent-review-verdict.md",
+      agents: {
+        critic: ["claude"],
+        actuator: ["claude"],
+      },
+      createBinding,
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "specs/ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: expect.any(String),
+        baseRef: "trunk",
+      },
+    });
+  });
+
+  test("uses the split step local workspace for every reviewed intent path when project specs is external", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-"));
+    const config = join(root, "config.json");
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root, specs: "external" } } }));
+
+    const result = await buildReviewedIntentWorkflowSteps(
+      { cwd: root, seedText: "one thing", configPath: config, jarvisRoot: "/jarvis" },
+      { loadWorkflowSteps: load },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const workspace = "/jarvis/specs/demo/intent-work/one-thing";
+    const reviewStep = result.steps[1];
+    if (reviewStep?.behavior !== "review") throw new Error("expected review step");
+    expect(reviewStep).toMatchObject({
+      cwd: workspace,
+      verdictPath: `${workspace}/.jarvis-intent-review-verdict.md`,
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "/jarvis/specs/demo/ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: expect.any(String),
+        baseRef: "none",
+      },
+    });
+  });
+
+  test("returns unchanged loader failures before daemon contact", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "reviewed-intent-"));
+    writeFileSync(join(root, "test.md"), "test", "utf8");
+    let calls = 0;
+
+    const result = await buildReviewedIntentWorkflowSteps(
+      { cwd: root, seed: "test.md", targetDir: "specs", reviewPasses: 1 },
+      {
+        resolveProjectMatch: () => ({ ...match, root }),
+        loadWorkflowSteps: () => {
+          calls += 1;
+          throw new Error("Workflow step role validation failed: missing binding (review, critic, claude)");
+        },
+        resolveBaseBranch: () => "trunk",
+      },
+    );
+
+    expect(calls).toBe(1);
+    expect(result).toEqual({
+      ok: false,
+      error: "Workflow step role validation failed: missing binding (review, critic, claude)",
+    });
+  });
+});
+
+function stageExternalSeed(options: { external?: true }) {
+  const root = trackedMkdtempSync(join(tmpdir(), "intent-external-seed-"));
+  const jarvisRoot = join(root, "jarvis");
+  const config = join(root, "config.json");
+  const projectKey = options.external === true ? "Org/Repo" : "demo";
+  const seedsHome = join(jarvisRoot, "specs", projectSafeId(projectKey), "seeds");
+  mkdirSync(seedsHome, { recursive: true });
+  const externalSeed = join(seedsHome, "feature.md");
+  writeFileSync(externalSeed, "feature", "utf8");
+  writeFileSync(
+    config,
+    JSON.stringify({
+      projects: { [projectKey]: { root, ...(options.external === true ? { specs: "external" } : { specs: "repo" }) } },
+    }),
+  );
+  return { root, jarvisRoot, config, projectKey, externalSeed };
+}

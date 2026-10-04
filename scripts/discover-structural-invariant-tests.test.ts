@@ -10,19 +10,19 @@ import {
 // guarantee changing. What must hold is that each file is selected by some rule rather than by a
 // path allowlist, so these are asserted in-scope with a named rule, not a pinned one.
 const SEED_EXAMPLE_FILES: readonly string[] = [
-  "v2/src/execution/execution-terminal-settlement-guard.test.ts",
-  "v2/src/daemon/daemon-test-inventory.test.ts",
-  "v2/src/execution/workflow-runner-resume-inventory.test.ts",
-  "v2/src/execution/workflow-runner-resume-structure.test.ts",
-  "v2/src/execution/diff-derived-mutation-verifier.test.ts",
-  "v2/src/daemon/daemon-workflow-start.test.ts",
-  "v2/src/shared/module-boundary-surfaces.test.ts",
+  "src/execution/execution-terminal-settlement-guard.test.ts",
+  "src/daemon/daemon-test-inventory.test.ts",
+  "src/execution/workflow-runner-resume-inventory.test.ts",
+  "src/execution/workflow-runner-resume-structure.test.ts",
+  "src/execution/diff-derived-mutation-verifier.test.ts",
+  "src/daemon/daemon-workflow-start.test.ts",
+  "src/shared/module-boundary-surfaces.test.ts",
 ];
 
 // Reads its production path through a variable (`readFileSync(sourcePath, "utf8")`) and mirrors a
 // production registry under a plural name. Both shapes were missed by the first implementation,
 // which required a literal production path inside the call text and an exact `BASELINE` suffix.
-const COMPUTED_PATH_READ_FILE = "v2/src/shared/prompts/review-implement-growth-budget.test.ts";
+const COMPUTED_PATH_READ_FILE = "src/shared/prompts/review-implement-growth-budget.test.ts";
 
 describe("discover structural invariant tests", () => {
   test("discovery emits in-scope for a source-reading test file", () => {
@@ -32,8 +32,8 @@ const source = readFileSync(join(import.meta.dir, "workflow-runner.ts"), "utf8")
 test("reads production source", () => {
   expect(source.length).toBeGreaterThan(0);
 });`;
-    expect(classifyStructuralInvariantTestFile("v2/src/execution/example.test.ts", source)).toEqual({
-      "test-path": "v2/src/execution/example.test.ts",
+    expect(classifyStructuralInvariantTestFile("src/execution/example.test.ts", source)).toEqual({
+      "test-path": "src/execution/example.test.ts",
       scope: "in-scope",
       rule: "source-read",
     });
@@ -46,8 +46,8 @@ test("reads production source", () => {
 test("inventory mirrors production routing", () => {
   expect(PERMITTED_HANDLERS).toHaveLength(1);
 });`;
-    expect(classifyStructuralInvariantTestFile("v2/src/daemon/example.test.ts", source)).toEqual({
-      "test-path": "v2/src/daemon/example.test.ts",
+    expect(classifyStructuralInvariantTestFile("src/daemon/example.test.ts", source)).toEqual({
+      "test-path": "src/daemon/example.test.ts",
       scope: "in-scope",
       rule: "registry-mirror",
     });
@@ -59,8 +59,8 @@ import { add } from "./math.ts";
 test("adds numbers", () => {
   expect(add(1, 2)).toBe(3);
 });`;
-    expect(classifyStructuralInvariantTestFile("v2/src/shared/math.test.ts", source)).toEqual({
-      "test-path": "v2/src/shared/math.test.ts",
+    expect(classifyStructuralInvariantTestFile("src/shared/math.test.ts", source)).toEqual({
+      "test-path": "src/shared/math.test.ts",
       scope: "out-of-scope",
       rule: "no-structural-signal",
     });

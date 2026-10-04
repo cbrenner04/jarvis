@@ -93,7 +93,7 @@ function allowedByMarker(lines: readonly string[], line: number): boolean {
 
 export function findUnboundedSubprocessViolations(files: readonly SourceFile[]): UnboundedSubprocessViolation[] {
   return files.flatMap(({ file, source }) => {
-    if (!isProductionSourceFile(file) || file.startsWith("v2/docs/")) return [];
+    if (!isProductionSourceFile(file) || file.startsWith("docs/")) return [];
     const lines = source.split("\n");
     const violations: UnboundedSubprocessViolation[] = [];
     const report = (index: number, name: string) => {

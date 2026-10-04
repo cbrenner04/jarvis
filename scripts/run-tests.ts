@@ -1,27 +1,33 @@
-import { aggregateExitCode, defaultSpawn, resolveConcurrency, runV2TestFiles, v2Tests } from "./run-v2-tests.ts";
+import {
+  aggregateExitCode,
+  defaultSpawn,
+  resolveConcurrency,
+  runSliceTestFiles,
+  sliceTests,
+} from "./run-slice-tests.ts";
 
 /** Aggregate suite: agent and integration tests both run through the pooled per-file seam. */
 export function aggregateTestFiles(): { agent: string[]; integration: string[] } {
   return {
-    agent: v2Tests("agent"),
-    integration: v2Tests("integration"),
+    agent: sliceTests("agent"),
+    integration: sliceTests("integration"),
   };
 }
 
 export async function runAggregateTests(
   concurrency?: number,
-  spawn: Parameters<typeof runV2TestFiles>[2] = defaultSpawn,
+  spawn: Parameters<typeof runSliceTestFiles>[2] = defaultSpawn,
 ): Promise<number> {
   const conc = concurrency ?? resolveConcurrency();
   const { agent, integration } = aggregateTestFiles();
 
   if (agent.length > 0) {
-    const code = aggregateExitCode(await runV2TestFiles("agent", agent, spawn, "", conc));
+    const code = aggregateExitCode(await runSliceTestFiles("agent", agent, spawn, "", conc));
     if (code !== 0) return code;
   }
 
   if (integration.length > 0) {
-    const code = aggregateExitCode(await runV2TestFiles("integration", integration, spawn, "", conc));
+    const code = aggregateExitCode(await runSliceTestFiles("integration", integration, spawn, "", conc));
     if (code !== 0) return code;
   }
 

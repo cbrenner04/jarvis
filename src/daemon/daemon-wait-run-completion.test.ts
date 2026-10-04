@@ -1,0 +1,1802 @@
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { RpcHandler } from "../ipc/server.ts";
+import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
+import {
+  createRunControlHandlers,
+  projectWorkflowEntryResult,
+  reviewFeedbackItemIdsProjection,
+  type WriteLoopBindingSourceDeps,
+} from "./daemon.ts";
+
+type Handlers = ReturnType<typeof createRunControlHandlers>;
+
+let stateStore: StateStore;
+let stateStorePath: string;
+let logSink: LogSink;
+let logsPath: string;
+let handlers: Handlers;
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
+
+const WAIT_COMPLETION_MACHINE_PROFILE = "wait-completion-profile";
+const TIMEOUT_FIRST_SUBSPEC = "spec/implement/00-first.md";
+const TIMEOUT_SECOND_SUBSPEC = "spec/implement/01-second.md";
+const OPERATOR_FAILURE_RECORD: OperatorFailureRecord = {
+  expectation: "ready gate passes",
+  observation: "ready gate exited 1",
+  nearMiss: "typecheck passed",
+  retryable: true,
+  referencedPaths: [
+    { path: "src/daemon/daemon.ts", origin: "harness-internal" },
+    { path: "spec.md", origin: "operator-repository" },
+  ],
+};
+
+function installWaitCompletionMachineProfile(): void {
+  const profileHome = trackedMkdtempSync(join(tmpdir(), "jarvis-wait-completion-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string, priceKey: string) => ({ rungs: [{ adapterModel, priceKey }] });
+  const codexRoles = {
+    plan: rung("plan", "plan"),
+    implement: rung("M1", "P1"),
+    shrink: rung("S1", "S1"),
+    adversary: rung("adv", "adv"),
+    critic: rung("crit", "crit"),
+    advocate: rung("advoc", "advoc"),
+    adjudicator: rung("adj", "adj"),
+    actuator: rung("act", "act"),
+    routing: rung("act", "act"),
+  };
+  writeFileSync(
+    join(machinesDir, `${WAIT_COMPLETION_MACHINE_PROFILE}.json`),
+    JSON.stringify({ models: { codex: codexRoles } }),
+  );
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: WAIT_COMPLETION_MACHINE_PROFILE, agents: ["codex"] }),
+  );
+  writeLoopBindingSourceDeps = {
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  };
+}
+
+function createRun(): string {
+  return stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: `test-branch-${crypto.randomUUID()}`,
+    specPath: "/tmp/test-project/spec.md",
+  });
+}
+
+function finishLoop(runId: string, status: RunStatus, iterationsConsumed = 1): void {
+  stateStore.setRunStatus(runId, status);
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: status === "blocked" ? "blocked" : "complete",
+    iterationsConsumed,
+    resumable: status === "paused" || status === "budget-soft-stopped",
+  });
+}
+
+function createImplementRun(): string {
+  return stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: `test-branch-${crypto.randomUUID()}`,
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot: {
+      invocationId: "inv-implement",
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "retry rules",
+          expectedArtifactPath: "/tmp/test-project/artifact",
+          agents: ["codex"],
+          agentModelConfig: {
+            codex: {
+              implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+              shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+            },
+          },
+        },
+      ],
+    },
+  });
+}
+
+function failRun(runId: string): void {
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, { kind: "run_execution_failed" });
+}
+
+type RpcResult = Awaited<ReturnType<RpcHandler>>;
+
+async function waitDirect(id: string, runId: string, signal = new AbortController().signal): Promise<RpcResult> {
+  return handlers.wait({ kind: "request", id, method: "wait", params: { runId } }, signal);
+}
+
+async function listDirect(id = "list"): Promise<RpcResult> {
+  return handlers.list({ kind: "request", id, method: "list" }, new AbortController().signal);
+}
+
+async function expectResponse(frame: RpcResult): Promise<Record<string, unknown>> {
+  expect(frame.kind).toBe("response");
+  if (frame.kind !== "response") throw new Error("not a response");
+  return frame.result as Record<string, unknown>;
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+async function waitForInProgress(runId: string): Promise<void> {
+  await waitFor(() => stateStore.loadRun(runId)?.status === "in-progress");
+}
+
+beforeEach(() => {
+  installWaitCompletionMachineProfile();
+  const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
+  stateStorePath = join(tmpdir(), `jarvis-wait-state-${unique}.db`);
+  stateStore = openStateStore(stateStorePath);
+  logsPath = join(tmpdir(), `jarvis-wait-logs-${unique}.jsonl`);
+  logSink = openLogSink(logsPath);
+  handlers = createRunControlHandlers({
+    stateStore,
+    logReader: openLogReader(logsPath),
+    writeLoopExecutor: async () => undefined,
+    failureReporter: () => undefined,
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
+  });
+});
+
+afterEach(() => {
+  handlers.close();
+  logSink.close();
+  stateStore.close();
+  rmSync(logsPath, { force: true });
+});
+
+test("wait rejects missing and unknown runId before following logs", async () => {
+  const missing = await waitDirect("missing", "");
+  expect(missing.kind).toBe("error");
+  expect(missing.kind === "error" && missing.code).toBe("invalid_params");
+
+  const unknown = await waitDirect("unknown", "nope");
+  expect(unknown.kind).toBe("error");
+  expect(unknown.kind === "error" && unknown.code).toBe("unknown_run");
+});
+
+test("wait returns immediately for quiescent run with last loop_finished payload", async () => {
+  const runId = createRun();
+  finishLoop(runId, "completed", 3);
+
+  const result = await expectResponse(await waitDirect("wait", runId));
+
+  expect(result).toEqual({
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 3,
+    resumable: false,
+  });
+});
+
+test("wait returns only the stored operator failure record", async () => {
+  const recordedRunId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId: recordedRunId,
+    status: "failed",
+    terminalCause: "ready_gate_failed",
+    operatorFailureRecord: OPERATOR_FAILURE_RECORD,
+  });
+  const absentRunId = createRun();
+  stateStore.commitTerminalRunSettlement({ runId: absentRunId, status: "failed", terminalCause: "ready_gate_failed" });
+
+  const recorded = await expectResponse(await waitDirect("recorded-failure", recordedRunId));
+  const absent = await expectResponse(await waitDirect("absent-failure", absentRunId));
+
+  expect(recorded.failure).toEqual(OPERATOR_FAILURE_RECORD);
+  expect(absent).not.toHaveProperty("failure");
+});
+
+test("list and wait omit a corrupt operator failure record while retaining error", async () => {
+  const runId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "failed",
+    terminalCause: "ready_gate_failed",
+    operatorFailureRecord: OPERATOR_FAILURE_RECORD,
+  });
+  const raw = new Database(stateStorePath);
+  raw.prepare("UPDATE runs SET operator_failure_record = ? WHERE id = ?").run("{not-json", runId);
+  raw.close();
+
+  const list = await expectResponse(await listDirect("corrupt-failure-list"));
+  const row = (list.runs as Array<Record<string, unknown>>).find((candidate) => candidate.runId === runId);
+  const waited = await expectResponse(await waitDirect("corrupt-failure-wait", runId));
+
+  expect(row).not.toHaveProperty("failure");
+  expect(row).toHaveProperty("error");
+  expect(waited).not.toHaveProperty("failure");
+  expect(waited).toHaveProperty("error");
+});
+
+test("workflow entry payload omits absent optional outcome fields", () => {
+  const present = projectWorkflowEntryResult(
+    {
+      runStatus: "failed",
+      loopOutcomeKind: "surviving_mutation_failed",
+      iterationsConsumed: 3,
+      resumable: true,
+      failure: OPERATOR_FAILURE_RECORD,
+    },
+    false,
+  );
+  expect(present).toMatchObject({
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: false,
+    failure: OPERATOR_FAILURE_RECORD,
+  });
+
+  const absent = projectWorkflowEntryResult({ runStatus: "failed" }, false);
+  expect(absent).not.toHaveProperty("loopOutcomeKind");
+  expect(absent).not.toHaveProperty("iterationsConsumed");
+  expect(absent).not.toHaveProperty("resumable");
+  expect(absent).not.toHaveProperty("failure");
+
+  const partial = projectWorkflowEntryResult(
+    { runStatus: "failed", loopOutcomeKind: "surviving_mutation_failed" },
+    false,
+  );
+  expect(partial).toMatchObject({ loopOutcomeKind: "surviving_mutation_failed" });
+  expect(partial).not.toHaveProperty("iterationsConsumed");
+  expect(partial).not.toHaveProperty("resumable");
+});
+
+test("wait on resumed in-progress run ignores historical loop_finished and resolves on next edge", async () => {
+  const runId = createRun();
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "progress",
+    iterationsConsumed: 1,
+    resumable: true,
+  });
+  const pending = waitDirect("wait", runId);
+
+  await waitForInProgress(runId);
+  finishLoop(runId, "completed", 2);
+  const result = await expectResponse(await pending);
+
+  expect(result).toMatchObject({ runStatus: "completed", iterationsConsumed: 2 });
+});
+
+test("two concurrent waits resolve with the same terminal payload", async () => {
+  const runId = createRun();
+  const first = waitDirect("w1", runId);
+  const second = waitDirect("w2", runId);
+
+  await waitForInProgress(runId);
+  finishLoop(runId, "blocked", 4);
+  const firstResult = await expectResponse(await first);
+  const secondResult = await expectResponse(await second);
+
+  expect(firstResult).toEqual(secondResult);
+  expect(firstResult).toMatchObject({
+    runStatus: "blocked",
+    loopOutcomeKind: "blocked",
+    iterationsConsumed: 4,
+  });
+});
+
+test("pending wait does not block other RPCs on the same connection", async () => {
+  const runId = createRun();
+  const pending = waitDirect("wait", runId);
+
+  const listFrame = await listDirect();
+  expect(listFrame.kind).toBe("response");
+  expect(listFrame.kind === "response" && (listFrame.result as { runs?: unknown[] }).runs?.length).toBe(1);
+
+  finishLoop(runId, "completed", 1);
+  const waitFrame = await pending;
+  expect(waitFrame.kind).toBe("response");
+});
+
+test("disconnecting one wait client leaves other waiters and durable status alone", async () => {
+  const runId = createRun();
+  const firstController = new AbortController();
+  const firstWait = waitDirect("first", runId, firstController.signal);
+  const secondWait = waitDirect("second", runId);
+
+  await waitForInProgress(runId);
+  firstController.abort();
+  await expect(firstWait).rejects.toThrow();
+  expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
+
+  finishLoop(runId, "completed", 1);
+  const result = await expectResponse(await secondWait);
+  expect(result.runStatus).toBe("completed");
+});
+
+test("wait resolves failed run_execution_failed without loop fields", async () => {
+  const runId = createRun();
+  const pending = waitDirect("wait", runId);
+
+  await waitForInProgress(runId);
+  failRun(runId);
+  const result = await expectResponse(await pending);
+
+  expect(result).toEqual({
+    runStatus: "failed",
+    resumable: false,
+    error: { reason: "harness_failure", retryable: false, nextAction: "stop" },
+  });
+});
+
+test("list and wait project persisted binding-chain invocation stderr onto the operator error", async () => {
+  const runId = createRun();
+  const message = "final binding stderr\nsecond line";
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message },
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+
+  const expectedError = { reason: "invocation_error", retryable: false, nextAction: "stop", message };
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; error?: unknown }>).find((candidate) => candidate.runId === runId);
+  expect(row?.error).toEqual(expectedError);
+  expect(await expectResponse(await waitDirect("invocation-stderr", runId))).toEqual({
+    runStatus: "failed",
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 1,
+    resumable: false,
+    error: expectedError,
+  });
+});
+
+test("list and wait project the identical composed invocation_error for a settled prompt-echo run", async () => {
+  const runId = createRun();
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: {
+      failureKind: "error",
+      echoedInput: true,
+      bindingAttempts: [{ bindingId: "claude-1", resultKind: "error", agent: "claude", model: "sonnet" }],
+    },
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+
+  const expectedError = {
+    reason: "invocation_error",
+    retryable: false,
+    nextAction: "stop",
+    message: "invocation_error: claude-1 (claude/sonnet): error",
+  };
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; error?: unknown }>).find((candidate) => candidate.runId === runId);
+  expect(row?.error).toEqual(expectedError);
+  expect(await expectResponse(await waitDirect("echoed-invocation", runId))).toEqual({
+    runStatus: "failed",
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 1,
+    resumable: false,
+    error: expectedError,
+  });
+});
+
+test("wait resolve payload includes the same error object as list for the same run", async () => {
+  const runId = createRun();
+  stateStore.setRunStatus(runId, "killed");
+
+  const listFrame = await listDirect();
+  expect(listFrame.kind).toBe("response");
+  const listError =
+    listFrame.kind === "response"
+      ? (listFrame.result as { runs?: Array<{ runId: string; error?: unknown }> }).runs?.find(
+          (row) => row.runId === runId,
+        )?.error
+      : undefined;
+
+  const waitResult = await expectResponse(await waitDirect("wait", runId));
+  // Durable status alone (no terminal log signal) resolves the wait.
+  expect(waitResult.runStatus).toBe("killed");
+  expect(waitResult.error).toEqual(listError);
+  expect(waitResult.error).toEqual({
+    reason: "unsupported_resume_context",
+    retryable: false,
+    nextAction: "stop",
+  });
+});
+
+test("close() rejects an in-flight wait", async () => {
+  const runId = createRun();
+  const pending = waitDirect("wait", runId);
+
+  await waitForInProgress(runId);
+  handlers.close();
+
+  await expect(pending).rejects.toThrow();
+  expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
+});
+
+test("wait resolves when a second sink appends the terminal event to the same run", async () => {
+  const runId = createRun();
+  const pending = waitDirect("wait", runId);
+
+  await waitForInProgress(runId);
+  const secondSink = openLogSink(logsPath);
+  stateStore.setRunStatus(runId, "completed");
+  secondSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 2,
+    resumable: false,
+  });
+  secondSink.close();
+
+  const result = await expectResponse(await pending);
+  expect(result).toEqual({
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 2,
+    resumable: false,
+  });
+});
+
+test("list and wait preserve failed hidden-shrink publication evidence and resumability", async () => {
+  const invocationId = "inv-failed-shrink-publication";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/test-project/artifact",
+        agents: ["codex"],
+        agentModelConfig: {
+          codex: {
+            implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+          },
+        },
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "failed-shrink",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const shrinkRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "failed-shrink",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement~shrink",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  const completionCommitError = "failed to push some refs to 'origin/failed-shrink'";
+  stateStore.setRunStatus(shrinkRunId, "failed");
+  logSink.append(shrinkRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    completionCommitError,
+    publicationFailure: {
+      operation: "push",
+      message: "remote rejected",
+      exitCode: 7,
+      stdoutTail: "out",
+      stderrTail: "err",
+    },
+  });
+
+  const expectedShrinkError = {
+    reason: "completion_commit_failed",
+    nextAction: "resume",
+    completionCommitError,
+    publicationFailure: { operation: "push", exitCode: 7, stderrTail: "err" },
+  };
+
+  const list = await expectResponse(await listDirect());
+  const rows = list.runs as Array<{ runId: string; status: string; error?: unknown }>;
+  expect(rows.find((row) => row.runId === entryRunId)?.status).toBe("failed");
+  expect(rows.find((row) => row.runId === shrinkRunId)).toMatchObject({
+    status: "failed",
+    error: expectedShrinkError,
+  });
+  expect(await expectResponse(await waitDirect("failed-shrink", shrinkRunId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "completion_commit_failed",
+    resumable: true,
+    error: expectedShrinkError,
+  });
+});
+
+test("list and wait project dirty no-work refusal with uncommitted paths", async () => {
+  const runId = createImplementRun();
+  const completionCommitError = "Uncommitted changes: left-dirty.txt";
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+    completionCommitError,
+  });
+
+  const expectedError = {
+    reason: "completion_commit_failed",
+    retryable: true,
+    nextAction: "resume",
+    completionCommitError,
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", error: expectedError });
+
+  expect(await expectResponse(await waitDirect("dirty-no-work", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "completion_commit_failed",
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test("list and wait expose the same terminal landing message", async () => {
+  const runId = createImplementRun();
+  const message = "intent: splitter wrote outside .jarvis-intent-stage/: rogue.txt";
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "landing_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+    message,
+  });
+  const expectedError = { reason: "landing_failed", retryable: true, nextAction: "resume", message };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", resumable: true, error: expectedError });
+  expect(await expectResponse(await waitDirect("landing-message", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "landing_failed",
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test("list and wait project gate refusal cause, remedy message, and slot count/bound", async () => {
+  const cases = [
+    {
+      state: { cause: "ceiling_headroom" as const, gateCommand: "bun run test:agent", slotRedriveCount: 0 },
+      expected: {
+        reason: "gate_invocation_refused",
+        nextAction: "resume",
+        gateRefusalCause: "ceiling_headroom",
+        message: "Gate invocation refused: bun run test:agent",
+      },
+    },
+    {
+      state: { cause: "slot_contention" as const, gateCommand: "bun run test:agent", slotRedriveCount: 3 },
+      expected: {
+        reason: "gate_invocation_refused",
+        nextAction: "resume",
+        gateRefusalCause: "slot_contention",
+        slotRedriveCount: 3,
+        slotRedriveBound: 3,
+      },
+    },
+  ];
+  for (const { state, expected } of cases) {
+    const runId = createImplementRun();
+    stateStore.commitCompletionBoundary({
+      attemptId: stateStore.recordAttemptStart(runId),
+      runStatus: "failed",
+      outcomeKind: "gate_invocation_refused",
+      terminalCause: "gate_invocation_refused",
+      gateRefusalRecoveryState: state,
+    });
+    logSink.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "gate_invocation_refused",
+      iterationsConsumed: 1,
+      resumable: true,
+      gateCommand: "bun run test:agent",
+    });
+
+    const list = await expectResponse(await listDirect());
+    const row = (list.runs as Array<{ runId: string; error?: { message?: string } }>).find(
+      (candidate) => candidate.runId === runId,
+    );
+    expect(row?.error).toMatchObject(expected);
+    const waited = (await expectResponse(await waitDirect(`gate-refusal-${state.cause}`, runId))) as {
+      error?: { message?: string };
+    };
+    expect(waited.error).toEqual(row?.error);
+    if (state.cause === "slot_contention") {
+      expect(row?.error?.message).toContain("automatic slot re-drives exhausted (3/3)");
+    }
+  }
+});
+
+test("list and wait project resumable iteration_timeout as resume", async () => {
+  const runId = createImplementRun();
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    completedSubspecPaths: [TIMEOUT_FIRST_SUBSPEC],
+    remainingSubspecPaths: [TIMEOUT_SECOND_SUBSPEC],
+  });
+
+  const expectedError = {
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths: [TIMEOUT_FIRST_SUBSPEC],
+    remainingSubspecPaths: [TIMEOUT_SECOND_SUBSPEC],
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", resumable: true, error: expectedError });
+
+  expect(await expectResponse(await waitDirect("timeout-resumable", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test("list and wait project non-resumable iteration_timeout as stop", async () => {
+  const runId = createRun();
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 1,
+    resumable: false,
+    completedSubspecPaths: [],
+    remainingSubspecPaths: [TIMEOUT_FIRST_SUBSPEC, TIMEOUT_SECOND_SUBSPEC],
+  });
+
+  const expectedError = {
+    reason: "iteration_timeout",
+    retryable: false,
+    nextAction: "stop",
+    completedSubspecPaths: [],
+    remainingSubspecPaths: [TIMEOUT_FIRST_SUBSPEC, TIMEOUT_SECOND_SUBSPEC],
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", resumable: false, error: expectedError });
+
+  expect(await expectResponse(await waitDirect("timeout-non-resumable", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 1,
+    resumable: false,
+    error: expectedError,
+  });
+});
+
+test("list and wait project resumable idle_output_timeout as resume", async () => {
+  const runId = createImplementRun();
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "idle_output_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+  });
+
+  const expectedError = {
+    reason: "idle_output_timeout",
+    retryable: true,
+    nextAction: "resume",
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", resumable: true, error: expectedError });
+
+  expect(await expectResponse(await waitDirect("idle-timeout-resumable", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "idle_output_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test.each([
+  {
+    label: "non-resumable",
+    waitId: "idle-timeout-non-resumable",
+    prepare: (runId: string) => {
+      stateStore.setRunStatus(runId, "failed");
+      logSink.append(runId, {
+        kind: "loop_finished",
+        loopOutcomeKind: "idle_output_timeout",
+        iterationsConsumed: 1,
+        resumable: false,
+      });
+    },
+    waitExtra: { loopOutcomeKind: "idle_output_timeout" as const, iterationsConsumed: 1 },
+  },
+  {
+    label: "attempt-only",
+    waitId: "idle-timeout-attempt-only",
+    prepare: (runId: string) => {
+      const attemptId = stateStore.recordAttemptStart(runId);
+      stateStore.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "idle_output_timeout",
+      });
+    },
+    waitExtra: {},
+  },
+] as const)("list and wait project $label idle_output_timeout as stop", async ({ waitId, prepare, waitExtra }) => {
+  const runId = createImplementRun();
+  prepare(runId);
+
+  const expectedError = {
+    reason: "idle_output_timeout",
+    retryable: false,
+    nextAction: "stop",
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", error: expectedError });
+  expect(row?.resumable ?? false).toBe(false);
+
+  const waitResult = await expectResponse(await waitDirect(waitId, runId));
+  expect(waitResult).toMatchObject({ runStatus: "failed", error: expectedError, ...waitExtra });
+  expect(waitResult.resumable ?? false).toBe(false);
+});
+
+test("list and wait prefer resumable idle_output_timeout over blocked last attempt", async () => {
+  const runId = createImplementRun();
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: "blocked" });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "idle_output_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+  });
+
+  const expectedError = {
+    reason: "idle_output_timeout",
+    retryable: true,
+    nextAction: "resume",
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "blocked", error: expectedError });
+
+  expect(await expectResponse(await waitDirect("idle-timeout-over-blocked", runId))).toMatchObject({
+    runStatus: "blocked",
+    loopOutcomeKind: "idle_output_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test("list and wait prefer resumable iteration_timeout over blocked last attempt", async () => {
+  const runId = createImplementRun();
+  const completedSubspecPaths = [TIMEOUT_FIRST_SUBSPEC];
+  const remainingSubspecPaths = [TIMEOUT_SECOND_SUBSPEC];
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: "blocked" });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+
+  const expectedError = {
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "blocked", error: expectedError });
+
+  expect(await expectResponse(await waitDirect("timeout-over-blocked", runId))).toMatchObject({
+    runStatus: "blocked",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test("list and wait carry iteration_timeout completion inventory", async () => {
+  const runId = createImplementRun();
+  const completedSubspecPaths = [TIMEOUT_FIRST_SUBSPEC];
+  const remainingSubspecPaths = [TIMEOUT_SECOND_SUBSPEC];
+  const publicationFailure = {
+    operation: "push" as const,
+    message: "remote rejected",
+    exitCode: 7,
+    stdoutTail: "out",
+    stderrTail: "err",
+  };
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    completedSubspecPaths,
+    remainingSubspecPaths,
+    publicationFailure,
+  });
+
+  const expectedError = {
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+    publicationFailure: { operation: "push", exitCode: 7, stderrTail: "err" },
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; error?: unknown }>).find((candidate) => candidate.runId === runId);
+  expect(row?.error).toMatchObject(expectedError);
+
+  expect(await expectResponse(await waitDirect("timeout-inventory", runId))).toMatchObject({
+    runStatus: "failed",
+    error: expectedError,
+  });
+});
+
+test("list and wait report contractMissDetail from persisted contract_miss_detail for contract_miss", async () => {
+  const failureReason =
+    "plan draft normalizer: acceptance bullets must enumerate a single touched surface per criterion";
+  const runId = createRun();
+  logSink.append(runId, {
+    kind: "contract_miss_detail",
+    attemptId: "attempt-1",
+    failedContractId: "plan.draft.shape",
+    responseText: "agent stdout excerpt",
+    failureReason,
+  });
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "contract_miss",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+
+  const expectedError = {
+    reason: "contract_miss",
+    retryable: false,
+    nextAction: "inspect_spec",
+    contractMissDetail: failureReason,
+  };
+  // guard inversion checkpoint: contract_miss_detail.failureReason → contractMissDetail (composeRunOperatorError in run-operator-error.ts)
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", error: expectedError });
+  expect(await expectResponse(await waitDirect("contract-miss-detail", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "contract_miss",
+    iterationsConsumed: 1,
+    resumable: false,
+    error: expectedError,
+  });
+});
+
+test("list and wait report surviving_mutation_failed as failed, resumable, and mutation-specific", async () => {
+  const workflowSnapshot = {
+    invocationId: "inv-surviving-mutation",
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/test-project/artifact",
+        agents: ["codex"],
+        agentModelConfig: {
+          codex: {
+            implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+          },
+        },
+      },
+    ],
+  };
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
+  });
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({
+    status: "failed",
+    error: {
+      reason: "surviving_mutation_failed",
+      retryable: true,
+      nextAction: "resume",
+      survivingMutation: "operator-flip: === → !==",
+      survivingMutationSourceFile: "src/guard.ts",
+      survivingMutationSourceLine: 17,
+    },
+  });
+  expect(await expectResponse(await waitDirect("surviving-mutation", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: true,
+    error: {
+      reason: "surviving_mutation_failed",
+      retryable: true,
+      nextAction: "resume",
+      survivingMutation: "operator-flip: === → !==",
+      survivingMutationSourceFile: "src/guard.ts",
+      survivingMutationSourceLine: 17,
+    },
+  });
+});
+
+test("workflow entry wait and list report surviving_mutation_failed from hidden shrink after implement completes", async () => {
+  const invocationId = "inv-entry-surviving-mutation";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+        agentModelConfig: {
+          codex: {
+            implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+          },
+        },
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const shrinkRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement~shrink",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(shrinkRunId, "failed");
+  logSink.append(shrinkRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
+  });
+
+  const expectedError = {
+    reason: "surviving_mutation_failed",
+    retryable: false,
+    nextAction: "stop",
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
+  };
+  const wait = await expectResponse(await waitDirect("entry-surviving-mutation", entryRunId));
+  expect(wait).toEqual({
+    runStatus: "failed",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: false,
+    error: expectedError,
+  });
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry).toEqual(
+    expect.objectContaining({
+      runId: entryRunId,
+      status: "failed",
+      loopOutcomeKind: "surviving_mutation_failed",
+      iterationsConsumed: 3,
+      resumable: false,
+      error: expectedError,
+    }),
+  );
+  expect(entry?.error).not.toEqual(expect.objectContaining({ nextAction: "resume" }));
+});
+
+test("workflow entry wait and list report surviving_mutation_failed owned by a durable review step", async () => {
+  const invocationId = "inv-entry-review-surviving-mutation";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+      {
+        stepId: "implement-review",
+        role: "review",
+        behavior: "review" as const,
+        stepRules: "review rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const reviewRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-review",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(reviewRunId, "failed");
+  logSink.append(reviewRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 42,
+  });
+
+  const expectedError = {
+    reason: "surviving_mutation_failed",
+    retryable: false,
+    nextAction: "stop",
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 42,
+  };
+  const wait = await expectResponse(await waitDirect("entry-review-surviving-mutation", entryRunId));
+  expect(wait).toEqual({
+    runStatus: "failed",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: false,
+    error: expectedError,
+  });
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry).toEqual(
+    expect.objectContaining({
+      runId: entryRunId,
+      status: "failed",
+      loopOutcomeKind: "surviving_mutation_failed",
+      iterationsConsumed: 2,
+      resumable: false,
+      error: expectedError,
+    }),
+  );
+});
+
+test("workflow entry wait and list preserve mutation_repair_exhausted guidance", async () => {
+  const invocationId = "inv-entry-review-mutation-repair-exhausted";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+      {
+        stepId: "implement-review",
+        role: "review",
+        behavior: "review" as const,
+        stepRules: "rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+    ],
+  };
+  const base = {
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-mutation-repair-exhausted",
+    specPath: "/tmp/test-project/spec.md",
+    workflowSnapshot,
+  };
+  const entryRunId = stateStore.createRun({ ...base, stepId: "implement" });
+  const reviewRunId = stateStore.createRun({ ...base, stepId: "implement-review" });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(reviewRunId, "failed");
+  logSink.append(reviewRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "mutation_repair_exhausted",
+    iterationsConsumed: 3,
+    resumable: false,
+  });
+
+  const expectedError = { reason: "mutation_repair_exhausted", retryable: false, nextAction: "inspect_spec" };
+  expect(await expectResponse(await waitDirect("entry-review-mutation-repair-exhausted", entryRunId))).toEqual({
+    runStatus: "failed",
+    loopOutcomeKind: "mutation_repair_exhausted",
+    iterationsConsumed: 3,
+    resumable: false,
+    error: expectedError,
+  });
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; error?: unknown }>).find((row) => row.runId === entryRunId);
+  expect(entry).toEqual(expect.objectContaining({ error: expectedError }));
+});
+
+test("workflow entry owner adoption stays confined to a failed rollup", async () => {
+  const invocationId = "inv-entry-non-failed-rollup";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+      {
+        stepId: "implement-review",
+        role: "review",
+        behavior: "review" as const,
+        stepRules: "review rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-non-failed-rollup",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const reviewRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/review-worktree",
+    branch: "entry-non-failed-rollup",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-review",
+    workflowSnapshot,
+  });
+  // An orphaned sibling row (stale, no longer part of the current snapshot's step list) still
+  // qualifies as a candidate for the widened owner search, but must not be adopted while the
+  // rollup is not `failed`.
+  const orphanRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-non-failed-rollup",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-audit",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(reviewRunId, "blocked");
+  stateStore.setRunStatus(orphanRunId, "failed");
+  logSink.append(orphanRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 9,
+  });
+
+  const wait = await expectResponse(await waitDirect("entry-non-failed-rollup", entryRunId));
+  expect(wait.runStatus).toBe("blocked");
+  expect(wait).not.toHaveProperty("survivingMutation");
+  expect(wait).toHaveProperty("worktreePath", "/tmp/test-project");
+  if (wait.error !== undefined) {
+    expect(wait.error).not.toMatchObject({ reason: "surviving_mutation_failed" });
+  }
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry?.status).toBe("blocked");
+  if (entry?.error !== undefined) {
+    expect(entry.error).not.toMatchObject({ reason: "surviving_mutation_failed" });
+  }
+});
+
+test("workflow entry owner adoption picks the chronologically last terminal record among multiple candidates", async () => {
+  const invocationId = "inv-entry-tie-break";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+        agentModelConfig: {
+          codex: {
+            implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+          },
+        },
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-tie-break",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const shrinkRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-tie-break",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement~shrink",
+    workflowSnapshot,
+  });
+  const reviewRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-tie-break",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-review",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(shrinkRunId, "failed");
+  logSink.append(shrinkRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    survivingMutation: "earlier candidate",
+    survivingMutationSourceFile: "src/earlier.ts",
+    survivingMutationSourceLine: 1,
+  });
+
+  // Force a distinct millisecond boundary so the two terminal records carry different `ts`
+  // values without relying on a fixed sleep duration.
+  const boundary = Date.now();
+  while (Date.now() === boundary) {
+    /* busy-wait for the next millisecond */
+  }
+
+  stateStore.setRunStatus(reviewRunId, "failed");
+  logSink.append(reviewRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: true,
+    survivingMutation: "later candidate",
+    survivingMutationSourceFile: "src/later.ts",
+    survivingMutationSourceLine: 2,
+  });
+
+  const expectedError = {
+    reason: "surviving_mutation_failed",
+    retryable: false,
+    nextAction: "stop",
+    survivingMutation: "later candidate",
+    survivingMutationSourceFile: "src/later.ts",
+    survivingMutationSourceLine: 2,
+  };
+  const wait = await expectResponse(await waitDirect("entry-tie-break", entryRunId));
+  expect(wait).toMatchObject({ runStatus: "failed", error: expectedError });
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry?.error).toMatchObject(expectedError);
+});
+
+test("workflow entry wait and list preserve complete outcome when a durable review row also succeeds", async () => {
+  const invocationId = "inv-entry-review-complete";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+      {
+        stepId: "implement-review",
+        role: "review",
+        behavior: "review" as const,
+        stepRules: "review rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-complete",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const reviewRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-complete",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-review",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  finishLoop(reviewRunId, "completed", 1);
+
+  const wait = await expectResponse(await waitDirect("entry-review-complete", entryRunId));
+  expect(wait).toMatchObject({ runStatus: "completed", loopOutcomeKind: "complete" });
+  expect(wait).not.toHaveProperty("error");
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry).toMatchObject({ status: "completed", loopOutcomeKind: "complete" });
+  expect(entry?.error).toBeUndefined();
+});
+
+test("workflow entry wait and list preserve complete outcome after hidden shrink completes", async () => {
+  const invocationId = "inv-entry-complete";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-complete",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const shrinkRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-complete",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement~shrink",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  finishLoop(shrinkRunId, "completed", 2);
+
+  expect(await expectResponse(await waitDirect("entry-complete", entryRunId))).toMatchObject({
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
+  });
+  const list = await expectResponse(await listDirect());
+  expect((list.runs as Array<{ runId: string; status: string }>).find((row) => row.runId === entryRunId)).toMatchObject(
+    {
+      status: "completed",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 1,
+      resumable: false,
+    },
+  );
+});
+
+test("workflow wait returns killed when review step never runs and workflow is not live", async () => {
+  const writeStepId = "write-step-killed";
+  const reviewStepId = "review-step-killed";
+  const invocationId = "inv-workflow-killed";
+
+  // Create entry run with workflow snapshot
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "test-branch-workflow-killed",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: writeStepId,
+    workflowSnapshot: {
+      invocationId,
+      steps: [
+        { stepId: writeStepId, role: "implement" },
+        { stepId: reviewStepId, role: "review", behavior: "review" },
+      ],
+    },
+  });
+
+  // Complete write step but don't create review step
+  finishLoop(entryRunId, "completed", 1);
+
+  // Wait should resolve with killed status (review step never ran and workflow not live)
+  const result = await expectResponse(await waitDirect("wait-killed", entryRunId));
+  expect(result.runStatus).toBe("killed");
+});
+
+function settlePublicationRow(
+  runId: string,
+  status: RunStatus,
+  cause: "completion_commit_failed" | "ready_flip_failed",
+) {
+  stateStore.commitTerminalRunSettlement({ runId, status, terminalCause: cause });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: cause,
+    iterationsConsumed: 2,
+    resumable: cause === "completion_commit_failed",
+  });
+}
+
+test("list and wait report failed publication rows as failed and completed rows with the stale cause as successful", async () => {
+  const cases = [
+    { cause: "completion_commit_failed", resumable: true },
+    { cause: "ready_flip_failed", resumable: false },
+  ] as const;
+  for (const { cause, resumable } of cases) {
+    const failedId = createImplementRun();
+    const completedId = createRun();
+    settlePublicationRow(failedId, "failed", cause);
+    settlePublicationRow(completedId, "completed", cause);
+
+    const list = await expectResponse(await listDirect(`list-${cause}`));
+    const rows = list.runs as Array<{ runId: string; status: string; error?: { reason: string } }>;
+    expect(rows.find((row) => row.runId === failedId)).toMatchObject({ status: "failed", error: { reason: cause } });
+    const completedRow = rows.find((row) => row.runId === completedId);
+    expect(completedRow?.status).toBe("completed");
+    expect(completedRow?.error).toBeUndefined();
+
+    expect(await expectResponse(await waitDirect(`wait-failed-${cause}`, failedId))).toMatchObject({
+      runStatus: "failed",
+      loopOutcomeKind: cause,
+      resumable,
+      error: { reason: cause },
+    });
+    const completed = await expectResponse(await waitDirect(`wait-completed-${cause}`, completedId));
+    expect(completed).toMatchObject({ runStatus: "completed", loopOutcomeKind: "complete", resumable: false });
+    expect(completed).not.toHaveProperty("error");
+  }
+});
+
+test("reviewFeedbackItemIdsProjection omits empty buckets and includes all columns when any id is present", () => {
+  expect(reviewFeedbackItemIdsProjection([], [], [])).toEqual({});
+  expect(reviewFeedbackItemIdsProjection(undefined, undefined, undefined)).toEqual({});
+  expect(reviewFeedbackItemIdsProjection(["thread-a"], [], [])).toEqual({
+    reviewFeedbackAddressedItemIds: ["thread-a"],
+    reviewFeedbackDeclinedItemIds: [],
+    reviewFeedbackUnaddressedItemIds: [],
+  });
+});
+
+test("wait and list project review-feedback item id arrays from the terminal loop_finished", async () => {
+  const withIds = createRun();
+  stateStore.setRunStatus(withIds, "completed");
+  logSink.append(withIds, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 1,
+    resumable: false,
+    reviewFeedbackAddressedItemIds: ["thread-addressed"],
+    reviewFeedbackDeclinedItemIds: ["comment-declined"],
+    reviewFeedbackUnaddressedItemIds: ["thread-unaddressed"],
+  });
+
+  expect(await expectResponse(await waitDirect("wait-rf-ids", withIds))).toMatchObject({
+    reviewFeedbackAddressedItemIds: ["thread-addressed"],
+    reviewFeedbackDeclinedItemIds: ["comment-declined"],
+    reviewFeedbackUnaddressedItemIds: ["thread-unaddressed"],
+  });
+
+  const listWithIds = await expectResponse(await listDirect("list-rf-ids"));
+  expect((listWithIds.runs as Array<Record<string, unknown>>).find((row) => row.runId === withIds)).toMatchObject({
+    reviewFeedbackAddressedItemIds: ["thread-addressed"],
+    reviewFeedbackDeclinedItemIds: ["comment-declined"],
+    reviewFeedbackUnaddressedItemIds: ["thread-unaddressed"],
+  });
+
+  const emptyBuckets = createRun();
+  stateStore.setRunStatus(emptyBuckets, "completed");
+  logSink.append(emptyBuckets, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 1,
+    resumable: false,
+    reviewFeedbackAddressedItemIds: [],
+    reviewFeedbackDeclinedItemIds: [],
+    reviewFeedbackUnaddressedItemIds: [],
+  });
+
+  const waitEmpty = await expectResponse(await waitDirect("wait-rf-empty", emptyBuckets));
+  expect(waitEmpty).not.toHaveProperty("reviewFeedbackAddressedItemIds");
+  expect(waitEmpty).not.toHaveProperty("reviewFeedbackDeclinedItemIds");
+  expect(waitEmpty).not.toHaveProperty("reviewFeedbackUnaddressedItemIds");
+
+  const listEmpty = await expectResponse(await listDirect("list-rf-empty"));
+  const emptyRow = (listEmpty.runs as Array<Record<string, unknown>>).find((row) => row.runId === emptyBuckets);
+  expect(emptyRow).not.toHaveProperty("reviewFeedbackAddressedItemIds");
+  expect(emptyRow).not.toHaveProperty("reviewFeedbackDeclinedItemIds");
+  expect(emptyRow).not.toHaveProperty("reviewFeedbackUnaddressedItemIds");
+});
+
+test("list and wait project lane_pr_closed lanePrOutcome and omit stale publication-failure error", async () => {
+  const closedNumber = 88;
+  const runId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: closedNumber,
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    completionCommitError: "stale publication tail",
+    publicationFailure: { operation: "push", message: "remote rejected", exitCode: 7, stderrTail: "err" },
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 2,
+    resumable: false,
+    lanePrOutcome: { kind: "lane_pr_closed", prNumber: closedNumber },
+  });
+
+  const expectedLane = { kind: "lane_pr_closed", prNumber: closedNumber };
+  const list = await expectResponse(await listDirect("list-lane-closed"));
+  const row = (list.runs as Array<Record<string, unknown>>).find((candidate) => candidate.runId === runId);
+  expect(row).toMatchObject({ status: "completed", lanePrOutcome: expectedLane });
+  expect(row?.error).toBeUndefined();
+
+  expect(await expectResponse(await waitDirect("wait-lane-closed", runId))).toMatchObject({
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
+    lanePrOutcome: expectedLane,
+  });
+
+  const staleLogOnlyId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId: staleLogOnlyId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: closedNumber,
+  });
+  logSink.append(staleLogOnlyId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+    completionCommitError: "stale publication tail",
+  });
+  const staleRow = (await expectResponse(await listDirect("list-lane-closed-stale"))).runs as Array<
+    Record<string, unknown>
+  >;
+  expect(staleRow.find((candidate) => candidate.runId === staleLogOnlyId)).toMatchObject({
+    status: "completed",
+    lanePrOutcome: expectedLane,
+  });
+  expect(staleRow.find((candidate) => candidate.runId === staleLogOnlyId)?.error).toBeUndefined();
+});
+
+test("list and wait project lane_pr_merged lanePrOutcome from loop_finished not pr evidence alone", async () => {
+  const mergedNumber = 77;
+  const mergedUrl = `https://github.com/org/repo/pull/${mergedNumber}`;
+  const runId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 1,
+    resumable: false,
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+    lanePrOutcome: { kind: "lane_pr_merged", prNumber: mergedNumber },
+  });
+
+  const expectedLane = { kind: "lane_pr_merged", prNumber: mergedNumber };
+  const list = await expectResponse(await listDirect("list-lane-merged"));
+  const row = (list.runs as Array<Record<string, unknown>>).find((candidate) => candidate.runId === runId);
+  expect(row).toMatchObject({
+    status: "completed",
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+    lanePrOutcome: expectedLane,
+  });
+
+  expect(await expectResponse(await waitDirect("wait-lane-merged", runId))).toMatchObject({
+    runStatus: "completed",
+    lanePrOutcome: expectedLane,
+  });
+});
+
+test("list and wait omit lanePrOutcome when merged history retained only as prNumber and prUrl", async () => {
+  const mergedNumber = 77;
+  const mergedUrl = `https://github.com/org/repo/pull/${mergedNumber}`;
+  const runId = createRun();
+  stateStore.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "complete",
+    prNumber: mergedNumber,
+    prUrl: mergedUrl,
+  });
+  finishLoop(runId, "completed", 1);
+
+  const list = await expectResponse(await listDirect("list-lane-merged-infer-guard"));
+  const row = (list.runs as Array<Record<string, unknown>>).find((candidate) => candidate.runId === runId);
+  expect(row).toMatchObject({ status: "completed", prNumber: mergedNumber, prUrl: mergedUrl });
+  expect(row).not.toHaveProperty("lanePrOutcome");
+
+  const waitPayload = await expectResponse(await waitDirect("wait-lane-merged-infer-guard", runId));
+  expect(waitPayload).not.toHaveProperty("lanePrOutcome");
+});

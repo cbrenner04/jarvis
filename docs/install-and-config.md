@@ -1,0 +1,307 @@
+# Install and config
+
+Fresh-checkout walkthrough: clone, symlink the v2 CLI, configure the machine, start the daemon, confirm it is up. Config and daemon contracts live in [`agent-model-config.md`](./agent-model-config.md), [`write-behavior.md`](./write-behavior.md#daemon-cli), and [`daemon-host.md`](./daemon-host.md); this doc stitches them into one path.
+
+## Prerequisites
+
+- **Bun** — runtime for `jarvis`.
+- **`gh` authenticated** — `gh auth status` succeeds (publication and PR flows).
+- **At least one agent CLI on `PATH`** — e.g. `claude`, `codex`, or `cursor`.
+
+## Install
+
+Clone the repo and symlink the binary onto `PATH`. `package.json` `bin` maps `jarvis` → `bin/jarvis` → `src/cli.ts`.
+
+```bash
+git clone <repo-url> jarvis
+cd jarvis
+ln -s "$(pwd)/bin/jarvis"  <dir-on-PATH>/jarvis
+```
+
+Verify: `jarvis help` lists the commands (`init`, `daemon`, `run`, …). Then run [`jarvis init`](#jarvis-init).
+
+## `jarvis init`
+
+Primary machine and project setup and preflight command. Run from the Git worktree top level; idempotent, safe to re-run any time to re-verify readiness. The hand-edit schema tables under [Config](#config) remain the reference for manual inspection or repair — `jarvis init` merges into that same file, it does not replace hand-editing.
+
+```bash
+jarvis init --profile home
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--profile <name>` | Selects a committed `config/machines/<name>.json` profile; required only when no `machineProfile` is configured yet |
+| `--name <key>` | Explicit project registry key; defaults to a uniquely-matching already-registered key for this root, else the worktree's directory name |
+| `--target-dir <dir>` | Planning directory, relative to the project root — see [Target-directory precedence](#target-directory-precedence) |
+| `--scaffold` | Additionally creates `<targetDir>/seeds/.gitkeep` and `<targetDir>/ready-intents/.gitkeep` — see [Optional contained scaffolding](#optional-contained-scaffolding) |
+| `--check` | Read-only: same readiness report, no config or repository writes — see [Read-only `--check`](#read-only-check) |
+
+### Merge and idempotence
+
+`jarvis init` never overwrites a value that is already configured or registered correctly, and never rewrites bytes when nothing changed. It writes `~/.jarvis/config.json` atomically (temp file, then rename) only when machine bootstrap, project registration, or target-directory selection actually adds or changes a field. Re-running with the same arguments against already-valid state reproduces the file byte-for-byte.
+
+### Profile and agent compatibility
+
+An explicit `--profile` and an already-configured `machineProfile` must name the same committed profile (`config/machines/<name>.json`); a mismatch is a conflict error, not a merge. Neither present is an error only when no `machineProfile` is configured yet. `agents` uses the already-configured roster when present; otherwise it probes `claude`, `codex`, `cursor` in order and takes every runnable one, failing if none are runnable. Every configured agent must both be runnable on `PATH` and bound in the selected profile's `models` map, checked before any write.
+
+### Project fields
+
+Registration is additive: it fills in `root` and, when available, `origin` on the resolved project key, and never touches other fields on that project object or on unrelated projects. The project key is `--name`, else the single existing key already registered to this root, else the worktree's directory name; it must match `[A-Za-z0-9][A-Za-z0-9_-]*`. The resolved key must not already be bound to a different root, and the current root must not already be registered under a different key.
+
+### Target-directory precedence
+
+`--target-dir`, then the project's own `plan.targetDir`, then the legacy (read-only) `modes.plan.targetDir`, then `spec`. Every candidate must be a relative, non-traversing path, and every resolved ancestor (symlinks included) must stay inside the project root. An explicit `--target-dir` that differs from the project's own stored value is written to `projects.<key>.plan.targetDir`.
+
+### Optional contained scaffolding
+
+`--scaffold` is the only init mode that touches the target repository. It creates exactly `<targetDir>/seeds/.gitkeep` and `<targetDir>/ready-intents/.gitkeep`, preflighted for physical containment before any write, and never overwrites an existing sentinel or directory.
+
+### Readiness report
+
+Every invocation, including `--check`, ends with one line per check, in this fixed order, each `ok`, `missing`, or `warn`:
+
+| Check | Required | Meaning |
+| --- | --- | --- |
+| `bun` | yes | `bun` on `PATH` |
+| `github-auth` | yes | `gh auth status` succeeds |
+| `agents` | yes | Every configured agent is runnable on `PATH` |
+| `machine-profile` | yes | Selected profile binds every configured agent |
+| `project-registration` | yes | Current root is registered under the resolved key |
+| `origin` | yes | Current `origin` matches the stored project origin |
+| `spec-directory` | no | Resolved target directory exists |
+| `daemon` | no | `ok` when the daemon is running; `missing` when stopped |
+
+Any required check not `ok` exits `1`; `spec-directory` and `daemon` alone never affect the exit code.
+
+### Read-only `--check`
+
+`--check` runs the same evaluator and renderer as setup but performs no config, scaffold, or repository writes, and rejects `--scaffold` up front. Selectors resolve which state to probe without establishing it: `--name`/cwd basename, `--profile`/stored `machineProfile`, and `--target-dir`/stored value/legacy value/`spec` use the same precedence as setup, but read-only. A selector only identifies what to probe, never repairs it — `--profile` naming a valid profile does not turn a missing configured `machineProfile` into `ok`, and `--name` identifying an unregistered key does not turn `project-registration` into `ok`. Invalid selectors (unsafe `--name`, unknown `--profile`, a selector conflicting with configured state) and malformed config exit `1` before any probe runs, same as setup.
+
+## Config
+
+Two layers — do not conflate them:
+
+| Layer | Path | Contents |
+| --- | --- | --- |
+| **Per-machine** | `~/.jarvis/config.json` (hand-edited; `jarvis init` merges into it) | Agent fallback order (`agents`), required `machineProfile` selector, optional `notificationSinkCommand`, optional `projects` registry |
+| **Machine-independent** | Repo `config/machines/<profileName>.json` | Role→model store (`models` map: agent → role → `rungs`); seeded profiles include `home` and `work` |
+
+Full schema and validation rules: [`agent-model-config.md`](./agent-model-config.md).
+
+### Agent order
+
+The agent fallback order is the top-level `agents` array in `~/.jarvis/config.json`: bare agent names (no `agent:model` tokens), non-empty, duplicate-free. `jarvis init` seeds it from the runnable agents on `PATH` only when the key is absent and never reorders an existing array — to change the order, hand-edit the file, then confirm with `jarvis init --check` (the `agents` and `machine-profile` lines). Per-target-repo order: [Per-project overrides](#per-project-overrides). There is no `jarvis config` command (retired).
+
+### `machineProfile`
+
+Role→model resolution hard-requires `machineProfile`; `jarvis init --profile <name>` writes it when absent. For a hand-edit, use a profile name that matches a committed file under `config/machines/`:
+
+```json
+{
+  "agents": ["claude", "codex", "cursor"],
+  "machineProfile": "home"
+}
+```
+
+Use `work` when this machine should not load Claude bindings (`config/machines/work.json`). Profile contracts: [`agent-model-config.md`](./agent-model-config.md#storage-split).
+
+### Operator notification sink
+
+Optional top-level `notificationSinkCommand` (non-empty string) names a shell command the daemon spawns fire-and-forget when a derived operator incident becomes owed. The command receives one JSON object on stdin per notification (`incidentId`, `kind`, `transition`, `pipelineId`, `runId`, `cause`, …). Examples: `terminal-notifier -message -`, a Slack `curl` wrapper, or a script that re-invokes an agent session. A blank or non-string value is treated as absent — the sweep still maintains the delivery ledger but spawns nothing. Hand-edit `~/.jarvis/config.json`. Semantics: [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications).
+
+### Confinement policy
+
+Optional top-level `confinementPolicy` names the vendor-agnostic confinement every agent invocation requests: `"sandbox"` (filesystem-confined) or `"unrestricted"` (default when absent; preserves today's per-vendor flags, so confinement is opt-in). `projects.<key>.overrides.confinementPolicy` shadows it per project ([Per-project overrides](#per-project-overrides)). Any other value, at either level, fails resolution with an error naming the full path (`readConfinementPolicy`).
+
+### Project registry
+
+Optional `projects` entries map a registry key to a project object. `root` is required; `origin` is optional. Longest matching root wins when resolving a spec path to a project.
+
+### External specs home
+
+By default, intent and plan publication land in the registered project's repository (`<targetDir>/ready-intents/` and timestamped `<targetDir>/<UTC>-<name>/`). Projects that opt out of Git publication route durable specs to `~/.jarvis/specs/<projectSafeId>/` (path-safe registered key; see [`src/shared/project-safe-id.ts`](../../src/shared/project-safe-id.ts)). External homes exist only for Git-disabled effective publication (opt-in table below).
+
+```
+~/.jarvis/specs/<projectSafeId>/
+  seeds/                      # operator queue for absolute intent --seed paths
+  ready-intents/              # intent output; operator queue for absolute plan --ready-intent paths
+  plans/<name>/               # plan output trees
+  plans/completed/<name>/     # archived completed plans (jarvis cleanup)
+  intent-work/<slug>/         # intent scratch workspace, git-disabled runs only
+```
+
+Completed external plans archive under `plans/completed/<name>/` within the same `plans/` home — there is no root-level `completed/` sibling in the external home. `jarvis cleanup` also inspects `seeds/` and `ready-intents/` entries here and prunes a ready-intent once the plan that consumed it (byte-identical `intent.md`) is archived; see [`operator-runbook.md`](./operator-runbook.md#cleanup-eligibility-gate). Admission rules for absolute queue paths: [`workflow-runner.md`](./workflow-runner.md#authoring-helper-and-presets).
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `projects.<key>.specs` | `"external"` \| `"repo"` | `"external"` | `"external"` routes durable intent/plan output to the external specs home (no commit/PR); `"repo"` publishes under `plan.targetDir` via commit + PR |
+
+One resolver (`resolveSpecsHome`, `src/config/specs-home.ts`) drives intent, plan, chained pipeline stages, implement external-plan admission, and cleanup's external scans. Any other `specs` value, a present `projects.<key>.plan.commit`, or a machine `modes.plan.commit` fails with an error naming `specs`. `projects.<key>.git` no longer selects the spec home (it keeps only its local-path worktree role). In-repo `<targetDir>/seeds/` and `<targetDir>/ready-intents/` scaffolding (`jarvis init --scaffold`) is the queue for `specs: "repo"` projects.
+
+Per-project implement defaults:
+
+| Key | Type | Default | Validation |
+| --- | --- | --- | --- |
+| `projects.<key>.implement.reviewPasses` | non-negative integer | `1` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
+| `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
+| `projects.<key>.fixCommand` | non-empty string | `bun run fix` when absent | A blank or non-string value reads as absent, not an error |
+| `projects.<key>.readyCommand` | non-empty string | `bun run ready` when absent | A blank or non-string value reads as absent, not an error |
+
+### Per-project overrides
+
+`projects.<key>.overrides` shadows machine-wide keys for that project's runs only:
+
+| Key | Shadows | Validation |
+| --- | --- | --- |
+| `projects.<key>.overrides.agents` | Top-level `agents` (fallback order) | Same as `agents`: non-empty array of unique non-empty strings; each agent must be bound in the machine profile |
+| `projects.<key>.overrides.idleOutputTimeoutMs` | Top-level `idleOutputTimeoutMs` | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
+| `projects.<key>.overrides.confinementPolicy` | Top-level `confinementPolicy` | `"sandbox"` (filesystem-confined invocations) or `"unrestricted"` (today's vendor defaults); any other value fails resolution naming the path |
+
+The key set is closed: any other key, a non-object block, or a malformed value fails resolution with an error naming the full path (e.g. `projects.chess.overrides.agentz`). Resolution happens once per step at admission — `run workflow` CLI admission and daemon pipeline-stage dispatch, plus `jarvis pipeline start` pre-admission for `agents` — onto the step's `agents` and `idleOutputMs`, which the persisted workflow snapshot carries; resume and the daemon never re-read the block. Absent block = machine-wide behavior. `runTimeoutMs` keeps its older flat `projects.<key>.runTimeoutMs` form.
+
+`fixCommand` and `readyCommand` are resolved from each step's project at `run workflow` CLI admission and at daemon pipeline-stage dispatch (from the pipeline admission `configPath`) for every write, review, and review-debate step that can own ready-gate finalization. Present overrides are carried on the step through the daemon and are not re-read inside the daemon-hosted gate; absent overrides remain unstamped so downstream default resolution stays distinguishable from configured commands. The resolved `readyCommand` is what code-bearing stages' ready gate spawns in place of `bun run ready`, and it is what appears in `ReadyGateError.command`, gate-failure-classification output, and the ready-repair prompt's `GATE_COMMAND` placeholder. Markdown-only intent split (`intent.prompt.split`) and plan draft (`plan.prompt.draft`) publish validated Markdown without invoking the configured or default ready command; their remaining finalization tail still runs. When an admitted command is absent (spawn `ENOENT` or an anchored package-manager/shell failure line — see [v1-behaviors.md](v1-behaviors.md)), finalization settles non-resumable `ready_gate_command_missing` with no autofix or bounded repair — fix `readyCommand` (or add the default `ready` script) and re-dispatch; `jarvis run resume` cannot create the missing command. Terminal-publication settlement (the standalone gate outside a workflow step) does not consume either override.
+
+Each registered project may configure a source-owned pipeline for `jarvis pipeline start` only (`jarvis run workflow implement` ignores `projects.<key>.pipeline` entirely; absence admits legacy implement with no `pipelineDefinition` and refuses `jarvis pipeline start`):
+
+| Key | Type | Validation |
+| --- | --- | --- |
+| `projects.<key>.pipeline` | object | Required for `jarvis pipeline start`; ignored by implement admission |
+| `projects.<key>.pipeline.name` | non-empty string | Optional; when present it selects outright and must name a source-registry pipeline: `full-review` (gated, debate review), `full-light-review` (gated, light review), or `fast` (ungated, light implement review). Absent → rating selection (below) |
+| `projects.<key>.pipeline.minimumRisk`, `projects.<key>.pipeline.minimumEffort` | `"low"`, `"medium"`, or `"high"` | Optional floors on the seed's `risk:` / `effort:` ratings ([spec-guidance.md § Seed ratings](./spec-guidance.md#seed-ratings)); validated whenever present, consulted only under rating selection |
+| `projects.<key>.pipeline.terminalAction` | `"leave-draft"`, `"ready"`, or `"merge"` | Required when `pipeline` is present; names how the pipeline leaves the final PR |
+| `projects.<key>.pipeline.supersede` | `"close"` or `"keep"` | Optional; defaults to `"close"` when absent; copied onto the admitted definition at resolution; `close` drives terminal supersede settlement on earlier stage PRs ([`pipeline-execution.md` § Terminal supersede settlement](./pipeline-execution.md#terminal-supersede-settlement)) |
+| `projects.<key>.pipeline.reviewOverrides` | object of stage ID → `"none"`, `"light"`, or `"debate"` | Optional; each key must name a workflow stage, not an approval stage; an off-scale posture fails at its key |
+
+`jarvis pipeline start` resolves `projects.<key>.pipeline` through project-pipeline resolution before daemon connect. Implement admission does not read or validate this block. The object accepts only `name`, `minimumRisk`, `minimumEffort`, `terminalAction`, `supersede`, and `reviewOverrides`. Missing or malformed pipeline fields, off-scale minimums, unknown `terminalAction` or `supersede` values, non-string override values, forbidden keys, unknown stage IDs, approval-stage override targets, and terminal actions on pipelines with no `implement` workflow stage fail with `invalid-project-pipeline-config` naming the full offending config path. An unknown name fails with `unknown-pipeline`; a selected or overridden definition rejected by the definition validator fails with `invalid-pipeline-definition`. Selection is strict and has no default pipeline.
+
+**Rating selection.** One precedence rule: a present `pipeline.name` selects the definition and ratings are ignored for selection (minimums are still validated); when `name` is absent, the effective (risk, effort) pair selects it. The supplied ratings are the seed's `risk:` / `effort:` frontmatter, parsed at `jarvis pipeline start` admission (a CLI override arrives with a later intent); a malformed seed rating fails admission with `invalid-seed-rating` naming the field. Per dimension, `effective = max(minimum, supplied)` — a floor raises a lower rating and never lowers a higher one, and a minimum is never a default: a dimension the seed does not rate fails with `unresolved-rating` naming the dimension even when a minimum is set. Both fail before registry lookup. The mapping (`RATING_PAIR_PIPELINES`, `src/execution/project-pipeline-resolution.ts`) never collapses the pair into a score:
+
+| risk \ effort | low | medium | high |
+| --- | --- | --- | --- |
+| low | `fast` | `full-light-review` | `full-light-review` |
+| medium | `full-light-review` | `full-light-review` | `full-light-review` |
+| high | `full-review` | `full-review` | `full-review` |
+
+Under rating selection a `reviewOverrides` entry may strengthen a stage's review (`none` < `light` < `debate`) but never weaken it below the selected definition — a weakening override fails with `invalid-project-pipeline-config` at its key. Overrides on an explicitly named pipeline keep their free rein. Migration: existing configs carry `name` and resolve exactly as before. To opt into rating selection delete `name`; every seed started in that project must then carry both `risk:` and `effort:` (minimums alone select nothing), with minimums as optional floors.
+
+`terminalAction` and `supersede` are copied onto the admitted pipeline definition at resolution and are not stored on source-registry rows. Hand-edited configs must add `terminalAction` when `pipeline` is present; there is no migration machinery.
+
+`reviewOverrides` keys are pipeline `stageId` values, not workflow names. They change only the selected definition's copied workflow stage. They do not compose with or override `implement.reviewBehavior`: that setting and `--review-behavior` still control the separate legacy post-implement review step.
+
+Complete project example:
+
+```json
+{
+  "projects": {
+    "jarvis": {
+      "root": "/Users/me/Work/jarvis",
+      "origin": "git@github.com:me/jarvis.git",
+      "pipeline": {
+        "name": "full-review",
+        "terminalAction": "ready",
+        "reviewOverrides": {
+          "plan": "light",
+          "implement": "debate"
+        }
+      },
+      "implement": {
+        "reviewPasses": 1,
+        "reviewBehavior": "light"
+      }
+    }
+  }
+}
+```
+
+### Workflow invocation bounds
+
+Workflow write steps resolve three optional machine keys from `~/.jarvis/config.json` before dispatch. The same `idleOutputTimeoutMs` also governs every workflow review-role invocation; `projects.<key>.overrides.idleOutputTimeoutMs` replaces it for that project's workflow steps ([Per-project overrides](#per-project-overrides)).
+
+| Key | Role | Default | Validation |
+| --- | --- | --- | --- |
+| `iterationTimeoutMs` | Progress-extended wall segment per iteration | `600000` (10 min) | Positive number |
+| `iterationCeilingMs` | Hard ceiling on total iteration wall time | `1800000` (30 min) | Positive number; must be ≥ resolved `iterationTimeoutMs` |
+| `idleOutputTimeoutMs` | Idle-output watchdog budget for workflow write and review roles | `90000` (90 s) | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs`; `projects.<key>.overrides.idleOutputTimeoutMs` overrides per project |
+| `runTimeoutMs` | Whole-run wall-clock backstop across all dispatches of one run | `21600000` (6 h) | Positive number; must be ≥ resolved `iterationCeilingMs`; `projects.<key>.runTimeoutMs` overrides per project |
+
+`runTimeoutMs` is resolved by the daemon at each dispatch (no bounce needed), not stamped on steps; an invalid value logs to `daemon.log` and falls back to the 6 h default. See [`daemon-host.md` § Whole-run timeout](./daemon-host.md#whole-run-timeout).
+
+Inverted idle/wall or wall/ceiling ordering fails at load with a message naming both compared keys and numeric values. `idleOutputTimeoutMs` is armed on the iteration's step invocation and its token/blocker reprompts: a silent invocation settles `idle_output_timeout` well before the wall segment or ceiling could fire, distinguishing a stalled agent from a genuinely slow one. (The post-iteration coverage-advisory invocation is unarmed — no wall, ceiling, or idle bound.) `0` disables the watchdog outright (no `idleOutputMs` bound is resolved), leaving the wall segment and ceiling as the only bounds. Resolved `iterationTimeoutMs`, `iterationCeilingMs`, and `idleOutputMs` (when armed) are stamped on workflow write steps and persisted in workflow snapshots for resume and revise. The same stamping applies to daemon pipeline-stage dispatch from the pipeline admission `configPath`, not only CLI `jarvis run workflow`.
+
+Review and review-debate steps retain the configured `idleOutputTimeoutMs` value: a positive value arms each role, and `0` is passed through to disable that role's idle watchdog. When the key is absent, the step leaves `idleOutputMs` unstamped and the review-role invocation uses its 90 s fallback.
+
+An explicit `jarvis run workflow implement --review-passes <n>` overrides the registered-project value; `--review-passes 0` skips review. An explicit `--review-behavior debate|light` overrides the registered-project review behavior.
+
+### Review-role timeout
+
+`reviewRoleTimeoutMs` bounds each critic/actuator/debate-role invocation on `review` and `review-debate` workflow steps. Optional, defaults to `1800000` (30 min); must be a positive number, else workflow launch fails with a message naming the key. Resolved alongside the write-path bounds and stamped on the built review/review-debate steps for CLI `run workflow` and daemon pipeline-stage dispatch.
+
+### Cleanup
+
+`jarvis cleanup` reads optional machine keys from `~/.jarvis/config.json`. Session-log retention is global (not project-scoped); hand-edit the block. Operator semantics: [operator-runbook.md § Session-log retention](./operator-runbook.md#session-log-retention). When the block is absent, defaults are `hotDays` `14` and `coldDays` `90` (cold widened from the prior single-key `14`-day default).
+
+| Key | Role | Default | Validation |
+| --- | --- | --- | --- |
+| `retention.sessions.hotDays` | Plain-to-gzip boundary: eligible terminal-run logs (by `finishedAt`) and orphan plain `.log` files (by that file's `mtime`) past `now - hotDays` are compressed to sibling `.log.gz` under flat `~/.jarvis/sessions/` and under `~/.jarvis/sessions/<YYYY-MM>/` (see [operator-runbook.md § Session-log retention](./operator-runbook.md#session-log-retention)) | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — reports `retention.sessions.hotDays must be a positive integer`, or when `retention` / `retention.sessions` is not an object reports `retention.sessions.hotDays and retention.sessions.coldDays must be positive integers` — without affecting other cleanup slices |
+| `retention.sessions.coldDays` | Gzip deletion boundary: eligible terminal-run logs (by `finishedAt`) and orphan `.log.gz` files (by that gzip file's `mtime`) past `now - coldDays` are removed; must be strictly greater than `hotDays`. Same flat and month-shard discovery scope as `hotDays`. | `90` when absent | Positive integer, must be strictly greater than `retention.sessions.hotDays`; non-integer, zero, negative, non-number, or ordering failure skips session-log reaping — stderr names `retention.sessions.coldDays` or both fields when `retention` / `retention.sessions` is not an object (`retention.sessions.hotDays and retention.sessions.coldDays must be positive integers`) or reports `retention.sessions.coldDays must be greater than retention.sessions.hotDays` — without affecting other cleanup slices |
+
+Hand-edit `~/.jarvis/config.json` for these fields.
+
+## Daemon
+
+Socket and PID paths (production defaults): `~/.jarvis/daemon.sock`, `~/.jarvis/daemon.pid`. Transport detail: [`daemon-host.md`](./daemon-host.md).
+
+| Command | Output | Exit |
+| --- | --- | --- |
+| `jarvis daemon start` | `{"pid":<n>,"socketPath":"..."}` | `0` on success; `1` with `<ErrorName>: <message>` on lifecycle failure |
+| `jarvis daemon status` | `running` or `stopped` | `0` when running; `1` when stopped |
+| `jarvis daemon stop` | `stopped` | `0` |
+
+Start and confirm:
+
+```bash
+jarvis daemon start
+jarvis daemon status   # expect: running (exit 0)
+```
+
+`jarvis daemon status` reporting `running` with exit `0` is the up-confirmation step. Full CLI contract: [`write-behavior.md`](./write-behavior.md#daemon-cli).
+
+## Recovery
+
+Errors surface at different commands — fix the file or knob the message names, then re-run **that** command.
+
+### Config-load errors → `jarvis init --check`
+
+Surfaced by the first command that reads `~/.jarvis/config.json` (`jarvis init --check` before any probe, or `jarvis run …`):
+
+| Symptom (stderr) | Fix |
+| --- | --- |
+| `Failed to parse machine config at <path>: invalid JSON` | Repair JSON syntax |
+| `Machine config at <path> must be a JSON object, got …` | Root must be a JSON object, not an array or primitive |
+| `Machine config 'agents' must be an array, got …` | Set `agents` to a JSON array |
+| `Machine config 'agents' array must not be empty` | Provide at least one agent |
+| `Machine config 'agents' entry at index N must be a string, got …` | Use string agent names |
+| `Machine config 'agents' entry at index N must not be an empty string` | Remove empty entries |
+| `Machine config 'agents' contains duplicate entry: "<name>"` | Deduplicate `agents` |
+
+### Model-resolution errors → `jarvis run`
+
+These run after machine config parses. They surface when building a run/write input — e.g. `jarvis run workflow implement …` — not at config parse.
+
+| Symptom | Fix |
+| --- | --- |
+| `Machine config at <path> is missing required 'machineProfile' key` | Hand-edit `machineProfile` in `~/.jarvis/config.json` |
+| `Machine profile '<name>' not found at <path>` | Fix the profile name or add `config/machines/<name>.json` |
+| `Failed to load agent model config: Machine profile '<name>' at <path> is missing required 'models' key` | Add a `models` object to the profile file |
+
+Profile load and `models` validation: [`agent-model-config.md`](./agent-model-config.md).
+
+### Daemon-start failures → `jarvis daemon start`
+
+| Symptom (stderr) | Fix |
+| --- | --- |
+| `DaemonAlreadyRunningError: Daemon already running on socket <path>` | Use the existing daemon (`jarvis daemon status`) or `jarvis daemon stop` first |
+| `DaemonReadinessTimeoutError: Daemon failed to become ready on socket <path> within <ms>ms` | Inspect the child process / socket; stop and retry |
+| `Error: PID file directory does not exist: <dir>` | Create `~/.jarvis/` (or the parent of the configured PID path) before starting |
+
+Lifecycle API: [`daemon-host.md`](./daemon-host.md#daemon-lifecycle-api).

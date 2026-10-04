@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { findSyncChildProcessViolations } from "./guard-sync-child-processes.ts";
 
-function violations(source: string, file = "v2/src/example.ts") {
+function violations(source: string, file = "src/example.ts") {
   return findSyncChildProcessViolations([{ file, source }]);
 }
 
@@ -11,7 +11,7 @@ describe("sync child-process guard", () => {
     ["require", 'const { execFileSync } = require("child_process"); execFileSync("git");'],
     ["dynamic import", 'const { spawnSync } = await import("node:child_process"); spawnSync("git");'],
   ])("rejects %s", (_reach, source) => {
-    expect(violations(source)).toMatchObject([{ file: "v2/src/example.ts", line: 1 }]);
+    expect(violations(source)).toMatchObject([{ file: "src/example.ts", line: 1 }]);
   });
 
   test.each([
@@ -24,7 +24,7 @@ describe("sync child-process guard", () => {
     ["direct require bracket", 'require("child_process")["execSync"]("git");'],
     ["direct dynamic import bracket", 'import("node:child_process")["execFileSync"]("git");'],
   ])("rejects %s", (_reach, source) => {
-    expect(violations(source)).toMatchObject([{ file: "v2/src/example.ts", line: 1 }]);
+    expect(violations(source)).toMatchObject([{ file: "src/example.ts", line: 1 }]);
   });
 
   test("rejects Bun.spawnSync and v2 synchronous seams", () => {
@@ -36,15 +36,15 @@ describe("sync child-process guard", () => {
 
   test("allows the CLI runner, test files, and test support", () => {
     const source = 'import { execFileSync } from "node:child_process"; execFileSync("git");';
-    expect(violations(source, "v2/src/shared/subprocess.ts")).toEqual([]);
-    expect(violations(source, "v2/src/example.test.ts")).toEqual([]);
-    expect(violations(source, "v2/src/execution/workflow-runner.test-support.ts")).toEqual([]);
-    expect(violations(source, "v2/src/testing/process.ts")).toEqual([]);
+    expect(violations(source, "src/shared/subprocess.ts")).toEqual([]);
+    expect(violations(source, "src/example.test.ts")).toEqual([]);
+    expect(violations(source, "src/execution/workflow-runner.test-support.ts")).toEqual([]);
+    expect(violations(source, "src/testing/process.ts")).toEqual([]);
   });
 
   test("guards TSX production files", () => {
-    expect(
-      violations('import { execSync } from "node:child_process"; execSync("git");', "v2/src/view.tsx"),
-    ).toHaveLength(1);
+    expect(violations('import { execSync } from "node:child_process"; execSync("git");', "src/view.tsx")).toHaveLength(
+      1,
+    );
   });
 });

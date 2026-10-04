@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { findProductionCallViolations } from "./guard-test-double-production-calls.ts";
 
-function violations(source: string, file = "v2/src/testing/example.ts") {
+function violations(source: string, file = "src/testing/example.ts") {
   return findProductionCallViolations([{ file, source }]);
 }
 
@@ -245,7 +245,7 @@ export function fixture() {
       expect(violations(source)).toHaveLength(0);
     });
 
-    test("only guards files under v2/src/testing/", () => {
+    test("only guards files under src/testing/", () => {
       const source = `
 import { forbidden } from "../helpers.ts";
 
@@ -253,20 +253,20 @@ export function fixture() {
   return forbidden();
 }
 `;
-      expect(violations(source, "v2/src/cli/example.ts")).toHaveLength(0);
-      expect(violations(source, "v2/src/daemon/example.ts")).toHaveLength(0);
+      expect(violations(source, "src/cli/example.ts")).toHaveLength(0);
+      expect(violations(source, "src/daemon/example.ts")).toHaveLength(0);
       expect(violations(source, "v1/src/testing/example.ts")).toHaveLength(0);
-      expect(violations(source, "v2/src/shared/testing/example.ts")).toHaveLength(0);
+      expect(violations(source, "src/shared/testing/example.ts")).toHaveLength(0);
     });
 
-    test("guards all file types under v2/src/testing/", () => {
+    test("guards all file types under src/testing/", () => {
       const source = `
 import { forbidden } from "../helpers.ts";
 forbidden();
 `;
-      expect(violations(source, "v2/src/testing/fixture.ts")).toHaveLength(1);
-      expect(violations(source, "v2/src/testing/fixture.js")).toHaveLength(1);
-      expect(violations(source, "v2/src/testing/subdir/fixture.tsx")).toHaveLength(1);
+      expect(violations(source, "src/testing/fixture.ts")).toHaveLength(1);
+      expect(violations(source, "src/testing/fixture.js")).toHaveLength(1);
+      expect(violations(source, "src/testing/subdir/fixture.tsx")).toHaveLength(1);
     });
   });
 

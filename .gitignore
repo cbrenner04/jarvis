@@ -10,7 +10,7 @@ coverage/
 running-thoughts.md
 .scratch/
 
-# Harness plan-staging sidecar (never committed; published to v2/spec/)
+# Harness plan-staging sidecar (never committed; published to spec/)
 .jarvis-plan-stage/
 
 # Harness PR review capture sidecar (never committed; completion commits also exclude it)
@@ -20,5 +20,5 @@ running-thoughts.md
 .jarvis-review-feedback-response.md
 
 # Review-verdict scratch output (transient; completion commits also exclude it — see
-# v2/docs/write-behavior.md)
+# docs/write-behavior.md)
 verdict-*.md

@@ -47,19 +47,19 @@ const LINT_ENTRY_POINTS: readonly { modulePattern: RegExp; functionName: string;
  * does not re-check them, so a new lint-reaching call in one of these files goes unflagged.
  */
 const ALLOWLISTED_FILES = new Map<string, string>([
-  ["v2/src/shared/intent-stage.test.ts", "direct real-binary landing-repair (autofix) assertions"],
-  ["v2/src/execution/staged-markdown-lint.test.ts", "direct real-binary violation/clean assertions"],
-  ["v2/src/daemon/daemon-start-list.test.ts", "write-loop stages contain no .md files; never spawns (trap-verified)"],
+  ["src/shared/intent-stage.test.ts", "direct real-binary landing-repair (autofix) assertions"],
+  ["src/execution/staged-markdown-lint.test.ts", "direct real-binary violation/clean assertions"],
+  ["src/daemon/daemon-start-list.test.ts", "write-loop stages contain no .md files; never spawns (trap-verified)"],
   [
-    "v2/src/execution/write-loop.test.ts",
+    "src/execution/write-loop.test.ts",
     "runLoop helpers inject a clean stub runner; other executeWriteLoop calls stage no .md files (trap-verified)",
   ],
   [
-    "v2/src/execution/write-loop-idle-watchdog.test.ts",
+    "src/execution/write-loop-idle-watchdog.test.ts",
     "write-loop stages contain no .md files; never spawns (trap-verified)",
   ],
   [
-    "v2/src/execution/write-loop-session-log.test.ts",
+    "src/execution/write-loop-session-log.test.ts",
     "write-loop stages contain no .md files; never spawns (trap-verified)",
   ],
 ]);
@@ -164,7 +164,7 @@ export function exitCodeForLintCallViolations(violations: readonly LintCallViola
 
 if (import.meta.main) {
   const cwd = process.cwd();
-  const files = collectSourceFiles(join(cwd, "v2"), cwd);
+  const files = collectSourceFiles(join(cwd, "src"), cwd);
   const violations = findRealLintCallViolations(files);
   for (const violation of violations) {
     console.error(

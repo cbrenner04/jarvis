@@ -67,17 +67,9 @@ jobs:
         run: bun run test
 
       - name: Test (v2)
-        if: contains(steps.scope.outputs.scripts, 'test:v2')
-        run: bun run test:v2
+        if: contains(steps.scope.outputs.scripts, 'test:agent')
+        run: bun run test:agent
 
       - name: Test (v2 integration)
-        if: contains(steps.scope.outputs.scripts, 'test:integration:v2')
-        run: bun run test:integration:v2
-
-      - name: Test (shared)
-        if: contains(steps.scope.outputs.scripts, 'test:shared')
-        run: bun run test:shared
-
-      - name: Test (shared integration)
-        if: contains(steps.scope.outputs.scripts, 'test:integration:shared')
-        run: bun run test:integration:shared
+        if: contains(steps.scope.outputs.scripts, 'test:integration')
+        run: bun run test:integration

@@ -1,0 +1,4823 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import type { CliDeps } from "../cli/deps.ts";
+import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
+import { withExternalWorktree } from "../execution/external-worktree.ts";
+import {
+  type BuildImplementWorkflowStepsInput,
+  buildImplementWorkflowSteps,
+} from "../execution/implement-workflow-steps.ts";
+import { buildPlanWorkflowSteps, type PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
+import { ReadyGateError, SurvivingMutationError } from "../execution/ready-finalize.ts";
+import { loadWorkflowSteps, type WorkflowSourceStep } from "../execution/workflow-loader.ts";
+import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
+import { connectIpcClient } from "../ipc/client.ts";
+import type { RpcHandler } from "../ipc/server.ts";
+import { type IpcServer, startIpcServer } from "../ipc/server.ts";
+import { jarvisHome } from "../paths.ts";
+import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { openStateStore } from "../persistence/state-store.ts";
+import { originTrackingRefResolvesAsync } from "../shared/git.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
+import { locateSymbolSlice } from "../shared/structural-test-locator.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
+import {
+  type CliRepoFixture,
+  COMPLETED_WAIT_JSON,
+  COMPLETED_WAIT_RESULT,
+  captureIo,
+  INCOMPLETE_SPEC_CONTENT,
+  cliMain as main,
+  makeCliRepoFixture,
+  makeIpcClient,
+  makeStaleResetIpcClient,
+  stubAgentModelConfig,
+  TEST_EXECUTABLE_DIGEST,
+  withStaleResetPreflightUuids,
+  withStaleResetWorkflowUuids,
+  withWorkflowUuids,
+  workflowFrames,
+  writeHomeMachineConfig,
+  writeMachineConfig,
+} from "../testing/cli-test-helpers.ts";
+import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
+import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import { STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG, STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
+import { STALE_RESET_WORKFLOWS } from "./stale-reset-workspace.ts";
+
+export const TEST_ISOLATION_CLASS = "poll-until-done";
+
+let fx: CliRepoFixture;
+
+beforeAll(() => {
+  fx = makeCliRepoFixture();
+});
+
+afterAll(() => {
+  fx.cleanup();
+});
+
+const IMPLEMENT_ARGS = [
+  "run",
+  "workflow",
+  "implement",
+  "--branch",
+  "implement-run",
+  "--base",
+  "HEAD",
+  "--spec",
+  "index.md",
+] as const;
+
+function fakeReviewStep(): ReviewWorkflowStep {
+  return {
+    behavior: "review",
+    stepId: "review",
+    project: "demo",
+    branch: "implement-run",
+    agents: { critic: ["claude"], actuator: ["claude"] },
+    agentModelConfig: {},
+    cwd: fx.repoRoot,
+    verdictPath: "verdict.md",
+    maxCycles: 1,
+  };
+}
+
+function fakeReviewDebateStep(): ReviewDebateWorkflowStep {
+  return {
+    behavior: "review-debate",
+    stepId: "review-debate",
+    project: "demo",
+    branch: "implement-run",
+    agents: {
+      adversary: ["claude"],
+      advocate: ["claude"],
+      adjudicator: ["claude"],
+      actuator: ["claude"],
+    },
+    agentModelConfig: {},
+    cwd: fx.repoRoot,
+    verdictPath: "verdict.md",
+    maxCycles: 1,
+    prompts: { adversary: "a", advocate: "b", adjudicator: "c" },
+  };
+}
+
+const IMPLEMENT_USAGE =
+  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--reset-despite-continuable] [--detach]\n";
+const INTENT_USAGE =
+  "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--detach]\n";
+const PLAN_USAGE =
+  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--base <ref>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
+
+function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[] {
+  return sent.filter((frame) => (frame as { method?: string }).method === method);
+}
+
+const WORKFLOW_IMPLEMENT_DETACH = [...IMPLEMENT_ARGS, "--detach"] as const;
+
+function workflowImplementDispatchDeps(
+  extra: NonNullable<Parameters<typeof main>[2]> = {},
+): NonNullable<Parameters<typeof main>[2]> {
+  return {
+    cwd: () => fx.repoSub,
+    readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+    workflowPresetBuilders: {
+      implement: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+    },
+    ...extra,
+  };
+}
+
+function expectWorkflowStartDispatch(
+  sent: readonly unknown[],
+  steps: typeof fx.fakeImplementSteps = fx.fakeImplementSteps,
+) {
+  const starts = ipcFramesWithMethod(sent, "start");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]).toMatchObject({ kind: "request", method: "start", params: { steps } });
+  const params = (starts[0] as { params?: Record<string, unknown> }).params;
+  expect(params).not.toHaveProperty("input");
+}
+
+const REJECT_BASE_ARGS = {
+  implement: IMPLEMENT_ARGS,
+  intent: ["run", "workflow", "intent", "--seed-text", "Improve API"],
+  plan: ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md"],
+} as const;
+
+function noDaemonDeps(extra: NonNullable<Parameters<typeof main>[2]> = {}): NonNullable<Parameters<typeof main>[2]> {
+  return {
+    connectIpcClient: async () => {
+      throw new Error("should not contact daemon");
+    },
+    ...extra,
+  };
+}
+
+describe("run workflow dispatch", () => {
+  test("run workflow implement sends start and wait IPC requests, blocks on completion, and prints run ID and wait JSON", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: fx.fakeImplementSteps };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-888", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: `run-888\n${COMPLETED_WAIT_JSON}\n`, stderr: "" });
+    expect(builtInput).toMatchObject({
+      cwd: fx.repoSub,
+      branchName: "implement-run",
+      baseRef: "HEAD",
+      specPath: "index.md",
+      configPath: expect.any(String),
+      projectRegistry: { "test-project": { root: fx.repoRoot } },
+    });
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: fx.fakeImplementSteps } });
+    expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "run-888" } });
+  });
+
+  test.each([
+    "surviving_mutation_failed",
+    "ready_gate_failed",
+    "ready_gate_out_of_scope",
+    "completion_commit_failed",
+  ])("run workflow implement admits a ticked %s lineage without rebuilding or starting a workflow", async (_outcomeKind) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const specPath = join(fx.repoSub, "index.md");
+    const original = INCOMPLETE_SPEC_CONTENT;
+    let built = false;
+    writeFileSync(specPath, "# Index\n\n## Acceptance criteria\n\n- [x] recovered\n", "utf8");
+    try {
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000111", () =>
+        main([...IMPLEMENT_ARGS], cap.io, {
+          cwd: () => fx.repoSub,
+          readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+          workflowPresetBuilders: {
+            implement: () => {
+              built = true;
+              return { ok: false, error: "implement.already_complete" };
+            },
+          },
+          connectIpcClient: async () =>
+            makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: "00000000-0000-4000-8000-000000000111",
+                  result: { kind: "admitted", ok: true, prUrl: "https://example.test/pr/1" },
+                },
+              ],
+              { sent },
+            ),
+        }),
+      );
+      expect(code).toBe(0);
+      expect(built).toBe(false);
+      expect(cap.read()).toEqual({ stdout: "https://example.test/pr/1\n", stderr: "" });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({
+        kind: "request",
+        method: "implement.recover",
+        params: { project: "test-project", branch: "implement-run", specPath: "sub/index.md" },
+      });
+    } finally {
+      writeFileSync(specPath, original, "utf8");
+    }
+  });
+
+  test("run workflow implement keeps the complete-spec refusal when recovery is not admitted", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const specPath = join(fx.repoSub, "index.md");
+    writeFileSync(specPath, "# Index\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+    try {
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000112", () =>
+        main([...IMPLEMENT_ARGS], cap.io, {
+          cwd: () => fx.repoSub,
+          readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+          workflowPresetBuilders: { implement: () => ({ ok: false, error: "implement.already_complete: complete" }) },
+          connectIpcClient: async () =>
+            makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: "00000000-0000-4000-8000-000000000112",
+                  result: { kind: "not_admitted" },
+                },
+              ],
+              { sent },
+            ),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "implement.already_complete: complete\n" });
+      expect(sent).toHaveLength(1);
+      expect((sent[0] as { method?: string }).method).toBe("implement.recover");
+    } finally {
+      writeFileSync(specPath, INCOMPLETE_SPEC_CONTENT, "utf8");
+    }
+  });
+
+  test("recovery uses the implement completion traversal and canonical spec identity", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-recovery-canonical-"));
+    const rootLink = `${root}-link`;
+    mkdirSync(join(root, "specs"));
+    writeFileSync(join(root, "specs", "subspec.md"), "## Acceptance criteria\n\n- [x] done\n", "utf8");
+    writeFileSync(join(root, "specs", "index.md"), "- [x] [subspec](./subspec.md)\n", "utf8");
+    symlinkSync(root, rootLink);
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    try {
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000115", () =>
+        main(["run", "workflow", "implement", "--base", "HEAD", "--spec", "specs/index.md"], cap.io, {
+          cwd: () => rootLink,
+          readProjectRegistry: () => ({ demo: { root: rootLink } }),
+          workflowPresetBuilders: { implement: () => ({ ok: false, error: "should not build" }) },
+          connectIpcClient: async () =>
+            makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: "00000000-0000-4000-8000-000000000115",
+                  result: { kind: "admitted", ok: true },
+                },
+              ],
+              { sent },
+            ),
+        }),
+      );
+      expect(code).toBe(0);
+      expect(sent[0]).toMatchObject({
+        method: "implement.recover",
+        params: { project: "demo", branch: "specs", specPath: "specs/index.md" },
+      });
+
+      writeFileSync(join(root, "specs", "subspec.md"), "## Acceptance criteria\n\n- [ ] pending\n", "utf8");
+      const incompleteCap = captureIo();
+      let built = false;
+      const incomplete = await main(
+        ["run", "workflow", "implement", "--base", "HEAD", "--spec", "specs/index.md"],
+        incompleteCap.io,
+        noDaemonDeps({
+          cwd: () => rootLink,
+          readProjectRegistry: () => ({ demo: { root: rootLink } }),
+          workflowPresetBuilders: {
+            implement: () => {
+              built = true;
+              return { ok: false, error: "ordinary preflight" };
+            },
+          },
+        }),
+      );
+      expect(incomplete).toBe(1);
+      expect(built).toBe(true);
+      expect(incompleteCap.read().stderr).toBe("ordinary preflight\n");
+    } finally {
+      rmSync(rootLink, { force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("recovery reads a complete external plan tree from its plan directory", async () => {
+    const projectKey = "Recovery/External-Plan";
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-external-recovery-project-"));
+    const specReadRoot = join(
+      jarvisHome(),
+      "specs",
+      projectSafeId(projectKey),
+      "plans",
+      `recovery-${process.pid}-${Date.now()}`,
+    );
+    mkdirSync(specReadRoot, { recursive: true });
+    writeFileSync(join(specReadRoot, "index.md"), "- [x] [work](./00-work.md)\n", "utf8");
+    writeFileSync(join(specReadRoot, "00-work.md"), "## Acceptance criteria\n\n- [x] done\n", "utf8");
+    const configPath = writeHomeMachineConfig({ projects: { [projectKey]: { root, specs: "external" } } });
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let built = false;
+
+    try {
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000116", () =>
+        main(
+          [
+            "run",
+            "workflow",
+            "implement",
+            "--branch",
+            "external-recovery",
+            "--base",
+            "HEAD",
+            "--spec",
+            join(specReadRoot, "index.md"),
+          ],
+          cap.io,
+          {
+            cwd: () => root,
+            machineConfigPath: configPath,
+            readProjectRegistry: () => ({ [projectKey]: { root } }),
+            workflowPresetBuilders: {
+              implement: () => {
+                built = true;
+                return { ok: false, error: "should not build" };
+              },
+            },
+            connectIpcClient: async () =>
+              makeIpcClient(
+                [
+                  {
+                    kind: "response",
+                    id: "00000000-0000-4000-8000-000000000116",
+                    result: { kind: "admitted", ok: true },
+                  },
+                ],
+                { sent },
+              ),
+          },
+        ),
+      );
+
+      expect(code).toBe(0);
+      expect(built).toBe(false);
+      expect(sent[0]).toMatchObject({
+        method: "implement.recover",
+        params: {
+          project: projectKey,
+          branch: "external-recovery",
+          specPath: realpathSync(join(specReadRoot, "index.md")),
+        },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(specReadRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("run workflow implement reports the admitted recovery failure message", async () => {
+    const cap = captureIo();
+    const specPath = join(fx.repoSub, "index.md");
+    writeFileSync(specPath, "# Index\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+    try {
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000113", () =>
+        main([...IMPLEMENT_ARGS], cap.io, {
+          cwd: () => fx.repoSub,
+          readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+          workflowPresetBuilders: { implement: () => ({ ok: false, error: "should not build" }) },
+          connectIpcClient: async () =>
+            makeIpcClient([
+              {
+                kind: "response",
+                id: "00000000-0000-4000-8000-000000000113",
+                result: { kind: "admitted", ok: false, message: "surviving mutation: source.ts:12" },
+              },
+            ]),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "surviving mutation: source.ts:12\n" });
+    } finally {
+      writeFileSync(specPath, INCOMPLETE_SPEC_CONTENT, "utf8");
+    }
+  });
+
+  test("run workflow implement detaches an admitted recovery", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const specPath = join(fx.repoSub, "index.md");
+    writeFileSync(specPath, "# Index\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+    try {
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000114", () =>
+        main([...IMPLEMENT_ARGS, "--detach"], cap.io, {
+          cwd: () => fx.repoSub,
+          readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+          workflowPresetBuilders: { implement: () => ({ ok: false, error: "should not build" }) },
+          connectIpcClient: async () =>
+            makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: "00000000-0000-4000-8000-000000000114",
+                  result: { kind: "admitted", ok: true },
+                },
+              ],
+              { sent },
+            ),
+        }),
+      );
+      expect(code).toBe(0);
+      expect(sent[0]).toMatchObject({ method: "implement.recover", params: { detach: true } });
+    } finally {
+      writeFileSync(specPath, INCOMPLETE_SPEC_CONTENT, "utf8");
+    }
+  });
+
+  test("run workflow dispatches once to the connected daemon without stopping or restarting it", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let connections = 0;
+    await withWorkflowUuids("start", "wait", async () => {
+      const code = await main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
+        connectIpcClient: async () => {
+          connections += 1;
+          return makeIpcClient(workflowFrames("start", "wait", "workflow-1", COMPLETED_WAIT_RESULT), { sent });
+        },
+        stopDaemon: async () => {
+          throw new Error("should not stop");
+        },
+        startDaemon: async () => {
+          throw new Error("should not start");
+        },
+      });
+      expect(code).toBe(0);
+    });
+    expect(connections).toBe(1);
+    expect(sent.map((frame) => (frame as { method?: string }).method)).toEqual(["start", "wait"]);
+  });
+
+  test("run workflow implement rejects --no-auto-bounce as unknown before daemon contact", async () => {
+    const cap = captureIo();
+
+    const code = await main([...IMPLEMENT_ARGS, "--no-auto-bounce"], cap.io, noDaemonDeps({ cwd: () => fx.repoSub }));
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: IMPLEMENT_USAGE });
+  });
+
+  test("run workflow implement blocks on completion and exits with proper exit code when workflow fails", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-failed", { runStatus: "failed" }), { sent }),
+      }),
+    );
+
+    expect(code).toBe(3);
+    expect(cap.read().stdout).toContain("run-failed");
+    expect(cap.read().stdout).toContain('{"runStatus":"failed"}');
+    expect(sent).toHaveLength(2);
+  });
+
+  test("run workflow implement passes through daemon guard errors without local workflow logic", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000005";
+
+    const code = await withFixedUuid(requestId, () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "error",
+              id: requestId,
+              code: "run_in_progress",
+              message: "A run is already in progress; at most one in-flight run globally",
+            },
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "run_in_progress: A run is already in progress; at most one in-flight run globally\n",
+    });
+  });
+
+  test("run workflow implement exits nonzero on an invalid daemon response", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000006";
+
+    const code = await withFixedUuid(requestId, () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
+        connectIpcClient: async () => makeIpcClient([{ kind: "response", id: requestId, result: { runId: 123 } }]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+  });
+
+  test("run workflow implement missing required flags prints usage and exits 1 without contacting the daemon", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "workflow", "implement", "--branch", "implement-run"], cap.io, noDaemonDeps());
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: IMPLEMENT_USAGE });
+  });
+
+  test("run workflow with an unrecognized preset name prints workflow usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "workflow", "bogus"], cap.io, noDaemonDeps());
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow <intent|plan|implement|review-feedback> [flags]\n",
+    });
+  });
+
+  test("run workflow rejects inherited preset names without contacting the daemon", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "workflow", "toString"], cap.io, noDaemonDeps());
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow <intent|plan|implement|review-feedback> [flags]\n",
+    });
+  });
+
+  test("bare run workflow prints workflow usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "workflow"], cap.io, noDaemonDeps());
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow <intent|plan|implement|review-feedback> [flags]\n",
+    });
+  });
+});
+
+describe("dispatch to keyed daemons", () => {
+  test("run workflow implement dispatches without a preceding status request", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000001";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(
+        [...WORKFLOW_IMPLEMENT_DETACH],
+        cap.io,
+        workflowImplementDispatchDeps({
+          loadAgentModelConfig: stubAgentModelConfig,
+          connectIpcClient: async () =>
+            makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-999" } }], { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toHaveLength(1);
+    expectWorkflowStartDispatch(sent);
+    expect(cap.read()).toEqual({ stdout: "run-999\n", stderr: "" });
+  });
+});
+
+describe("keyed daemon auto-start on dispatch", () => {
+  const KEYED_SOCKET = "/keyed/digest-a.sock";
+  const OTHER_SOCKET = "/keyed/digest-b.sock";
+
+  test("run workflow implement auto-starts the keyed daemon when absent, then dispatches", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const connectPaths: string[] = [];
+    const startCalls: Array<{ socketPath: string; pidPath: string | undefined; logPath: string | undefined }> = [];
+    const code = await withFixedUuid(["operator", "start"], () =>
+      main(
+        [...WORKFLOW_IMPLEMENT_DETACH],
+        cap.io,
+        workflowImplementDispatchDeps({
+          loadAgentModelConfig: stubAgentModelConfig,
+          socketPath: KEYED_SOCKET,
+          pidPath: "/keyed/digest-a.pid",
+          logPath: "/keyed/digest-a.log",
+          connectIpcClient: async (socketPath) => {
+            connectPaths.push(socketPath);
+            if (connectPaths.length === 1) throw new Error("ECONNREFUSED");
+            return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-autostart" } }], { sent });
+          },
+          startDaemon: async (socketPath, options) => {
+            startCalls.push({ socketPath, pidPath: options?.pidPath, logPath: options?.logPath });
+            return { pid: 7, socketPath };
+          },
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-autostart\n", stderr: "" });
+    expect(startCalls).toEqual([
+      { socketPath: KEYED_SOCKET, pidPath: "/keyed/digest-a.pid", logPath: "/keyed/digest-a.log" },
+    ]);
+    expect(connectPaths).toEqual([KEYED_SOCKET, KEYED_SOCKET]);
+    expectWorkflowStartDispatch(sent);
+  });
+
+  test("run workflow implement reuses a running keyed daemon without starting one", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const code = await withFixedUuid(["operator", "start"], () =>
+      main(
+        [...WORKFLOW_IMPLEMENT_DETACH],
+        cap.io,
+        workflowImplementDispatchDeps({
+          loadAgentModelConfig: stubAgentModelConfig,
+          socketPath: KEYED_SOCKET,
+          connectIpcClient: async () =>
+            makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-reused" } }], { sent }),
+          startDaemon: async () => {
+            throw new Error("should not start");
+          },
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-reused\n", stderr: "" });
+    expectWorkflowStartDispatch(sent);
+  });
+
+  test("a live daemon on another digest's socket receives no request", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const otherSent: unknown[] = [];
+    const startCalls: string[] = [];
+    const code = await withFixedUuid(["operator", "start"], () =>
+      main(
+        [...WORKFLOW_IMPLEMENT_DETACH],
+        cap.io,
+        workflowImplementDispatchDeps({
+          loadAgentModelConfig: stubAgentModelConfig,
+          socketPath: KEYED_SOCKET,
+          connectIpcClient: async (socketPath) => {
+            if (socketPath === OTHER_SOCKET) {
+              const otherRuns = { runs: [{ runId: "other", isLive: true }] };
+              return makeIpcClient([{ kind: "response", id: "list", result: otherRuns }], { sent: otherSent });
+            }
+            if (sent.length === 0 && startCalls.length === 0) throw new Error("ECONNREFUSED");
+            return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-keyed" } }], { sent });
+          },
+          startDaemon: async (socketPath) => {
+            startCalls.push(socketPath);
+            return { pid: 7, socketPath };
+          },
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(startCalls).toEqual([KEYED_SOCKET]);
+    expect(otherSent).toEqual([]);
+    expectWorkflowStartDispatch(sent);
+  });
+
+  test("a non-race start failure reports a lifecycle error with exit 1 and no dispatch", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const code = await main(
+      [...WORKFLOW_IMPLEMENT_DETACH],
+      cap.io,
+      workflowImplementDispatchDeps({
+        loadAgentModelConfig: stubAgentModelConfig,
+        socketPath: KEYED_SOCKET,
+        connectIpcClient: async () => {
+          throw new Error("ECONNREFUSED");
+        },
+        startDaemon: async () => {
+          throw new Error("daemon start failed: log directory missing");
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(cap.read().stderr).toContain("daemon start failed: log directory missing");
+  });
+
+  test("an exhausted connect deadline exits 1 with a connection error and no dispatch", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let time = 0;
+    const code = await main(
+      [...WORKFLOW_IMPLEMENT_DETACH],
+      cap.io,
+      workflowImplementDispatchDeps({
+        loadAgentModelConfig: stubAgentModelConfig,
+        socketPath: KEYED_SOCKET,
+        connectIpcClient: async () => {
+          throw new Error("ECONNREFUSED");
+        },
+        startDaemon: async (socketPath) => ({ pid: 7, socketPath }),
+        now: () => time,
+        sleep: async (ms) => {
+          time += ms;
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(cap.read().stderr).toBe(
+      `Failed to connect to daemon on socket ${KEYED_SOCKET} after starting it (5000ms deadline exceeded)\n`,
+    );
+    expect(time).toBe(5000);
+  });
+});
+
+describe("ticked implement recovery", () => {
+  function createRecoveryFixture(args: {
+    outcomeKind:
+      | "surviving_mutation_failed"
+      | "ready_gate_failed"
+      | "ready_gate_out_of_scope"
+      | "completion_commit_failed"
+      | "runtime_smoke_failed"
+      | "mutation_repair_exhausted";
+    specPath?: string;
+    worktreePath?: string;
+    branch?: string;
+    claimed?: boolean;
+    readyFinalizer?: () => Promise<void>;
+  }) {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-ticked-recovery-"));
+    const worktreePath = args.worktreePath ?? root;
+    const branch = args.branch ?? "recover";
+    const dbPath = join(root, "state.sqlite");
+    const logsPath = join(root, "logs.jsonl");
+    writeFileSync(join(root, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+    execFileSync("git", ["init"], { cwd: root });
+    execFileSync("git", ["config", "user.email", "test@example.test"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+    execFileSync("git", ["add", "."], { cwd: root });
+    execFileSync("git", ["commit", "-m", "initial"], { cwd: root });
+    if (branch !== "missing") execFileSync("git", ["branch", branch], { cwd: root });
+
+    const store = openStateStore(dbPath);
+    const snapshot = {
+      invocationId: "ticked-recovery",
+      creationTitle: "implement: recovery",
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "rules",
+          expectedArtifactPath: args.specPath ?? "spec.md",
+          agents: ["codex"],
+          agentModelConfig: {},
+        },
+        { stepId: "implement-review", role: "", durable: true, behavior: "review" as const },
+      ],
+    };
+    const common = {
+      project: "demo",
+      specRef: "HEAD",
+      worktreePath,
+      branch,
+      specPath: args.specPath ?? "spec.md",
+      workflowSnapshot: snapshot,
+    };
+    const writeRunId = store.createRun({ ...common, stepId: "implement" });
+    const writeAttemptId = store.recordAttemptStart(writeRunId);
+    store.commitCompletionBoundary({
+      attemptId: writeAttemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+      completionAgent: "codex",
+    });
+    const reviewRunId = store.createRun({ ...common, stepId: "implement-review" });
+    const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+    store.commitCompletionBoundary({
+      attemptId: reviewAttemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "prior failure" },
+    });
+    const sink = openLogSink(logsPath);
+    sink.append(reviewRunId, {
+      kind: "loop_finished",
+      loopOutcomeKind: args.outcomeKind,
+      iterationsConsumed: 0,
+      resumable: args.outcomeKind !== "mutation_repair_exhausted",
+    });
+    sink.close();
+
+    let writes = 0;
+    let ready = 0;
+    let publishes = 0;
+    const registry = new WorktreeOwnershipRegistry();
+    if (args.claimed) registry.claim({ project: "demo", branch }, { runId: "other", worktreePath });
+    const handlers = createRunControlHandlers({
+      stateStore: store,
+      logReader: openLogReader(logsPath),
+      registry,
+      writeLoopExecutor: async () => {
+        writes += 1;
+      },
+      failureReporter: () => undefined,
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+        completionPublisher: async () => {
+          publishes += 1;
+          return { pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" };
+        },
+        readyFinalizer: async () => {
+          ready += 1;
+          await args.readyFinalizer?.();
+        },
+      },
+    });
+    return {
+      root,
+      store,
+      reviewRunId,
+      handlers,
+      calls: () => ({ writes, ready, publishes }),
+      cleanup: () => {
+        handlers.close();
+        store.close();
+        rmSync(root, { recursive: true, force: true });
+      },
+    };
+  }
+
+  test.each([
+    "surviving_mutation_failed",
+    "ready_gate_failed",
+    "ready_gate_out_of_scope",
+    "completion_commit_failed",
+  ] as const)("admits a retained %s lineage and finalizes without a write-step invocation", async (outcomeKind) => {
+    const fixture = createRecoveryFixture({ outcomeKind });
+    try {
+      const frame = await fixture.handlers["implement.recover"](
+        {
+          kind: "request",
+          id: "recover",
+          method: "implement.recover",
+          params: { project: "demo", branch: "recover", specPath: "spec.md" },
+        },
+        new AbortController().signal,
+      );
+      expect(frame).toMatchObject({
+        kind: "response",
+        result: { kind: "admitted", ok: true, prUrl: "https://example.test/pr/7" },
+      });
+      expect(fixture.calls()).toEqual({ writes: 0, ready: 1, publishes: 1 });
+      expect(fixture.store.loadRun(fixture.reviewRunId)?.status).toBe("completed");
+      expect(readFileSync(join(fixture.root, "spec.md"), "utf8")).toContain("- [x] complete");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test("admits a canonical external spec path lineage", async () => {
+    const specReadRoot = join(
+      jarvisHome(),
+      "specs",
+      projectSafeId("demo"),
+      "plans",
+      `recover-${process.pid}-${Date.now()}`,
+    );
+    const indexPath = join(specReadRoot, "index.md");
+    mkdirSync(specReadRoot, { recursive: true });
+    writeFileSync(indexPath, "## Acceptance criteria\n\n- [x] complete\n", "utf8");
+    const fixture = createRecoveryFixture({
+      outcomeKind: "surviving_mutation_failed",
+      specPath: realpathSync(indexPath),
+    });
+    try {
+      const frame = await fixture.handlers["implement.recover"](
+        {
+          kind: "request",
+          id: "recover",
+          method: "implement.recover",
+          params: { project: "demo", branch: "recover", specPath: realpathSync(indexPath) },
+        },
+        new AbortController().signal,
+      );
+      expect(frame).toMatchObject({ kind: "response", result: { kind: "admitted", ok: true } });
+      expect(fixture.calls()).toEqual({ writes: 0, ready: 1, publishes: 1 });
+    } finally {
+      fixture.cleanup();
+      rmSync(specReadRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses mismatched, excluded, missing, and claimed recovery targets without dispatch", async () => {
+    const cases = [
+      {
+        args: { outcomeKind: "surviving_mutation_failed" as const, specPath: "other.md" },
+        params: { specPath: "spec.md" },
+        code: undefined,
+      },
+      { args: { outcomeKind: "runtime_smoke_failed" as const }, params: { specPath: "spec.md" }, code: undefined },
+      { args: { outcomeKind: "mutation_repair_exhausted" as const }, params: { specPath: "spec.md" }, code: undefined },
+      {
+        args: {
+          outcomeKind: "surviving_mutation_failed" as const,
+          worktreePath: join(tmpdir(), "missing-recovery-worktree"),
+        },
+        params: { specPath: "spec.md" },
+        code: "implement.recovery_target_missing",
+      },
+      {
+        args: { outcomeKind: "surviving_mutation_failed" as const, branch: "missing" },
+        params: { specPath: "spec.md", branch: "missing" },
+        code: "implement.recovery_target_missing",
+      },
+      {
+        args: { outcomeKind: "surviving_mutation_failed" as const, claimed: true },
+        params: { specPath: "spec.md" },
+        code: "worktree_claimed",
+      },
+    ];
+    for (const testCase of cases) {
+      const fixture = createRecoveryFixture(testCase.args);
+      try {
+        const frame = await fixture.handlers["implement.recover"](
+          {
+            kind: "request",
+            id: "recover",
+            method: "implement.recover",
+            params: {
+              project: "demo",
+              branch: testCase.params.branch ?? "recover",
+              specPath: testCase.params.specPath,
+            },
+          },
+          new AbortController().signal,
+        );
+        if (testCase.code === undefined)
+          expect(frame).toMatchObject({ kind: "response", result: { kind: "not_admitted" } });
+        else expect(frame).toMatchObject({ kind: "error", code: testCase.code });
+        expect(fixture.calls()).toEqual({ writes: 0, ready: 0, publishes: 0 });
+      } finally {
+        fixture.cleanup();
+      }
+    }
+  });
+
+  test("keeps a still-surviving mutation failed and retryable without unticking the spec", async () => {
+    const fixture = createRecoveryFixture({
+      outcomeKind: "surviving_mutation_failed",
+      readyFinalizer: async () => {
+        throw new SurvivingMutationError("flip ===", "src/guard.ts", 12, [], "not-run");
+      },
+    });
+    try {
+      const frame = await fixture.handlers["implement.recover"](
+        {
+          kind: "request",
+          id: "recover",
+          method: "implement.recover",
+          params: { project: "demo", branch: "recover", specPath: "spec.md" },
+        },
+        new AbortController().signal,
+      );
+      expect(frame).toMatchObject({ kind: "response", result: { kind: "admitted", ok: false } });
+      expect(fixture.calls()).toEqual({ writes: 0, ready: 1, publishes: 1 });
+      expect(fixture.store.loadRun(fixture.reviewRunId)?.status).toBe("failed");
+      expect(readFileSync(join(fixture.root, "spec.md"), "utf8")).toContain("- [x] complete");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test("detached recovery remains active until its finalization settles", async () => {
+    let releaseFinalizer: (() => void) | undefined;
+    const fixture = createRecoveryFixture({
+      outcomeKind: "surviving_mutation_failed",
+      readyFinalizer: async () =>
+        await new Promise<void>((resolve) => {
+          releaseFinalizer = resolve;
+        }),
+    });
+    try {
+      const frame = await fixture.handlers["implement.recover"](
+        {
+          kind: "request",
+          id: "recover",
+          method: "implement.recover",
+          params: { project: "demo", branch: "recover", specPath: "spec.md", detach: true },
+        },
+        new AbortController().signal,
+      );
+      expect(frame).toMatchObject({ kind: "response", result: { kind: "admitted", ok: true } });
+      expect(fixture.handlers.hasActiveRuns()).toBe(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      releaseFinalizer?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(fixture.handlers.hasActiveRuns()).toBe(false);
+      expect(fixture.store.loadRun(fixture.reviewRunId)?.status).toBe("completed");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+});
+
+const INTENT_STAGE_DURABLE_DIR = "spec/ready-intents";
+
+function fakeIntentStageWriteSteps(repoRoot: string): AnyWorkflowStep[] {
+  return [
+    {
+      behavior: "write",
+      stepId: "intent-split",
+      role: "intent",
+      promptId: "intent.prompt.split",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+      agents: ["claude"],
+      agentModelConfig: {},
+      worktree: {
+        projectRoot: realpathSync(repoRoot),
+        projectName: "demo",
+        branchName: "intent-run",
+        baseRef: "HEAD",
+      },
+      specPath: "seed.md",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      publishCompletion: false,
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: INTENT_STAGE_DURABLE_DIR },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-paths-test",
+        baseRef: "HEAD",
+      },
+    },
+  ];
+}
+
+describe("workflow detach after admission", () => {
+  test("run workflow implement with --detach admits and exits without client wait", async () => {
+    // Inversion target: skipClientWait detach branch in workflow.ts — skipping client wait when detach is false turns this test RED.
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS, "--detach"], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-detach-1", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-detach-1\n", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "wait")).toHaveLength(0);
+    expect(ipcFramesWithMethod(sent, "start").length).toBeGreaterThan(0);
+  });
+
+  test("run workflow implement passes through daemon guard errors without local workflow logic when --detach is set", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000005";
+
+    const code = await withFixedUuid(requestId, () =>
+      main([...IMPLEMENT_ARGS, "--detach"], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "error",
+              id: requestId,
+              code: "run_in_progress",
+              message: "A run is already in progress; at most one in-flight run globally",
+            },
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "run_in_progress: A run is already in progress; at most one in-flight run globally\n",
+    });
+  });
+
+  test("run workflow intent with --detach prints intent paths stderr before run ID without client wait", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const intentSteps = fakeIntentStageWriteSteps(fx.repoRoot);
+    const runId = "intent-detach-paths";
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "intent", "--seed-text", "Improve API", "--detach"], cap.io, {
+        cwd: () => fx.repoRoot,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          intent: () => ({ ok: true, steps: intentSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", runId, COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({
+      stdout: `${runId}\n`,
+      stderr: `intent paths: ${INTENT_STAGE_DURABLE_DIR}\n`,
+    });
+    expect(ipcFramesWithMethod(sent, "wait")).toHaveLength(0);
+  });
+
+  test("run workflow intent prints intent paths stderr before run ID when attached", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const intentSteps = fakeIntentStageWriteSteps(fx.repoRoot);
+    const runId = "intent-attach-paths";
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "intent", "--seed-text", "Improve API"], cap.io, {
+        cwd: () => fx.repoRoot,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          intent: () => ({ ok: true, steps: intentSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", runId, COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const output = cap.read();
+    expect(output.stderr).toBe(`intent paths: ${INTENT_STAGE_DURABLE_DIR}\n`);
+    expect(output.stdout).toContain(`${runId}\n`);
+    expect(ipcFramesWithMethod(sent, "wait")).toHaveLength(1);
+  });
+
+  test.skipIf(!canUseUnixSockets())(
+    "after detach the workflow reaches workflow entry terminal while the launching CLI has already exited",
+    async () => {
+      const runId = "run-detach-continuation";
+      const fixture: DetachContinuationFixture = { entryTerminal: false, releaseEntryTerminal: () => {} };
+      const { server, socketPath } = await startDetachContinuationWorkflowServer(runId, fixture);
+      const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+      const childDir = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
+      const childScriptPath = join(childDir, "child.ts");
+
+      try {
+        const proc = spawnWorkflowCliChild(childScriptPath, {
+          socketPath,
+          cwd: fx.repoSub,
+          registry: { "test-project": { root: fx.repoRoot } },
+          argv: [...IMPLEMENT_ARGS, "--detach"],
+          steps: fx.fakeImplementSteps,
+          machineConfigPath,
+        });
+
+        const exitCode = await proc.exited;
+        expect(exitCode).toBe(0);
+        expect(fixture.entryTerminal).toBe(false);
+
+        fixture.releaseEntryTerminal();
+        expect(fixture.entryTerminal).toBe(true);
+      } finally {
+        await server.close();
+        rmSync(socketPath, { force: true });
+        rmSync(childDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test.each([
+    ["implement", [...IMPLEMENT_ARGS, "--detach"], "implement", () => fx.repoSub],
+    ["intent", ["run", "workflow", "intent", "--seed-text", "Improve API", "--detach"], "intent", () => fx.repoRoot],
+    [
+      "plan",
+      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--detach"],
+      "plan",
+      () => fx.repoRoot,
+    ],
+  ] as const)("run workflow %s accepts --detach without client wait", async (_label, args, builderKey, cwd) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const runId = `detach-${_label}`;
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...args], cap.io, {
+        cwd,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          [builderKey]: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", runId, COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(`${runId}\n`);
+    expect(ipcFramesWithMethod(sent, "wait")).toHaveLength(0);
+  });
+});
+
+const ATTACHED_ENTRY_WAIT_RUN_ID = "attached-entry-wait-run";
+const ATTACHED_CONSTITUENT_WAIT_RUN_ID = "attached-constituent-wait-run";
+const ATTACHED_CONSTITUENT_WAIT_RESULT = {
+  runStatus: "completed",
+  loopOutcomeKind: "complete",
+  iterationsConsumed: 1,
+  resumable: false,
+} as const;
+const ATTACHED_HELD_ENTRY_WAIT_RESULT = {
+  runStatus: "failed",
+  loopOutcomeKind: "invocation_failure",
+  iterationsConsumed: 2,
+  resumable: false,
+} as const;
+const ATTACHED_HELD_ENTRY_WAIT_JSON =
+  '{"runStatus":"failed","loopOutcomeKind":"invocation_failure","iterationsConsumed":2,"resumable":false}';
+const ATTACHED_HELD_ENTRY_WAIT_EXIT = 2;
+const ATTACHED_HELD_ENTRY_WAIT_STDOUT = `${ATTACHED_ENTRY_WAIT_RUN_ID}\n${ATTACHED_HELD_ENTRY_WAIT_JSON}\n`;
+
+type AttachedEntryWaitFixture = {
+  whenEntryWaitPending: Promise<void>;
+  releaseEntryWait: () => void;
+};
+
+type DetachContinuationFixture = {
+  entryTerminal: boolean;
+  releaseEntryTerminal: () => void;
+};
+
+function createAttachedEntryWaitRpcHandlers(): {
+  handlers: Record<string, RpcHandler>;
+  fixture: AttachedEntryWaitFixture;
+} {
+  let releaseHeld: (() => void) | undefined;
+  let notifyEntryWaitPending: (() => void) | undefined;
+  const whenEntryWaitPending = new Promise<void>((resolve) => {
+    notifyEntryWaitPending = resolve;
+  });
+
+  const handlers: Record<string, RpcHandler> = {
+    health: () => ({ kind: "response", result: { ok: true } }),
+    status: () => ({ kind: "response", result: { state: "running" } }),
+    start: () => ({ kind: "response", result: { runId: ATTACHED_ENTRY_WAIT_RUN_ID } }),
+    wait: async (frame) => {
+      const runId = (frame.params as { runId?: string } | undefined)?.runId;
+      if (runId === ATTACHED_CONSTITUENT_WAIT_RUN_ID) {
+        return { kind: "response", result: ATTACHED_CONSTITUENT_WAIT_RESULT };
+      }
+      if (runId === ATTACHED_ENTRY_WAIT_RUN_ID) {
+        notifyEntryWaitPending?.();
+        notifyEntryWaitPending = undefined;
+        await new Promise<void>((resolve) => {
+          releaseHeld = resolve;
+        });
+        return { kind: "response", result: ATTACHED_HELD_ENTRY_WAIT_RESULT };
+      }
+      return { kind: "error", code: "unknown_run", message: `unknown run: ${String(runId)}` };
+    },
+  };
+
+  return {
+    handlers,
+    fixture: {
+      whenEntryWaitPending,
+      releaseEntryWait: () => {
+        releaseHeld?.();
+        releaseHeld = undefined;
+      },
+    },
+  };
+}
+
+function createDetachContinuationRpcHandlers(
+  runId: string,
+  fixture: DetachContinuationFixture,
+): Record<string, RpcHandler> {
+  let releaseHeld: (() => void) | undefined;
+  fixture.releaseEntryTerminal = () => {
+    releaseHeld?.();
+    releaseHeld = undefined;
+  };
+
+  return {
+    health: () => ({ kind: "response", result: { ok: true } }),
+    status: () => ({ kind: "response", result: { state: "running" } }),
+    start: () => {
+      void new Promise<void>((resolve) => {
+        releaseHeld = () => {
+          fixture.entryTerminal = true;
+          resolve();
+        };
+      });
+      return { kind: "response", result: { runId } };
+    },
+  };
+}
+
+const jarvisRepoRoot = join(import.meta.dir, "../..");
+
+function writeWorkflowCliChildScript(scriptPath: string): void {
+  mkdirSync(dirname(scriptPath), { recursive: true });
+  writeFileSync(
+    scriptPath,
+    `import { appendFileSync, existsSync } from "node:fs";
+import { Socket } from "node:net";
+import { join } from "node:path";
+import { main } from ${JSON.stringify(join(jarvisRepoRoot, "src/cli.ts"))};
+import { createRuntimeDeps } from ${JSON.stringify(join(jarvisRepoRoot, "src/cli/deps.ts"))};
+import { connectIpcClient } from ${JSON.stringify(join(jarvisRepoRoot, "src/ipc/client.ts"))};
+import { TEST_EXECUTABLE_DIGEST } from ${JSON.stringify(join(jarvisRepoRoot, "src/testing/cli-test-helpers.ts"))};
+
+const socketPath = process.env.JARVIS_WORKFLOW_CLI_SOCKET!;
+const cwd = process.env.JARVIS_WORKFLOW_CLI_CWD!;
+const registry = JSON.parse(process.env.JARVIS_WORKFLOW_CLI_REGISTRY!);
+const argv = JSON.parse(process.env.JARVIS_WORKFLOW_CLI_ARGV!) as string[];
+const steps = JSON.parse(process.env.JARVIS_WORKFLOW_CLI_STEPS!);
+const machineConfigPath = process.env.JARVIS_WORKFLOW_CLI_MACHINE_CONFIG!;
+const socketDir = join(socketPath, "..");
+const connectBudgetMs = process.env.JARVIS_WORKFLOW_CLI_CONNECT_BUDGET_MS;
+const connectGateFile = process.env.JARVIS_WORKFLOW_CLI_CONNECT_GATE_FILE;
+const connectCalledFile = process.env.JARVIS_WORKFLOW_CLI_CONNECT_CALLED_FILE;
+
+if (connectGateFile) {
+  const realConnect = Socket.prototype.connect;
+  Socket.prototype.connect = function (this: Socket, ...args: unknown[]) {
+    if (connectCalledFile) appendFileSync(connectCalledFile, "x\\n");
+    const gate = setInterval(() => {
+      if (!existsSync(connectGateFile)) return;
+      clearInterval(gate);
+      (realConnect as (...a: unknown[]) => unknown).apply(this, args);
+    }, 5);
+    return this;
+  } as typeof Socket.prototype.connect;
+}
+
+const code = await main(argv, undefined, createRuntimeDeps({
+  cwd: () => cwd,
+  socketPath,
+  pidPath: join(socketDir, "daemon.pid"),
+  logPath: join(socketDir, "daemon.log"),
+  connectIpcClient: connectBudgetMs
+    ? (sp, defaultTimeoutMs) =>
+        connectIpcClient(sp, defaultTimeoutMs, Number(connectBudgetMs)).catch((error: Error) => {
+          console.error(error.message);
+          throw error;
+        })
+    : connectIpcClient,
+  startDaemon: async (sp) => ({ pid: process.pid, socketPath: sp }),
+  getDaemonStatus: async () => ({
+    state: "running" as const,
+    loadedRevision: "test",
+  }),
+  readProjectRegistry: () => registry,
+  workflowPresetBuilders: { implement: () => ({ ok: true, steps }) },
+  getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
+  machineConfigPath,
+}));
+process.exit(code);
+`,
+    "utf8",
+  );
+}
+
+type WorkflowCliChildEnv = {
+  socketPath: string;
+  cwd: string;
+  registry: Record<string, { root: string }>;
+  argv: readonly string[];
+  steps: AnyWorkflowStep[];
+  machineConfigPath: string;
+  connectBudgetMs?: number | undefined;
+  connectGateFile?: string;
+  connectCalledFile?: string;
+};
+
+function spawnWorkflowCliChild(scriptPath: string, env: WorkflowCliChildEnv) {
+  writeWorkflowCliChildScript(scriptPath);
+  return Bun.spawn([process.execPath, scriptPath], {
+    env: {
+      ...process.env,
+      JARVIS_WORKFLOW_CLI_SOCKET: env.socketPath,
+      JARVIS_WORKFLOW_CLI_CWD: env.cwd,
+      JARVIS_WORKFLOW_CLI_REGISTRY: JSON.stringify(env.registry),
+      JARVIS_WORKFLOW_CLI_ARGV: JSON.stringify(env.argv),
+      JARVIS_WORKFLOW_CLI_STEPS: JSON.stringify(env.steps),
+      JARVIS_WORKFLOW_CLI_MACHINE_CONFIG: env.machineConfigPath,
+      ...(env.connectBudgetMs === undefined
+        ? {}
+        : { JARVIS_WORKFLOW_CLI_CONNECT_BUDGET_MS: String(env.connectBudgetMs) }),
+      ...(env.connectGateFile === undefined ? {} : { JARVIS_WORKFLOW_CLI_CONNECT_GATE_FILE: env.connectGateFile }),
+      ...(env.connectCalledFile === undefined
+        ? {}
+        : { JARVIS_WORKFLOW_CLI_CONNECT_CALLED_FILE: env.connectCalledFile }),
+    },
+    stdout: "pipe" as const,
+    stderr: "pipe" as const,
+    cwd: env.cwd,
+  });
+}
+
+async function startAttachedEntryWaitWorkflowServer(): Promise<{
+  server: IpcServer;
+  socketPath: string;
+  fixture: AttachedEntryWaitFixture;
+}> {
+  const socketPath = join(tmpdir(), `jarvis-attached-workflow-${process.pid}-${crypto.randomUUID()}.sock`);
+  rmSync(socketPath, { force: true });
+  const { handlers, fixture } = createAttachedEntryWaitRpcHandlers();
+  const server = await startIpcServer(socketPath, handlers);
+  return { server, socketPath, fixture };
+}
+
+async function startDetachContinuationWorkflowServer(
+  runId: string,
+  fixture: DetachContinuationFixture,
+): Promise<{ server: IpcServer; socketPath: string }> {
+  const socketPath = join(tmpdir(), `jarvis-detach-continuation-${process.pid}-${crypto.randomUUID()}.sock`);
+  rmSync(socketPath, { force: true });
+  const handlers = createDetachContinuationRpcHandlers(runId, fixture);
+  const server = await startIpcServer(socketPath, handlers);
+  return { server, socketPath };
+}
+
+function attachedEntryWaitWorkflowDeps(
+  socketPath: string,
+  machineConfigPath: string,
+  cwd: string,
+  steps: AnyWorkflowStep[],
+) {
+  const socketDir = dirname(socketPath);
+  return {
+    cwd: () => cwd,
+    socketPath,
+    pidPath: join(socketDir, "daemon.pid"),
+    logPath: join(socketDir, "daemon.log"),
+    machineConfigPath,
+    connectIpcClient,
+    startDaemon: async (sp: string) => ({ pid: process.pid, socketPath: sp }),
+    readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+    workflowPresetBuilders: { implement: () => ({ ok: true, steps }) },
+    getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
+  };
+}
+
+async function assertAttachedEntryTerminalWait(): Promise<void> {
+  const { server, socketPath, fixture } = await startAttachedEntryWaitWorkflowServer();
+  const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+  const steps = fx.fakeImplementSteps;
+  const argv = [...IMPLEMENT_ARGS];
+  const childDir = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
+  const childScriptPath = join(childDir, "child.ts");
+
+  try {
+    const proc = spawnWorkflowCliChild(childScriptPath, {
+      socketPath,
+      cwd: fx.repoSub,
+      registry: { "test-project": { root: fx.repoRoot } },
+      argv,
+      steps,
+      machineConfigPath,
+    });
+
+    await fixture.whenEntryWaitPending;
+    expect(proc.exitCode).toBeNull();
+    fixture.releaseEntryWait();
+    const exitCode = await proc.exited;
+    const stdout = await new Response(proc.stdout).text();
+    expect(exitCode).toBe(ATTACHED_HELD_ENTRY_WAIT_EXIT);
+    expect(stdout).toBe(ATTACHED_HELD_ENTRY_WAIT_STDOUT);
+  } finally {
+    await server.close();
+    rmSync(socketPath, { force: true });
+    rmSync(childDir, { recursive: true, force: true });
+  }
+}
+
+async function expectAttachedWorkflowMissesEntryTerminalContract(overrides: Partial<CliDeps> = {}): Promise<void> {
+  const { server, socketPath } = await startAttachedEntryWaitWorkflowServer();
+  const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+  const cap = captureIo();
+  try {
+    const code = await main([...IMPLEMENT_ARGS], cap.io, {
+      ...attachedEntryWaitWorkflowDeps(socketPath, machineConfigPath, fx.repoSub, fx.fakeImplementSteps),
+      ...overrides,
+    } as NonNullable<Parameters<typeof main>[2]>);
+    const stdout = cap.read().stdout;
+    expect(code === ATTACHED_HELD_ENTRY_WAIT_EXIT && stdout === ATTACHED_HELD_ENTRY_WAIT_STDOUT).toBe(false);
+  } finally {
+    await server.close();
+    rmSync(socketPath, { force: true });
+  }
+}
+
+describe("spawned workflow CLI connect budget", () => {
+  const SPAWNED_CONNECT_HOLD_MS = 5001;
+
+  async function runHeldConnectChild(opts: { releaseAfterMs: number }) {
+    const runId = "run-connect-budget";
+    const { server, socketPath } = await startDetachContinuationWorkflowServer(runId, {
+      entryTerminal: false,
+      releaseEntryTerminal: () => {},
+    });
+    const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+    const childDir = trackedMkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
+    const gateFile = join(childDir, "connect-gate");
+    const calledFile = join(childDir, "connect-called");
+    try {
+      const proc = spawnWorkflowCliChild(join(childDir, "child.ts"), {
+        socketPath,
+        cwd: fx.repoSub,
+        registry: { "test-project": { root: fx.repoRoot } },
+        argv: [...IMPLEMENT_ARGS, "--detach"],
+        steps: fx.fakeImplementSteps,
+        machineConfigPath,
+        connectGateFile: gateFile,
+        connectCalledFile: calledFile,
+      });
+      while (!existsSync(calledFile) && proc.exitCode === null) await Bun.sleep(5);
+      await Bun.sleep(opts.releaseAfterMs);
+      writeFileSync(gateFile, "");
+      const exitCode = await proc.exited;
+      const connectCalls = existsSync(calledFile) ? readFileSync(calledFile, "utf8").split("\n").length - 1 : 0;
+      return { exitCode, stderr: await new Response(proc.stderr).text(), connectCalls };
+    } finally {
+      await server.close();
+      rmSync(socketPath, { force: true });
+      rmSync(childDir, { recursive: true, force: true });
+    }
+  }
+
+  test.skipIf(!canUseUnixSockets())(
+    "connects after a 5001 ms held connection under the inherited 30000 ms budget",
+    async () => {
+      const { exitCode, stderr, connectCalls } = await runHeldConnectChild({ releaseAfterMs: SPAWNED_CONNECT_HOLD_MS });
+      expect(stderr).not.toContain("IPC connect timeout");
+      expect(connectCalls).toBe(1);
+      expect(exitCode).toBe(0);
+    },
+    20_000,
+  );
+
+  test.skipIf(!canUseUnixSockets())(
+    "a held connection past an explicit 10 ms budget fails with IPC connect timeout naming the budget",
+    async () => {
+      // In-process (no child bun cold start) with a fake clock for the 5000 ms auto-start retry
+      // deadline; every connect is held so only the real 10 ms budget can settle it.
+      const { server, socketPath } = await startDetachContinuationWorkflowServer("run-connect-budget", {
+        entryTerminal: false,
+        releaseEntryTerminal: () => {},
+      });
+      const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+      const realConnect = Socket.prototype.connect;
+      const held: Socket[] = [];
+      Socket.prototype.connect = function (this: Socket) {
+        held.push(this);
+        return this;
+      } as typeof Socket.prototype.connect;
+      let budgetError: Error | undefined;
+      let fakeNow = 0;
+      const cap = captureIo();
+      try {
+        const code = await main([...IMPLEMENT_ARGS, "--detach"], cap.io, {
+          ...attachedEntryWaitWorkflowDeps(socketPath, machineConfigPath, fx.repoSub, fx.fakeImplementSteps),
+          getDaemonStatus: async () => ({ state: "running" as const, loadedRevision: "test" }),
+          now: () => fakeNow,
+          sleep: async (ms: number) => {
+            fakeNow += ms;
+          },
+          connectIpcClient: (sp: string, defaultTimeoutMs?: number) =>
+            connectIpcClient(sp, defaultTimeoutMs, 10).catch((error: Error) => {
+              budgetError = error;
+              throw error;
+            }),
+        } as NonNullable<Parameters<typeof main>[2]>);
+        expect(held.length).toBeGreaterThan(0);
+        expect(code).not.toBe(0);
+        expect(budgetError?.message).toContain("IPC connect timeout");
+        expect(budgetError?.message).toContain("10ms");
+        expect(cap.read().stderr).toContain("deadline exceeded");
+      } finally {
+        Socket.prototype.connect = realConnect;
+        for (const socket of held) socket.destroy();
+        await server.close();
+        rmSync(socketPath, { force: true });
+      }
+    },
+    2_000,
+  );
+});
+
+describe("workflow attached entry-terminal wait", () => {
+  const attachedSocketTest = test.skipIf(!canUseUnixSockets());
+
+  attachedSocketTest(
+    "attached run workflow waits through a multi-step workflow until the entry run is terminal",
+    async () => {
+      await assertAttachedEntryTerminalWait();
+    },
+  );
+
+  attachedSocketTest(
+    "inverting attach client-wait guard fails attached run workflow waits through a multi-step workflow until the entry run is terminal",
+    async () => {
+      await expectAttachedWorkflowMissesEntryTerminalContract({ forceSkipAttachClientWait: true });
+    },
+  );
+
+  attachedSocketTest(
+    "retargeting attach client wait at a constituent run ID fails attached run workflow waits through a multi-step workflow until the entry run is terminal",
+    async () => {
+      await expectAttachedWorkflowMissesEntryTerminalContract({
+        attachWaitRunIdOverride: ATTACHED_CONSTITUENT_WAIT_RUN_ID,
+      });
+    },
+  );
+});
+
+describe("plan --base validation", () => {
+  test("rejects an unresolvable --base before daemon contact, without running the builder", async () => {
+    const cap = captureIo();
+    let builderRan = false;
+    const code = await main(
+      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "no-such-ref"],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        subprocessRunner: {
+          runAsync: async (command: string, args: string[]) => {
+            if (command === "git" && args.includes("rev-parse")) throw new Error("fatal: no-such-ref");
+            return "";
+          },
+        },
+        workflowPresetBuilders: {
+          plan: () => {
+            builderRan = true;
+            return { ok: true, steps: [] };
+          },
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    const { stdout, stderr } = cap.read();
+    expect(stdout).toBe("");
+    expect(stderr).toContain("no-such-ref");
+    expect(stderr).toContain("does not resolve to a tree-ish in the local clone");
+    expect(builderRan).toBe(false);
+  });
+
+  test("rejects a --base strictly behind its upstream (base_behind_origin), like implement", async () => {
+    const cap = captureIo();
+    let builderRan = false;
+    const code = await main(
+      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "epic/base"],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        subprocessRunner: {
+          runAsync: async (command: string, args: string[]) => {
+            if (command !== "git") return "";
+            if (args[0] === "rev-parse") {
+              const ref = args[args.length - 1] ?? "";
+              if (ref.endsWith("^{tree}")) return ""; // tree-ish exists locally
+              if (ref.includes("@{upstream}")) return "origin/epic-base";
+              if (ref === "epic/base") return "aaaaaaaaaaaa";
+              if (ref === "origin/epic-base" || ref === "FETCH_HEAD") return "bbbbbbbbbbbb";
+              return "";
+            }
+            if (args[0] === "merge-base") return ""; // --is-ancestor success: local is behind upstream
+            return ""; // fetch, etc.
+          },
+        },
+        workflowPresetBuilders: {
+          plan: () => {
+            builderRan = true;
+            return { ok: true, steps: [] };
+          },
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("base_behind_origin");
+    expect(builderRan).toBe(false);
+  });
+
+  test("admits a resolvable --base, threads it into the builder input, and dispatches", async () => {
+    const cap = captureIo();
+    const revParseCalls: string[][] = [];
+    let builtBaseRef: string | undefined;
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--base", "epic/base"], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        subprocessRunner: {
+          runAsync: async (command: string, args: string[]) => {
+            if (command === "git" && args[0] === "rev-parse") revParseCalls.push(args);
+            return ""; // tree-ish resolves; empty @{upstream} => no upstream => freshness admits
+          },
+        },
+        workflowPresetBuilders: {
+          plan: (input) => {
+            builtBaseRef = (input as { baseRef?: string }).baseRef;
+            return { ok: true, steps: fx.fakeImplementSteps };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-777", COMPLETED_WAIT_RESULT), { sent: [] }),
+      }),
+    );
+
+    // Validated the tree-ish against the local clone, threaded the base into the builder, and dispatched.
+    expect(revParseCalls).toContainEqual(["rev-parse", "--verify", "--quiet", "epic/base^{tree}"]);
+    expect(builtBaseRef).toBe("epic/base");
+    expect(code).toBe(0);
+    expect(cap.read().stderr).toBe("");
+  });
+});
+
+describe("review-passes and review-behavior resolution", () => {
+  test.each([
+    ["implement", "--review-passes", "1x", IMPLEMENT_USAGE],
+    ["implement", "--review-behavior", "heavy", IMPLEMENT_USAGE],
+    ["intent", "--review-passes", "1x", INTENT_USAGE],
+    ["plan", "--review-passes", "1x", PLAN_USAGE],
+  ] as [
+    keyof typeof REJECT_BASE_ARGS,
+    string,
+    string,
+    string,
+  ][])("run workflow %s rejects %s %s before daemon contact", async (preset, flag, value, usage) => {
+    const cap = captureIo();
+
+    const code = await main([...REJECT_BASE_ARGS[preset], flag, value], cap.io, noDaemonDeps());
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: usage });
+  });
+
+  test.each([
+    [
+      "reviewPasses",
+      { reviewPasses: -1 },
+      "projects.test-project.implement.reviewPasses must be a non-negative integer\n",
+    ],
+    [
+      "reviewBehavior",
+      { reviewBehavior: "heavy" },
+      'projects.test-project.implement.reviewBehavior must be "debate" or "light"\n',
+    ],
+  ] as [
+    string,
+    Record<string, unknown>,
+    string,
+  ][])("run workflow implement rejects invalid project implement.%s before daemon contact", async (_key, implement, stderr) => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot, implement } } });
+
+    const code = await main(
+      [...IMPLEMENT_ARGS],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe(stderr);
+  });
+
+  test.each([
+    ["--review-passes with no project default", undefined, ["--review-passes", "2"], "reviewPasses", 2],
+    [
+      "project reviewPasses (left to the builder) when flag omitted",
+      { reviewPasses: 3 },
+      [],
+      "reviewPasses",
+      undefined,
+    ],
+    ["--review-passes over project reviewPasses", { reviewPasses: 3 }, ["--review-passes", "1"], "reviewPasses", 1],
+    [
+      "project reviewBehavior (left to the builder) when flag omitted",
+      { reviewBehavior: "light" },
+      [],
+      "reviewBehavior",
+      undefined,
+    ],
+    [
+      "--review-behavior debate over project reviewBehavior",
+      { reviewBehavior: "light" },
+      ["--review-behavior", "debate"],
+      "reviewBehavior",
+      "debate",
+    ],
+  ] as [
+    string,
+    Record<string, unknown> | undefined,
+    string[],
+    string,
+    unknown,
+  ][])("run workflow implement resolves %s before daemon start", async (_label, implement, extraArgs, key, expected) => {
+    const cap = captureIo();
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+    const machineConfigDeps =
+      implement === undefined
+        ? {}
+        : { machineConfigPath: writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot, implement } } }) };
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS, ...extraArgs], cap.io, {
+        cwd: () => fx.repoSub,
+        ...machineConfigDeps,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: fx.fakeImplementSteps };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review", COMPLETED_WAIT_RESULT)),
+      }),
+    );
+
+    expect(code).toBe(0);
+    if (expected === undefined) {
+      expect(builtInput).not.toHaveProperty(key);
+    } else {
+      expect(builtInput).toMatchObject({ [key]: expected });
+    }
+  });
+});
+
+describe("review-role timeout resolution", () => {
+  async function startReviewIdleBudgetWorkflow(idleOutputTimeoutMs?: number): Promise<AnyWorkflowStep[]> {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig(idleOutputTimeoutMs === undefined ? {} : { idleOutputTimeoutMs });
+    const suffix = idleOutputTimeoutMs ?? "absent";
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({
+            ok: true,
+            steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep(), fakeReviewDebateStep()],
+          }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", `run-review-idle-${suffix}`, COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    return (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+  }
+
+  test("applies the configured idle budget to review and review-debate steps", async () => {
+    const sentSteps = await startReviewIdleBudgetWorkflow(123_456);
+    expect(sentSteps[1]).toMatchObject({ behavior: "review", idleOutputMs: 123_456 });
+    expect(sentSteps[2]).toMatchObject({ behavior: "review-debate", idleOutputMs: 123_456 });
+  });
+
+  test("leaves review idle budgets unstamped when absent", async () => {
+    const sentSteps = await startReviewIdleBudgetWorkflow();
+    expect(sentSteps[1]).not.toHaveProperty("idleOutputMs");
+    expect(sentSteps[2]).not.toHaveProperty("idleOutputMs");
+  });
+
+  test("applies a disabled idle budget to review and review-debate steps", async () => {
+    const sentSteps = await startReviewIdleBudgetWorkflow(0);
+    expect(sentSteps[1]).toMatchObject({ behavior: "review", idleOutputMs: 0 });
+    expect(sentSteps[2]).toMatchObject({ behavior: "review-debate", idleOutputMs: 0 });
+  });
+
+  test("stamps the default reviewRoleTimeoutMs onto review steps when unconfigured", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-default", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({ behavior: "review", roleTimeoutMs: 1_800_000 });
+  });
+
+  test("stamps a configured reviewRoleTimeoutMs onto review steps", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ reviewRoleTimeoutMs: 900_000 });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-configured", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({ behavior: "review", roleTimeoutMs: 900_000 });
+  });
+
+  test("stamps the default reviewRoleTimeoutMs onto review-debate steps when unconfigured", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewDebateStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-debate-default", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({ behavior: "review-debate", roleTimeoutMs: 1_800_000 });
+  });
+
+  test("stamps a configured reviewRoleTimeoutMs onto review-debate steps", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ reviewRoleTimeoutMs: 900_000 });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewDebateStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-debate-configured", COMPLETED_WAIT_RESULT), {
+            sent,
+          }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({ behavior: "review-debate", roleTimeoutMs: 900_000 });
+  });
+
+  test("rejects a non-positive reviewRoleTimeoutMs before daemon contact", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ reviewRoleTimeoutMs: 0 });
+
+    const code = await main(
+      [...IMPLEMENT_ARGS],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep()] }),
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe("Machine config 'reviewRoleTimeoutMs' must be a positive number\n");
+  });
+});
+
+const WORKFLOW_COMMAND_SYMBOL_START = "export async function runWorkflowCommand";
+const WORKFLOW_COMMAND_SYMBOL_END = "return exitCode;";
+const PREPARE_CALL_PATTERN = /prepareWorkflowStart(?:<[^>]*>)?\s*\(/g;
+const STAMP_CALL_PATTERN = /stampWorkflowStepsWithMachineConfig\s*\(/u;
+const STALE_RESET_CALL_PATTERN = /maybeResetStaleWorkspace\s*\(/u;
+
+function runWorkflowCommandSlice(source: string): string {
+  return locateSymbolSlice({
+    candidates: [source],
+    start: WORKFLOW_COMMAND_SYMBOL_START,
+    end: WORKFLOW_COMMAND_SYMBOL_END,
+    searchKey: "runWorkflowCommand",
+  });
+}
+
+describe("shared workflow-start preparation", () => {
+  test("run workflow intent plan and implement preserve prepared start steps through the shared owner", async () => {
+    const source = readFileSync(join(import.meta.dir, "workflow.ts"), "utf8");
+    expect(runWorkflowCommandSlice(source).match(PREPARE_CALL_PATTERN)).toHaveLength(1);
+    const configPath = writeMachineConfig({
+      iterationTimeoutMs: 101_000,
+      iterationCeilingMs: 202_000,
+      idleOutputTimeoutMs: 30_000,
+      projects: { demo: { fixCommand: "bun run fix", readyCommand: "bun run verify" } },
+    });
+    const cases = [
+      ["intent", ["run", "workflow", "intent", "--seed-text", "Improve API", "--detach"]],
+      ["plan", ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--detach"]],
+      ["implement", [...IMPLEMENT_ARGS, "--detach"]],
+    ] as const;
+
+    for (const [workflow, argv] of cases) {
+      const cap = captureIo();
+      const sent: unknown[] = [];
+      let builds = 0;
+      const templateStep = fx.fakeImplementSteps[0];
+      if (templateStep === undefined || templateStep.behavior !== "write") {
+        throw new Error("expected write step fixture");
+      }
+      const builtStep = {
+        ...templateStep,
+        stepId: workflow,
+        worktree: { ...templateStep.worktree, git: false },
+      };
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000120", () =>
+        main([...argv], cap.io, {
+          cwd: () => fx.repoSub,
+          machineConfigPath: configPath,
+          readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+          workflowPresetBuilders: {
+            [workflow]: () => {
+              builds += 1;
+              return { ok: true, steps: [builtStep] };
+            },
+          },
+          connectIpcClient: async () =>
+            makeIpcClient(
+              [{ kind: "response", id: "00000000-0000-4000-8000-000000000120", result: { runId: workflow } }],
+              { sent },
+            ),
+        }),
+      );
+      expect(code).toBe(0);
+      expect(builds).toBe(1);
+      expect(builtStep).not.toHaveProperty("fixCommand");
+      expect((sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps).toEqual([
+        {
+          ...builtStep,
+          iterationTimeoutMs: 101_000,
+          iterationCeilingMs: 202_000,
+          idleOutputMs: 30_000,
+          fixCommand: "bun run fix",
+          readyCommand: "bun run verify",
+        },
+      ]);
+    }
+  });
+
+  test("runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner", () => {
+    const source = readFileSync(join(import.meta.dir, "workflow.ts"), "utf8");
+    const owner = readFileSync(join(import.meta.dir, "workflow-start-preparation.ts"), "utf8");
+    const commandSlice = runWorkflowCommandSlice(source);
+    const ownerSlice = locateSymbolSlice({
+      candidates: [owner],
+      start: "export async function prepareWorkflowStart",
+      end: "return prepared;",
+      searchKey: "prepareWorkflowStart",
+    });
+    expect(source).toContain('from "./workflow-start-preparation.ts"');
+    expect(source).not.toContain("async function prepareWorkflowSteps");
+    expect(commandSlice).not.toMatch(STAMP_CALL_PATTERN);
+    expect(commandSlice).not.toMatch(STALE_RESET_CALL_PATTERN);
+    expect(ownerSlice).toMatch(/request\.builder\s*\(/u);
+    expect(ownerSlice).toMatch(/request\.stampSteps\s*\(/u);
+    expect(ownerSlice).toMatch(/request\.staleReset\.run\s*\(/u);
+  });
+});
+
+describe("readyCommand admission", () => {
+  test("stamps the configured readyCommand onto write steps", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ projects: { demo: { readyCommand: "npm run verify" } } });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-ready-command-configured", COMPLETED_WAIT_RESULT), {
+            sent,
+          }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[0]).toMatchObject({ readyCommand: "npm run verify" });
+  });
+
+  test.each([
+    ["absent", {}],
+    ["whitespace-only", { readyCommand: "   " }],
+  ] as const)("leaves readyCommand unstamped when %s", async (_label, projectFields) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ projects: { demo: projectFields } });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-ready-command-unset", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[0]).not.toHaveProperty("readyCommand");
+  });
+
+  test("stamps configured gate commands onto review and review-debate steps", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({
+      projects: { demo: { fixCommand: "npm run fix-custom", readyCommand: "npm run verify-custom" } },
+    });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({
+            ok: true,
+            steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep(), fakeReviewDebateStep()],
+          }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-gate-commands", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({
+      behavior: "review",
+      fixCommand: "npm run fix-custom",
+      readyCommand: "npm run verify-custom",
+    });
+    expect(sentSteps[2]).toMatchObject({
+      behavior: "review-debate",
+      fixCommand: "npm run fix-custom",
+      readyCommand: "npm run verify-custom",
+    });
+  });
+
+  test("leaves review gate commands unstamped when project overrides are absent", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ projects: { demo: {} } });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-gate-commands-absent", COMPLETED_WAIT_RESULT), {
+            sent,
+          }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).not.toHaveProperty("fixCommand");
+    expect(sentSteps[1]).not.toHaveProperty("readyCommand");
+  });
+});
+
+describe("implement spec and artifact validation", () => {
+  test("run workflow implement derives branch from spec parent dirname when branch is omitted", async () => {
+    const cap = captureIo();
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "implement", "--base", "main", "--spec", "spec/my-spec/index.md"], cap.io, {
+        cwd: () => fx.repoRoot,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: (input) => {
+            builtInput = input;
+            return { ok: true, steps: fx.fakeImplementSteps };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-derived-branch", COMPLETED_WAIT_RESULT)),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain("run-derived-branch");
+    expect(cap.read().stdout).toContain('{"runStatus":"completed"');
+    expect(builtInput).toMatchObject({
+      cwd: fx.repoRoot,
+      baseRef: "main",
+      specPath: "spec/my-spec/index.md",
+      configPath: expect.any(String),
+      projectRegistry: { "test-project": { root: fx.repoRoot } },
+    });
+  });
+
+  test("run workflow implement requires --artifact for non-index specs and surfaces error without daemon contact", async () => {
+    const cap = captureIo();
+
+    const code = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "spec.md"],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoRoot,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("Non-index spec requires --artifact");
+  });
+
+  test("run workflow implement rejects a missing spec before builder or daemon contact", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const cap = captureIo();
+    const built = false;
+
+    const code = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "missing.md"],
+      cap.io,
+      noDaemonDeps({ cwd: () => root, readProjectRegistry: () => ({ project: { root } }) }),
+    );
+
+    expect(code).toBe(1);
+    expect(built).toBe(false);
+    expect(cap.read().stderr).toContain(`Spec path does not exist: ${join(root, "missing.md")}`);
+  });
+
+  test("run workflow implement rejects a cwd-visible spec unavailable from the base ref before daemon contact", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-base-ref-"));
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+    writeFileSync(join(root, ".gitignore"), "local-spec/\n", "utf8");
+    writeFileSync(join(root, "README.md"), "seed\n", "utf8");
+    execFileSync("git", ["add", ".gitignore", "README.md"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
+    mkdirSync(join(root, "local-spec"));
+    writeFileSync(join(root, "local-spec", "index.md"), "# Index\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+    const cap = captureIo();
+
+    const code = await main(
+      ["run", "workflow", "implement", "--base", "HEAD", "--spec", "local-spec/index.md"],
+      cap.io,
+      noDaemonDeps({ cwd: () => root, readProjectRegistry: () => ({ project: { root } }) }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe("Spec path unavailable in base ref HEAD: local-spec/index.md\n");
+  });
+
+  test("run workflow implement rejects a missing non-index artifact before daemon contact", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    writeFileSync(join(root, "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
+    const cap = captureIo();
+
+    const code = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "spec.md", "--artifact", "missing.md"],
+      cap.io,
+      noDaemonDeps({ cwd: () => root, readProjectRegistry: () => ({ project: { root } }) }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain(`Artifact path does not exist: ${join(root, "missing.md")}`);
+  });
+
+  test("run workflow implement rejects escaping spec and artifact symlinks before builder or daemon contact", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-outside-"));
+    writeFileSync(join(outside, "outside.md"), "# Outside\n", "utf8");
+    symlinkSync(join(outside, "outside.md"), join(root, "escaped.md"));
+    writeFileSync(join(root, "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
+    const specCap = captureIo();
+
+    const specCode = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "escaped.md"],
+      specCap.io,
+      noDaemonDeps({ cwd: () => root, readProjectRegistry: () => ({ project: { root } }) }),
+    );
+    expect(specCode).toBe(1);
+    expect(specCap.read().stderr).toContain("Spec path outside registered project roots");
+
+    symlinkSync(join(outside, "outside.md"), join(root, "escaped-artifact.md"));
+    const artifactCap = captureIo();
+    const artifactCode = await main(
+      ["run", "workflow", "implement", "--base", "main", "--spec", "spec.md", "--artifact", "escaped-artifact.md"],
+      artifactCap.io,
+      noDaemonDeps({ cwd: () => root, readProjectRegistry: () => ({ project: { root } }) }),
+    );
+    expect(artifactCode).toBe(1);
+    expect(artifactCap.read().stderr).toContain("Artifact path outside registered project root");
+  });
+
+  test("run workflow implement accepts contained symlinks and passes relative paths to the builder", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    mkdirSync(join(root, "specs"));
+    writeFileSync(join(root, "specs", "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
+    writeFileSync(join(root, "specs", "artifact.md"), "# Artifact\n", "utf8");
+    symlinkSync(join(root, "specs", "spec.md"), join(root, "spec-link.md"));
+    symlinkSync(join(root, "specs", "artifact.md"), join(root, "artifact-link.md"));
+    const cap = captureIo();
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--base", "main", "--spec", "spec-link.md", "--artifact", "artifact-link.md"],
+        cap.io,
+        {
+          cwd: () => root,
+          readProjectRegistry: () => ({ project: { root } }),
+          workflowPresetBuilders: {
+            implement: (input) => {
+              builtInput = input;
+              return { ok: true, steps: fx.fakeImplementSteps };
+            },
+          },
+          connectIpcClient: async () => makeIpcClient(workflowFrames("start", "wait", "run-1", COMPLETED_WAIT_RESULT)),
+        },
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(builtInput).toMatchObject({
+      specPath: "spec-link.md",
+      artifactPath: "artifact-link.md",
+    });
+  });
+
+  test("run workflow implement ignores an unresolved registry root unrelated to the spec", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    writeFileSync(join(root, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
+    const cap = captureIo();
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "implement", "--base", "main", "--spec", "index.md"], cap.io, {
+        cwd: () => root,
+        readProjectRegistry: () => ({ stale: { root: join(root, "missing") }, project: { root } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
+        connectIpcClient: async () => makeIpcClient(workflowFrames("start", "wait", "run-1", COMPLETED_WAIT_RESULT)),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain("run-1");
+    expect(cap.read().stdout).toContain('{"runStatus":"completed"');
+  });
+
+  test("run workflow implement ignores --artifact for index specs", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
+    writeFileSync(join(root, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
+    const cap = captureIo();
+    let builtInput: BuildImplementWorkflowStepsInput | undefined;
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--base", "main", "--spec", "index.md", "--artifact", "missing.md"],
+        cap.io,
+        {
+          cwd: () => root,
+          readProjectRegistry: () => ({ project: { root } }),
+          workflowPresetBuilders: {
+            implement: (input) => {
+              builtInput = input;
+              return { ok: true, steps: fx.fakeImplementSteps };
+            },
+          },
+          connectIpcClient: async () => makeIpcClient(workflowFrames("start", "wait", "run-1", COMPLETED_WAIT_RESULT)),
+        },
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(builtInput).toMatchObject({ specPath: "index.md", artifactPath: "missing.md" });
+  });
+
+  test("run workflow implement surfaces a builder error without contacting the daemon", async () => {
+    const cap = captureIo();
+
+    const code = await main(
+      [...IMPLEMENT_ARGS],
+      cap.io,
+      noDaemonDeps({ cwd: () => fx.unregistered, readProjectRegistry: () => ({}) }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("Spec path outside registered project roots");
+  });
+
+  test("run workflow implement reports an already-complete spec without daemon contact", async () => {
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const code = await main(
+      [...IMPLEMENT_ARGS],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        subprocessRunner: {
+          runAsync: async (cmd, args, cwd) => {
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+            return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? fx.repoRoot);
+          },
+        },
+        workflowPresetBuilders: {
+          implement: () => ({
+            ok: false,
+            error: "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria",
+          }),
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe(
+      "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria\n",
+    );
+    expect(teardownCalls).toEqual([]);
+  });
+});
+
+describe("implement preflight stale workspace reset", () => {
+  let resetTmp: string;
+  let resetProjectRoot: string;
+  let resetJarvisRoot: string;
+  const resetBranch = "implement-run";
+
+  // A fixed base sha, not the literal "HEAD" sentinel: once a materialized worktree exists for
+  // this branch, "HEAD" resolves against that worktree's own tip (not resetProjectRoot's), which
+  // moves as the run commits and would self-diff empty against the completion tail's own forced
+  // commit whenever a test flips `publishCompletion` on.
+  function resetProjectBaseRef(): string {
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: resetProjectRoot, encoding: "utf8" }).trim();
+  }
+
+  function resetImplementSteps(branch = resetBranch): AnyWorkflowStep[] {
+    return [
+      {
+        behavior: "write",
+        stepId: "implement",
+        role: "implement",
+        promptId: "implement.prompt.body",
+        stepRules: DEFAULT_WRITE_STEP_RULES,
+        agents: ["claude"],
+        agentModelConfig: {
+          claude: {
+            implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "P1" }] },
+          },
+        },
+        worktree: {
+          projectRoot: realpathSync(resetProjectRoot),
+          projectName: "demo",
+          branchName: branch,
+          baseRef: resetProjectBaseRef(),
+          jarvisRoot: resetJarvisRoot,
+        },
+        specPath: "index.md",
+        expectedArtifactPath: "index.md",
+        publishCompletion: false,
+      },
+    ];
+  }
+
+  /**
+   * The shape `buildPlanWorkflowSteps` actually produces, as opposed to the implement fixture the
+   * other stale-reset cases substitute: `stepId`/`role` of `plan`, and a `specPath` naming a
+   * freshly-timestamped durable spec directory (`${timestamp}-${ready.name}`) that, by construction,
+   * exists in neither tree on a re-dispatch. That last detail is why the landed-criteria gate is
+   * inert on this path, so a case asserting the gate must not use the implement fixture's stable
+   * `index.md` and call the result a plan behavior.
+   */
+  function _resetPlanSteps(branch = resetBranch): AnyWorkflowStep[] {
+    const timestamp = `${new Date().toISOString().replace(/[-:]/gu, "").split(".")[0]}Z`;
+    return [
+      {
+        behavior: "write",
+        stepId: "plan",
+        role: "plan",
+        promptId: "plan.prompt.draft",
+        stepRules: DEFAULT_WRITE_STEP_RULES,
+        agents: ["claude"],
+        agentModelConfig: {
+          claude: {
+            plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "P1" }] },
+          },
+        },
+        worktree: {
+          projectRoot: realpathSync(resetProjectRoot),
+          projectName: "demo",
+          branchName: branch,
+          baseRef: resetProjectBaseRef(),
+          jarvisRoot: resetJarvisRoot,
+        },
+        specPath: join("spec", `${timestamp}-improve-api`),
+        expectedArtifactPath: join("spec", `${timestamp}-improve-api`),
+        publishCompletion: false,
+      },
+    ];
+  }
+
+  const resetIntentBranch = "intent/improve-api";
+
+  function resetIntentSteps(branch = resetIntentBranch): AnyWorkflowStep[] {
+    mkdirSync(join(resetProjectRoot, "spec", "ready-intents"), { recursive: true });
+    return [
+      {
+        behavior: "write",
+        stepId: "intent",
+        role: "plan",
+        promptId: "intent.prompt.split",
+        stepRules: DEFAULT_WRITE_STEP_RULES,
+        agents: ["claude"],
+        agentModelConfig: {
+          claude: {
+            plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "P1" }] },
+          },
+        },
+        worktree: {
+          projectRoot: realpathSync(resetProjectRoot),
+          projectName: "demo",
+          branchName: branch,
+          baseRef: resetProjectBaseRef(),
+          jarvisRoot: resetJarvisRoot,
+        },
+        specPath: "spec/ready-intents",
+        expectedArtifactPath: ".jarvis-intent-stage",
+        publishCompletion: false,
+        landing: {
+          kind: "intent-stage",
+          baseRef: resetProjectBaseRef(),
+          inputs: { sourceRoot: resetProjectRoot, paths: [], consumeFrom: "worktree" },
+          output: { durableDir: "spec/ready-intents" },
+          stagingDir: ".jarvis-intent-stage",
+          invocationId: "intent-invocation",
+        },
+      },
+    ];
+  }
+
+  function resetImplementDeps(overrides: NonNullable<Parameters<typeof main>[2]> = {}) {
+    return {
+      cwd: () => resetProjectRoot,
+      jarvisRoot: resetJarvisRoot,
+      readProjectRegistry: () => ({ demo: { root: resetProjectRoot } }),
+      workflowPresetBuilders: {
+        implement: () => ({ ok: true as const, steps: resetImplementSteps() }),
+      },
+      ...overrides,
+    } as NonNullable<Parameters<typeof main>[2]>;
+  }
+
+  async function materializeStaleWorktree(branch = resetBranch): Promise<string> {
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], resetProjectRoot);
+    const worktreePath = join(resetJarvisRoot, "worktrees", "demo", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], resetProjectRoot);
+    return worktreePath;
+  }
+
+  /** Commit lane work base lacks, so the lane is not exempt from the descendant gate. */
+  async function commitLaneWork(worktreePath: string, marker: string): Promise<void> {
+    writeFileSync(join(worktreePath, `lane-${marker}.txt`), "lane work\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane work"], worktreePath);
+  }
+
+  /** Advance base past `worktreePath`'s `HEAD` with a throwaway commit; returns both tips. */
+  async function advanceBasePastStaleWorktree(
+    worktreePath: string,
+    marker: string,
+  ): Promise<{ worktreeHead: string; baseHead: string }> {
+    const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    writeFileSync(join(resetProjectRoot, `base-advance-${marker}.md`), "advance\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], resetProjectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    return { worktreeHead, baseHead };
+  }
+
+  async function setupOriginForResetProject(): Promise<void> {
+    const originRoot = join(resetTmp, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], resetTmp);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], resetProjectRoot);
+  }
+
+  function staleResetSubprocessRunner(
+    intercept?: (cmd: string, args: string[]) => string | undefined | Promise<string | undefined>,
+    closedPrs?: number[],
+  ): AsyncSubprocessRunner {
+    return {
+      runAsync: async (cmd, args, cwd) => {
+        const intercepted = intercept ? await intercept(cmd, args) : undefined;
+        if (intercepted !== undefined) return intercepted;
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 55, isDraft: true, baseRefName: "main", state: "OPEN" }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          if (closedPrs) closedPrs.push(Number(args[2]));
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+      },
+    };
+  }
+
+  function workflowExecutionClient(handlers: Record<string, RpcHandler>) {
+    const client = makeDeferredIpcClient([], { gated: true, deferred: true });
+    return {
+      ...client,
+      send(frame: unknown): void {
+        client.send(frame);
+        const request = frame as { id?: string; method?: string; params?: unknown };
+        if (typeof request.id !== "string") return;
+        const requestId = request.id;
+        const handler = typeof request.method === "string" ? handlers[request.method] : undefined;
+        if (handler === undefined) {
+          client.push({ kind: "error", id: requestId, code: "unknown_method", message: "unknown method" });
+          return;
+        }
+        void Promise.resolve(
+          handler(
+            { kind: "request", id: requestId, method: request.method as string, params: request.params },
+            new AbortController().signal,
+          ),
+        )
+          .then((response) => client.push({ ...response, id: requestId }))
+          .catch((error: unknown) =>
+            client.push({
+              kind: "error",
+              id: requestId,
+              code: "internal_error",
+              message: error instanceof Error ? error.message : String(error),
+            }),
+          );
+      },
+    };
+  }
+
+  function connectedWorkflowHandlers(effects?: { runRows: number }) {
+    const stateStore = openStateStore(join(resetTmp, `state-${crypto.randomUUID()}.sqlite`));
+    const logsPath = join(resetTmp, `logs-${crypto.randomUUID()}.jsonl`);
+    const registry = new WorktreeOwnershipRegistry();
+    const createRun = stateStore.createRun.bind(stateStore);
+    stateStore.createRun = (args) => {
+      if (effects) effects.runRows += 1;
+      return createRun(args);
+    };
+    const handlers = createRunControlHandlers({
+      stateStore,
+      writeLoopExecutor: async () => {},
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      registry,
+      logsPath,
+      logReader: openLogReader(logsPath),
+    });
+    const rpcHandlers = {
+      start: handlers.start,
+      list: handlers.list,
+      check_workflow_start_claim: handlers.check_workflow_start_claim,
+    };
+    return {
+      client: workflowExecutionClient(rpcHandlers),
+      connect: () => workflowExecutionClient(rpcHandlers),
+      waitForCompletion: async () => {
+        for (let attempt = 0; attempt < 400; attempt++) {
+          if (!handlers.hasActiveRuns()) return;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error("workflow did not settle");
+      },
+      handlers,
+      registry,
+      stateStore,
+      close: () => {
+        handlers.close();
+        stateStore.close();
+      },
+    };
+  }
+
+  test.each([
+    ["completed", "completed"],
+    ["failed", "failed"],
+    ["killed", "killed"],
+  ] as const)("terminal %s releases the managed lock and daemon claim before immediate same-key implement re-dispatch", async (terminal, expectedStatus) => {
+    // Inversion target (killed): workflow kill handler in daemon.ts — committing guarded kill before repair quiesces turns this test RED.
+    // Inversion target (killed): settleKilledWorkflowOwnership in daemon.ts — calling releaseRegistry before commitGuardedKill turns this test RED.
+    // Inversion target (killed): withExternalWorktree finally block in external-worktree.ts — releasing the physical lock before repair quiesces turns this test RED.
+    const connected = connectedWorkflowHandlers();
+    const lockPath = join(resetJarvisRoot, "worktree-locks", "demo", resetBranch, ".jarvis.lock");
+    const key = { project: "demo", branch: resetBranch };
+    let invocationCount = 0;
+    let repairSignal: AbortSignal | undefined;
+    let repairReturned = false;
+    let gateCalls = 0;
+    let repairStartedResolve: (() => void) | undefined;
+    let releaseRepair: (() => void) | undefined;
+    let redispatchStartedResolve: (() => void) | undefined;
+    const repairStarted = new Promise<void>((resolve) => {
+      repairStartedResolve = resolve;
+    });
+    const repairQuiesced = new Promise<void>((resolve) => {
+      releaseRepair = resolve;
+    });
+    const redispatchStarted = new Promise<void>((resolve) => {
+      redispatchStartedResolve = resolve;
+    });
+
+    const firstStep = resetImplementSteps()[0];
+    if (firstStep?.behavior !== "write") throw new Error("expected implement write step");
+    firstStep.maxIterations = 2;
+    firstStep.suppressShrink = true;
+    firstStep.publishCompletion = true;
+    firstStep.completionCommitter = async () => ({ commitSha: "commit-1", filesChanged: 1 });
+    firstStep.completionPublisher = async () => ({});
+    firstStep.runFixCommand = async () => {};
+    firstStep.readyFinalizer = async () => {
+      gateCalls += 1;
+      if (terminal === "failed" || gateCalls <= 2) throw new ReadyGateError("bun run ready", 1, "red");
+    };
+    firstStep.createBinding = ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+      metadata: { agent: agentId, model: adapterModel },
+      invoke: async ({ cwd, signal }) => {
+        invocationCount += 1;
+        if (invocationCount === 1) {
+          writeFileSync(join(cwd, "index.md"), "# Index\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }
+        repairSignal = signal;
+        repairStartedResolve?.();
+        await repairQuiesced;
+        repairReturned = true;
+        if (terminal === "failed") return { kind: "error", exitCode: 1, stderr: "failed" } as const;
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      },
+    });
+
+    const dispatch = async (step: AnyWorkflowStep, cap = captureIo()) => {
+      const code = await main(
+        [
+          "run",
+          "workflow",
+          "implement",
+          "--branch",
+          resetBranch,
+          "--base",
+          "HEAD",
+          "--spec",
+          "index.md",
+          "--reset-despite-dirty",
+          STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG,
+          "--detach",
+        ],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { implement: () => ({ ok: true as const, steps: [step] }) },
+          connectIpcClient: async () => connected.connect(),
+          subprocessRunner: staleResetSubprocessRunner(),
+        }),
+      );
+      return { cap, code };
+    };
+
+    try {
+      const first = await dispatch(firstStep);
+      expect(first.code).toBe(0);
+      const runId = first.cap.read().stdout.trim();
+      expect(runId).not.toBe("");
+
+      if (terminal === "killed") {
+        await repairStarted;
+        expect(existsSync(lockPath)).toBe(true);
+        expect(connected.registry.isClaimed(key)).toBe(true);
+        expect(connected.stateStore.loadRun(runId)?.status).not.toBe(expectedStatus);
+
+        // Kill aborts synchronously, then waits (bounded) for durable settlement: the row stays live and
+        // the lock and claim stay held while the repair has not quiesced.
+        const killPromise = connected.handlers.kill(
+          { kind: "request", id: "kill", method: "kill", params: { runId } },
+          new AbortController().signal,
+        );
+        expect(repairSignal?.aborted).toBe(true);
+        expect(connected.stateStore.loadRun(runId)?.status).not.toBe("killed");
+
+        await expect(withExternalWorktree(firstStep.worktree, () => undefined)).rejects.toThrow("worktree is in use");
+        const claimed = await connected.handlers.check_workflow_start_claim(
+          {
+            kind: "request",
+            id: "claim",
+            method: "check_workflow_start_claim",
+            params: key,
+          },
+          new AbortController().signal,
+        );
+        expect(claimed).toMatchObject({ kind: "error", code: "worktree_claimed" });
+        releaseRepair?.();
+        const killed = await killPromise;
+        expect(killed).toMatchObject({ kind: "response", result: { ok: true, outcome: "settled", status: "killed" } });
+      } else {
+        await repairStarted;
+        expect(existsSync(lockPath)).toBe(true);
+        expect(connected.registry.isClaimed(key)).toBe(true);
+        expect(connected.stateStore.loadRun(runId)?.status).not.toBe(expectedStatus);
+        await expect(withExternalWorktree(firstStep.worktree, () => undefined)).rejects.toThrow("worktree is in use");
+        const claimed = await connected.handlers.check_workflow_start_claim(
+          {
+            kind: "request",
+            id: "claim",
+            method: "check_workflow_start_claim",
+            params: key,
+          },
+          new AbortController().signal,
+        );
+        expect(claimed).toMatchObject({ kind: "error", code: "worktree_claimed" });
+        releaseRepair?.();
+      }
+
+      await connected.waitForCompletion();
+      expect(connected.stateStore.loadRun(runId)?.status).toBe(expectedStatus);
+      expect(repairReturned).toBe(true);
+      expect(existsSync(lockPath)).toBe(false);
+      expect(connected.registry.isClaimed(key)).toBe(false);
+
+      const secondStep = resetImplementSteps()[0];
+      if (secondStep?.behavior !== "write") throw new Error("expected implement write step");
+      secondStep.publishCompletion = false;
+      secondStep.expectedArtifactPath = "proof.md";
+      secondStep.createBinding = ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => {
+          redispatchStartedResolve?.();
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+      });
+      const second = await dispatch(secondStep);
+      const secondOutput = second.cap.read();
+      expect({ code: second.code, output: secondOutput }).toMatchObject({ code: 0 });
+      expect(secondOutput.stderr).not.toContain("holds worktree lock");
+      expect(secondOutput.stderr).not.toContain("worktree_claimed");
+      await redispatchStarted;
+      await connected.waitForCompletion();
+    } finally {
+      releaseRepair?.();
+      connected.close();
+    }
+  });
+
+  beforeEach(async () => {
+    resetTmp = trackedMkdtempSync(join(tmpdir(), "jarvis-cli-reset-"));
+    resetProjectRoot = join(resetTmp, "project");
+    resetJarvisRoot = join(resetTmp, "jarvis-home");
+    mkdirSync(resetProjectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "T"], resetProjectRoot);
+    writeFileSync(join(resetProjectRoot, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
+    writeFileSync(join(resetProjectRoot, "AGENTS.md"), "# Test guidance\n", "utf8");
+    writeFileSync(join(resetProjectRoot, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [ ] Implement\n", "utf8");
+    writeFileSync(join(resetProjectRoot, "proof.md"), "# Proof\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], resetProjectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(resetTmp, { recursive: true, force: true });
+  });
+
+  /** Pre-fix hardcoded stale-reset roster; vacuous when membership grows without a matching edit. */
+  const HAND_MAINTAINED_STALE_RESET_WORKFLOWS = new Set(["implement", "plan", "intent"]);
+
+  test("STALE_RESET_WORKFLOWS membership includes intent", () => {
+    expect(STALE_RESET_WORKFLOWS.has("intent")).toBe(true);
+    expect(STALE_RESET_WORKFLOWS.has("implement")).toBe(true);
+    expect(STALE_RESET_WORKFLOWS.has("plan")).toBe(true);
+    // Membership alone does not reject extra members, and the `.not.toEqual` below is implied by the
+    // three `.has` calls. The set is closed, so pin its exact contents.
+    expect([...STALE_RESET_WORKFLOWS].sort()).toEqual([...HAND_MAINTAINED_STALE_RESET_WORKFLOWS].sort());
+  });
+
+  type PipelineAdmissionEffects = {
+    runRows: number;
+    materializations: number;
+    agentInvocations: number;
+    staleResetWork: number;
+    daemonConnections: number;
+  };
+
+  const PIPELINE_AGENT_MODEL_CONFIG = {
+    claude: {
+      implement: { rungs: [{ adapterModel: "implement", priceKey: "implement" }] },
+      shrink: { rungs: [{ adapterModel: "shrink", priceKey: "shrink" }] },
+      critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] },
+      actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] },
+    },
+  };
+
+  function pipelineAdmissionBuilder(effects: PipelineAdmissionEffects) {
+    return async (input: BuildImplementWorkflowStepsInput) => {
+      const built = await buildImplementWorkflowSteps(input, {
+        loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
+          steps.map((step) => {
+            if (step.behavior !== "write") throw new Error("expected write-only implement workflow");
+            return {
+              ...step,
+              agents: ["claude"],
+              agentModelConfig: PIPELINE_AGENT_MODEL_CONFIG,
+            };
+          }),
+      });
+      if (!built.ok) return built;
+      expect(built.pipelineDefinition).toBeUndefined();
+      const writeStep = built.steps[0];
+      if (writeStep?.behavior !== "write") throw new Error("expected implement write step");
+      writeStep.worktree.git = false;
+      writeStep.withExternalWorktree = async (_input, run) => {
+        effects.materializations += 1;
+        const worktree = { path: resetProjectRoot, reused: true };
+        const value = await run(worktree);
+        return { worktree, lock: { kind: "acquired" }, value };
+      };
+      writeStep.createBinding = ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => {
+          effects.agentInvocations += 1;
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+      });
+      return built;
+    };
+  }
+
+  function pipelineAdmissionArgs(): string[] {
+    return [
+      "run",
+      "workflow",
+      "implement",
+      "--branch",
+      resetBranch,
+      "--base",
+      "HEAD",
+      "--spec",
+      "spec.md",
+      "--artifact",
+      "proof.md",
+      "--review-passes",
+      "0",
+      "--detach",
+    ];
+  }
+
+  function emptyPipelineAdmissionEffects(): PipelineAdmissionEffects {
+    return {
+      runRows: 0,
+      materializations: 0,
+      agentInvocations: 0,
+      staleResetWork: 0,
+      daemonConnections: 0,
+    };
+  }
+
+  async function runConnectedPipelineAdmission(
+    projects: Record<string, unknown>,
+    effects: PipelineAdmissionEffects,
+  ): Promise<number> {
+    const configPath = writeMachineConfig({ projects });
+    const connected = connectedWorkflowHandlers(effects);
+    let code: number;
+    try {
+      code = await main(
+        pipelineAdmissionArgs(),
+        captureIo().io,
+        resetImplementDeps({
+          machineConfigPath: configPath,
+          workflowPresetBuilders: {
+            implement: pipelineAdmissionBuilder(effects),
+          },
+          subprocessRunner: staleResetSubprocessRunner(() => {
+            effects.staleResetWork += 1;
+            return undefined;
+          }),
+          connectIpcClient: async () => {
+            effects.daemonConnections += 1;
+            return connected.client;
+          },
+        }),
+      );
+      await connected.waitForCompletion();
+    } finally {
+      connected.close();
+    }
+    return code;
+  }
+
+  function expectPipelineAdmissionSuccess(effects: PipelineAdmissionEffects, code: number): void {
+    expect(code).toBe(0);
+    expect(effects.daemonConnections).toBe(1);
+    expect(effects.runRows).toBeGreaterThan(0);
+    expect(effects.materializations).toBeGreaterThan(0);
+    expect(effects.agentInvocations).toBeGreaterThan(0);
+  }
+
+  test("implement ignores project pipeline config before durable admission effects", async () => {
+    const validEffects = emptyPipelineAdmissionEffects();
+    const validCode = await runConnectedPipelineAdmission(
+      { demo: { root: resetProjectRoot, pipeline: { name: "fast", terminalAction: "leave-draft" } } },
+      validEffects,
+    );
+    expectPipelineAdmissionSuccess(validEffects, validCode);
+  });
+
+  test.each([
+    ["missing terminalAction", { name: "fast" }],
+    ["invalid reviewOverrides", { name: "fast", terminalAction: "leave-draft", reviewOverrides: [] }],
+  ])("jarvis run workflow implement admits stale pipeline config (%s) through durable admission effects", async (_label, pipeline) => {
+    const effects = emptyPipelineAdmissionEffects();
+    const code = await runConnectedPipelineAdmission({ demo: { root: resetProjectRoot, pipeline } }, effects);
+    expectPipelineAdmissionSuccess(effects, code);
+  });
+
+  test("admits implement without pipelineDefinition when projects.demo omits pipeline", async () => {
+    const effects = emptyPipelineAdmissionEffects();
+    const code = await runConnectedPipelineAdmission({ demo: { root: resetProjectRoot } }, effects);
+    expectPipelineAdmissionSuccess(effects, code);
+  });
+
+  test("run workflow implement resets a stale worktree before daemon start", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const closedPrs: number[] = [];
+    const subprocessRunner = staleResetSubprocessRunner(undefined, closedPrs);
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset", COMPLETED_WAIT_RESULT), { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(closedPrs).toEqual([55]);
+    expect(cap.read().stderr).not.toContain("Retirement destroyed artifacts:");
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).not.toContain(worktreePath);
+    expect(sent).toHaveLength(4);
+  });
+
+  /** A `spec/continue-lane` tree with two subspecs already committed-and-checked on the branch and one still unchecked. */
+  async function materializeContinueLane(): Promise<{
+    worktreePath: string;
+    specName: string;
+    specRelPath: string;
+    branchTipBefore: string;
+  }> {
+    const specName = "continue-lane";
+    const specDir = join(resetProjectRoot, "spec", specName);
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      join(specDir, "index.md"),
+      "# Index\n\n- [ ] [00](./00-first.md)\n- [ ] [01](./01-second.md)\n- [ ] [02](./02-third.md)\n",
+    );
+    writeFileSync(join(specDir, "00-first.md"), "# First\n\n## Acceptance criteria\n\n- [ ] done\n");
+    writeFileSync(join(specDir, "01-second.md"), "# Second\n\n## Acceptance criteria\n\n- [ ] done\n");
+    writeFileSync(join(specDir, "02-third.md"), "# Third\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add continue-lane spec"], resetProjectRoot);
+
+    const worktreePath = await materializeStaleWorktree();
+    const firstRel = join("spec", specName, "00-first.md");
+    const secondRel = join("spec", specName, "01-second.md");
+    writeFileSync(join(worktreePath, firstRel), "# First\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", firstRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    writeFileSync(join(worktreePath, secondRel), "# Second\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", secondRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 01"], worktreePath);
+    const branchTipBefore = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    return { worktreePath, specName, specRelPath: join("spec", specName, "index.md"), branchTipBefore };
+  }
+
+  function continueLaneImplementBuilder(specRelPath: string) {
+    return () => {
+      const base = resetImplementSteps()[0];
+      if (base === undefined || base.behavior !== "write") throw new Error("expected implement write step");
+      return {
+        ok: true as const,
+        steps: [{ ...base, specPath: specRelPath, expectedArtifactPath: specRelPath }] as AnyWorkflowStep[],
+      };
+    };
+  }
+
+  test("run workflow implement continues a lane with two committed subspecs at the unchecked one, no PR yet", async () => {
+    const { worktreePath, specRelPath, branchTipBefore } = await materializeContinueLane();
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = emptyPrListSubprocessRunner();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", specRelPath],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { implement: continueLaneImplementBuilder(specRelPath) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-continue-lane", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
+    expect(stderr).not.toContain("Removed worktree");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const branchTipAfter = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(branchTipAfter).toBe(branchTipBefore);
+    expect(readFileSync(join(worktreePath, "spec", "continue-lane", "00-first.md"), "utf8")).toContain("[x]");
+    expect(readFileSync(join(worktreePath, "spec", "continue-lane", "02-third.md"), "utf8")).toContain("[ ]");
+  });
+
+  test("run workflow implement continues a committed lane with an existing open draft PR, leaving it open and unmodified", async () => {
+    const { worktreePath, specRelPath, branchTipBefore } = await materializeContinueLane();
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const closedPrs: number[] = [];
+    const subprocessRunner = staleResetSubprocessRunner(undefined, closedPrs);
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", specRelPath],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { implement: continueLaneImplementBuilder(specRelPath) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-continue-lane-pr", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(closedPrs).toEqual([]);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const branchTipAfter = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(branchTipAfter).toBe(branchTipBefore);
+    const prListAfter = await subprocessRunner.runAsync("gh", ["pr", "list"], resetProjectRoot);
+    expect(JSON.parse(prListAfter)).toEqual([{ number: 55, isDraft: true, baseRefName: "main", state: "OPEN" }]);
+  });
+
+  test("run workflow implement resets stale code worktree for an incomplete external plan", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const planName = `stale-reset-${process.pid}-${Date.now()}`;
+    const specReadRoot = join(jarvisHome(), "specs", projectSafeId("demo"), "plans", planName);
+    const indexPath = join(specReadRoot, "index.md");
+    const completedPath = join(specReadRoot, "00-completed.md");
+    const incompletePath = join(specReadRoot, "01-incomplete.md");
+    const indexContent = "- [x] [Completed](./00-completed.md)\n- [ ] [Incomplete](./01-incomplete.md)\n";
+    const completedContent = "# Completed\n\n## Acceptance criteria\n\n- [x] Done\n";
+    const incompleteContent = "# Incomplete\n\n## Acceptance criteria\n\n- [ ] Pending\n";
+    mkdirSync(specReadRoot, { recursive: true });
+    writeFileSync(indexPath, indexContent, "utf8");
+    writeFileSync(completedPath, completedContent, "utf8");
+    writeFileSync(incompletePath, incompleteContent, "utf8");
+    const configPath = writeHomeMachineConfig({
+      projects: { demo: { root: resetProjectRoot, specs: "external" } },
+    });
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const teardownCalls: string[] = [];
+    let builtSpecPath: string | undefined;
+
+    try {
+      const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+        main(
+          [
+            "run",
+            "workflow",
+            "implement",
+            "--branch",
+            resetBranch,
+            "--base",
+            resetProjectBaseRef(),
+            "--spec",
+            indexPath,
+            "--review-passes",
+            "0",
+          ],
+          cap.io,
+          resetImplementDeps({
+            machineConfigPath: configPath,
+            workflowPresetBuilders: {
+              implement: async (input) => {
+                const built = await buildImplementWorkflowSteps(input, {
+                  loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath: configPath }),
+                });
+                if (built.ok) {
+                  const writeStep = built.steps.find((step) => step.behavior === "write");
+                  builtSpecPath = writeStep?.behavior === "write" ? writeStep.specPath : undefined;
+                }
+                return built;
+              },
+            },
+            subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+              if (cmd === "git" && args[0] === "worktree" && args[1] === "remove")
+                teardownCalls.push("worktree-remove");
+              return undefined;
+            }),
+            connectIpcClient: async () =>
+              makeStaleResetIpcClient(
+                workflowFrames("start", "wait", "run-reset-external-plan", COMPLETED_WAIT_RESULT),
+                { sent },
+              ),
+          }),
+        ),
+      );
+
+      expect(code).toBe(0);
+      expect(cap.read().stderr).toBe("");
+      expect(builtSpecPath).toBe(realpathSync(indexPath));
+      expect(teardownCalls).toEqual(["worktree-remove"]);
+      expect(existsSync(worktreePath)).toBe(false);
+      expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+      expect(readFileSync(indexPath, "utf8")).toBe(indexContent);
+      expect(readFileSync(completedPath, "utf8")).toBe(completedContent);
+      expect(readFileSync(incompletePath, "utf8")).toBe(incompleteContent);
+    } finally {
+      rmSync(specReadRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("run workflow implement prints destroyed-artifact summary when retirement succeeds and dispatch fails", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+
+    const subprocessRunner = staleResetSubprocessRunner();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-fail", { runStatus: "failed" })),
+        }),
+      ),
+    );
+
+    expect(code).toBe(3);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("Retirement destroyed artifacts:");
+    expect(stderr).toContain(`  worktree: ${worktreePath}`);
+    expect(stderr).toContain(`  local branch: ${resetBranch}`);
+    expect(stderr).toContain(`  remote branch: ${resetBranch}`);
+    expect(stderr).toContain("  PR: #55");
+  });
+
+  test("run workflow implement prints partial destroyed-artifact summary when retirement aborts mid-sequence", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+
+    const subprocessRunner = staleResetSubprocessRunner((cmd, args) => {
+      if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
+        throw new Error("branch delete failed");
+      }
+      return undefined;
+    });
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("Retirement destroyed artifacts:");
+    expect(stderr).toContain(`  worktree: ${worktreePath}`);
+    expect(stderr).not.toContain("  local branch:");
+    expect(stderr).not.toContain("  remote branch:");
+    expect(stderr).not.toContain("  PR: #");
+  });
+
+  async function setRemoteTrackingTip(sha: string): Promise<void> {
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["update-ref", `refs/remotes/origin/${resetBranch}`, sha],
+      resetProjectRoot,
+    );
+  }
+
+  /** A commit distinct from the branch tip, standing in for a diverged remote tip. */
+  async function divergentCommitSha(): Promise<string> {
+    return (
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "diverged remote tip"],
+        resetProjectRoot,
+      )
+    ).trim();
+  }
+
+  async function localBranchTip(): Promise<string> {
+    return (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `refs/heads/${resetBranch}`], resetProjectRoot)
+    ).trim();
+  }
+
+  async function runFailedDispatchAfterRetirement(): Promise<string> {
+    const cap = captureIo();
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner(),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-fail", { runStatus: "failed" })),
+        }),
+      ),
+    );
+    expect(code).toBe(3);
+    return cap.read().stderr;
+  }
+
+  test("run workflow implement destroyed-artifact summary reports the local branch tip sha and no remote sha without a remote-tracking ref", async () => {
+    await materializeStaleWorktree();
+    const localTip = await localBranchTip();
+
+    const stderr = await runFailedDispatchAfterRetirement();
+
+    expect(stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
+    expect(stderr).toMatch(new RegExp(`^ {2}remote branch: ${resetBranch}$`, "m"));
+  });
+
+  test("run workflow implement destroyed-artifact summary reports both tips when the remote tip differs", async () => {
+    await materializeStaleWorktree();
+    const localTip = await localBranchTip();
+    const remoteTip = await divergentCommitSha();
+    expect(remoteTip).not.toBe(localTip);
+    await setRemoteTrackingTip(remoteTip);
+
+    const stderr = await runFailedDispatchAfterRetirement();
+
+    expect(stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
+    expect(stderr).toContain(`  remote branch: ${resetBranch} @ ${remoteTip}`);
+  });
+
+  test("run workflow implement destroyed-artifact summary prints an equal tip sha once", async () => {
+    await materializeStaleWorktree();
+    const localTip = await localBranchTip();
+    await setRemoteTrackingTip(localTip);
+
+    const stderr = await runFailedDispatchAfterRetirement();
+
+    expect(stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
+    expect(stderr).toMatch(new RegExp(`^ {2}remote branch: ${resetBranch}$`, "m"));
+    expect(stderr.split(localTip)).toHaveLength(2);
+  });
+
+  test("run workflow implement destroyed-artifact summary omits the remote tip when retirement aborts at remote branch deletion", async () => {
+    await materializeStaleWorktree();
+    const localTip = await localBranchTip();
+    const remoteTip = await divergentCommitSha();
+    await setRemoteTrackingTip(remoteTip);
+    const cap = captureIo();
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "remote" && args[1] === "get-url") return "origin-url";
+            if (cmd === "git" && args[0] === "push" && args[1] === "origin") throw new Error("push rejected");
+            return undefined;
+          }),
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
+    expect(stderr).not.toContain("  remote branch:");
+    expect(stderr).not.toContain(remoteTip);
+  });
+
+  test("run workflow implement refuses retirement when --base names the retired branch", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const sent: unknown[] = [];
+    const baseStep = resetImplementSteps()[0];
+    if (baseStep === undefined || baseStep.behavior !== "write") {
+      throw new Error("expected implement write step");
+    }
+    const stepsWithBase: AnyWorkflowStep[] = [
+      { ...baseStep, worktree: { ...baseStep.worktree, baseRef: resetBranch } },
+    ];
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", resetBranch, "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { implement: () => ({ ok: true as const, steps: stepsWithBase }) },
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            return undefined;
+          }),
+          connectIpcClient: async () => makeStaleResetIpcClient([], { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("Cannot re-run incomplete spec:");
+    expect(stderr).toContain(`base '${resetBranch}' names the branch '${resetBranch}' being retired`);
+    expect(stderr).not.toContain("Retirement destroyed artifacts:");
+    expect(teardownCalls).toEqual([]);
+    expect(ipcFramesWithMethod(sent, "start")).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  test("run workflow plan resets a stale worktree before daemon start", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const closedPrs: number[] = [];
+    const subprocessRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 56, isDraft: true, baseRefName: "main", state: "OPEN" }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          closedPrs.push(Number(args[2]));
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+      },
+    };
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: {
+            plan: () => ({ ok: true as const, steps: resetImplementSteps() }),
+          },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-plan", COMPLETED_WAIT_RESULT), { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(closedPrs).toEqual([56]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).not.toContain(worktreePath);
+  });
+
+  test("run workflow intent resets a stale worktree before daemon start", async () => {
+    const worktreePath = await materializeStaleWorktree(resetIntentBranch);
+    writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md"), "verdict\n", "utf8");
+    writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md.owner"), "foreign-invocation\n", "utf8");
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const closedPrs: number[] = [];
+    const subprocessRunner = staleResetSubprocessRunner(undefined, closedPrs);
+    const connectIpcClient = async () => {
+      const client = makeStaleResetIpcClient(
+        workflowFrames("start", "wait", "run-reset-intent", COMPLETED_WAIT_RESULT),
+        { sent },
+      );
+      const send = client.send.bind(client);
+      client.send = (frame: unknown) => {
+        const request = frame as { method?: string };
+        if (request.method === "start") {
+          expect(existsSync(worktreePath)).toBe(false);
+        }
+        send(frame);
+      };
+      return client;
+    };
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "intent", "--seed-text", "Improve API"], cap.io, {
+        cwd: () => resetProjectRoot,
+        jarvisRoot: resetJarvisRoot,
+        readProjectRegistry: () => ({ demo: { root: resetProjectRoot } }),
+        workflowPresetBuilders: {
+          intent: () => ({ ok: true as const, steps: resetIntentSteps() }),
+        },
+        subprocessRunner,
+        connectIpcClient,
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(closedPrs).toEqual([55]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).not.toContain(worktreePath);
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+  });
+
+  test("incomplete implement and plan re-dispatch defer an ordinary non-Git husk to locked materialization", async () => {
+    for (const workflow of ["implement", "plan"] as const) {
+      for (const override of [false, true]) {
+        const worktreePath = await materializeStaleWorktree();
+        const initialHead = (
+          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+        ).trim();
+        await realAsyncSubprocessRunner.runAsync(
+          "git",
+          ["worktree", "remove", "--force", worktreePath],
+          resetProjectRoot,
+        );
+        mkdirSync(worktreePath, { recursive: true });
+        const residue = join(worktreePath, "failed-materialization");
+        writeFileSync(residue, "husk");
+
+        const cap = captureIo();
+        const preflightTeardownCalls: string[] = [];
+        let callbackBranch: string | undefined;
+        let callbackHead: string | undefined;
+        let materializedPath: string | undefined;
+        const subprocessRunner = staleResetSubprocessRunner((cmd, args) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove")
+            preflightTeardownCalls.push("worktree-remove");
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "prune")
+            preflightTeardownCalls.push("worktree-prune");
+          if (cmd === "git" && args[0] === "branch" && args[1] === "-D") preflightTeardownCalls.push("branch-delete");
+          if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+            preflightTeardownCalls.push("remote-branch-delete");
+          }
+          if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d") {
+            preflightTeardownCalls.push("remote-tracking-ref-prune");
+          }
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "close") preflightTeardownCalls.push("pr-close");
+          return undefined;
+        });
+        let callbackDone: (() => void) | undefined;
+        const callbackReached = new Promise<void>((resolve) => {
+          callbackDone = resolve;
+        });
+        let callbackCount = 0;
+        const steps = resetImplementSteps();
+        const writeStep = steps[0];
+        if (writeStep?.behavior !== "write") throw new Error("expected write step");
+        writeStep.createBinding = ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          metadata: { agent: agentId, model: adapterModel },
+          invoke: async ({ cwd }) => {
+            try {
+              if (callbackCount++ === 0) {
+                materializedPath = cwd;
+                callbackBranch = (
+                  await realAsyncSubprocessRunner.runAsync("git", ["branch", "--show-current"], cwd)
+                ).trim();
+                callbackHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], cwd)).trim();
+              }
+            } finally {
+              callbackDone?.();
+            }
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        });
+        const connected = connectedWorkflowHandlers();
+        const args =
+          workflow === "implement"
+            ? ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"]
+            : ["run", "workflow", "plan", "--ready-intent", "index.md"];
+        if (override) args.push(STALE_RESET_OVERRIDE_CLI_FLAG);
+        args.push("--detach");
+
+        let code: number;
+        try {
+          code = await main(
+            args,
+            cap.io,
+            resetImplementDeps({
+              workflowPresetBuilders:
+                workflow === "implement"
+                  ? { implement: () => ({ ok: true as const, steps }) }
+                  : { plan: () => ({ ok: true as const, steps }) },
+              subprocessRunner,
+              connectIpcClient: async () => connected.client,
+            }),
+          );
+          await callbackReached;
+          await connected.waitForCompletion();
+        } finally {
+          connected.close();
+        }
+
+        expect(code).toBe(0);
+        expect(preflightTeardownCalls).toEqual([]);
+        expect(existsSync(residue)).toBe(false);
+        expect(materializedPath).toBe(worktreePath);
+        expect(callbackBranch).toBe(resetBranch);
+        expect(callbackHead).toBe(initialHead);
+        await realAsyncSubprocessRunner.runAsync(
+          "git",
+          ["worktree", "remove", "--force", worktreePath],
+          resetProjectRoot,
+        );
+        await realAsyncSubprocessRunner.runAsync("git", ["branch", "-D", resetBranch], resetProjectRoot);
+      }
+    }
+  });
+
+  test("incomplete re-dispatch leaves registered and inconclusive non-Git husks for materialization safeguards", async () => {
+    for (const probe of ["registered", "inconclusive"] as const) {
+      const worktreePath = await materializeStaleWorktree();
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["worktree", "remove", "--force", worktreePath],
+        resetProjectRoot,
+      );
+      mkdirSync(worktreePath, { recursive: true });
+      const residue = join(worktreePath, `${probe}-residue`);
+      writeFileSync(residue, "keep");
+      const cap = captureIo();
+      const steps = resetImplementSteps();
+      const writeStep = steps[0];
+      if (writeStep?.behavior !== "write") throw new Error("expected write step");
+      writeStep.withExternalWorktree = (input, run) =>
+        withExternalWorktree(input, run, {
+          runAsync: async (cmd, args, cwd, options) => {
+            if (cmd === "git" && args.join(" ") === "worktree list --porcelain") {
+              if (probe === "registered") return `worktree ${worktreePath}\n`;
+              throw new Error("worktree registration probe failed");
+            }
+            return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
+          },
+        });
+      const connected = connectedWorkflowHandlers();
+      let code: number;
+      try {
+        code = await main(
+          ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md", "--detach"],
+          cap.io,
+          resetImplementDeps({
+            workflowPresetBuilders: { implement: () => ({ ok: true as const, steps }) },
+            subprocessRunner: staleResetSubprocessRunner(),
+            connectIpcClient: async () => connected.client,
+          }),
+        );
+      } finally {
+        connected.close();
+      }
+
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain(
+        probe === "registered" ? "existing path is registered" : "worktree registration probe failed",
+      );
+      expect(existsSync(residue)).toBe(true);
+      rmSync(worktreePath, { recursive: true, force: true });
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", "-D", resetBranch], resetProjectRoot);
+    }
+  });
+
+  test("run workflow implement refuses reset when the workspace is live-held", async () => {
+    await materializeStaleWorktree();
+    const lockPath = join(resetJarvisRoot, "worktree-locks", "demo", resetBranch, ".jarvis.lock");
+    mkdirSync(dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid }));
+    const cap = captureIo();
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: {
+            runAsync: async (cmd, args) => {
+              if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+                return JSON.stringify([{ number: 77, isDraft: true, baseRefName: "main", state: "OPEN" }]);
+              }
+              return realAsyncSubprocessRunner.runAsync(cmd, args, resetProjectRoot);
+            },
+          },
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain(`Cannot re-run incomplete spec: process ${process.pid} holds worktree lock`);
+  });
+
+  test("run workflow implement refuses reset when the managed worktree is dirty", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const dirtyFile = "agent-leftover.txt";
+    writeFileSync(join(worktreePath, dirtyFile), "uncommitted\n", "utf8");
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: {
+            runAsync: async (cmd, args, cwd) => {
+              if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+                return JSON.stringify([{ number: 88, isDraft: true, baseRefName: "main", state: "OPEN" }]);
+              }
+              if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+              if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+              if (cmd === "git" && args[0] === "worktree" && args[1] === "remove")
+                teardownCalls.push("worktree-remove");
+              return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+            },
+          },
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("Cannot re-run incomplete spec:");
+    expect(stderr).toContain(dirtyFile);
+    expect(stderr).toContain("commit");
+    expect(stderr).toContain("discard");
+    expect(stderr).toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
+    expect(stderr).toContain("jarvis cleanup --abandon");
+    expect(teardownCalls).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  test("run workflow implement resets stale dirty worktree when override switch is set", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    writeFileSync(join(worktreePath, "agent-leftover.txt"), "uncommitted\n", "utf8");
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const closedPrs: number[] = [];
+    const subprocessRunner = staleResetSubprocessRunner(undefined, closedPrs);
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        [
+          "run",
+          "workflow",
+          "implement",
+          "--branch",
+          resetBranch,
+          "--base",
+          "HEAD",
+          "--spec",
+          "index.md",
+          STALE_RESET_OVERRIDE_CLI_FLAG,
+        ],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-dirty", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(closedPrs).toEqual([55]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).not.toContain(worktreePath);
+    expect(sent).toHaveLength(4);
+  });
+
+  test("run workflow implement performs no reset teardown on a fresh run", async () => {
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: {
+            runAsync: async (cmd, args, cwd) => {
+              if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+              if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+              return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+            },
+          },
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-fresh", COMPLETED_WAIT_RESULT)),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(teardownCalls).toEqual([]);
+    expect(cap.read().stderr).not.toContain("Retirement destroyed artifacts:");
+  });
+
+  test("run workflow implement refuses stale reset when worktree is claimed", async () => {
+    await setupOriginForResetProject();
+    const worktreePath = await materializeStaleWorktree();
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", resetBranch], worktreePath);
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const claimMessage = `Worktree already claimed for project=demo, branch=${resetBranch}`;
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+              teardownCalls.push("remote-delete");
+            }
+            return undefined;
+          }),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient([], {
+              staleResetPreflight: {
+                listRuns: [
+                  { runId: "queued-1", project: "demo", branch: resetBranch, status: "queued", isLive: false },
+                ],
+                claim: { message: claimMessage },
+              },
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain(`worktree_claimed: ${claimMessage}`);
+    expect(stderr).not.toContain("Retirement destroyed artifacts:");
+    expect(teardownCalls).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const remoteBranches = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["branch", "-r", "--list", `origin/${resetBranch}`],
+      resetProjectRoot,
+    );
+    expect(remoteBranches.trim()).toContain(`origin/${resetBranch}`);
+  });
+
+  test("run workflow implement refuses with one pre-mutation error when claimed and dirty", async () => {
+    await setupOriginForResetProject();
+    const worktreePath = await materializeStaleWorktree();
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", resetBranch], worktreePath);
+    writeFileSync(join(worktreePath, "dirty.txt"), "leftover\n", "utf8");
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const claimMessage = `Worktree already claimed for project=demo, branch=${resetBranch}`;
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+            return undefined;
+          }),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient([], {
+              staleResetPreflight: {
+                listRuns: [],
+                claim: { message: claimMessage },
+              },
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toBe(`worktree_claimed: ${claimMessage}\n`);
+    expect(stderr).not.toContain("Cannot re-run incomplete spec:");
+    expect(teardownCalls).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const remoteBranches = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["branch", "-r", "--list", `origin/${resetBranch}`],
+      resetProjectRoot,
+    );
+    expect(remoteBranches.trim()).toContain(`origin/${resetBranch}`);
+  });
+
+  test("run workflow implement prints no destroyed-artifact summary when dispatch is unreachable", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+    let connectAttempted = false;
+    const teardownCalls: string[] = [];
+
+    const code = await main(
+      ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+      cap.io,
+      resetImplementDeps({
+        subprocessRunner: {
+          runAsync: async (cmd, args, cwd) => {
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+            if (cmd === "git" && args[0] === "push" && args[2] === "--delete") teardownCalls.push("remote-delete");
+            return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+          },
+        },
+        connectIpcClient: async () => {
+          connectAttempted = true;
+          throw new Error("Failed to connect to daemon on socket mock");
+        },
+        startDaemon: async () => {
+          throw new Error("Failed to start daemon");
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(connectAttempted).toBe(true);
+    expect(cap.read().stderr).toContain("Failed to start daemon");
+    expect(cap.read().stderr).not.toContain("Retirement destroyed artifacts:");
+    expect(teardownCalls).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const branchList = await realAsyncSubprocessRunner.runAsync("git", ["branch"], resetProjectRoot);
+    expect(branchList).toContain(resetBranch);
+  });
+
+  test("run workflow implement rebases and continues when worktree HEAD is not a descendant of base", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    await commitLaneWork(worktreePath, "non-descendant");
+    const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    writeFileSync(join(resetProjectRoot, "base-advance.md"), "advance\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance main"], resetProjectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    expect(worktreeHead).not.toBe(baseHead);
+
+    const sent: unknown[] = [];
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            return undefined;
+          }),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-rebase-continues", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
+    expect(teardownCalls).toEqual([]);
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const rebasedTip = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(rebasedTip).not.toBe(worktreeHead);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["merge-base", "--is-ancestor", baseHead, rebasedTip],
+      resetProjectRoot,
+    );
+    expect(existsSync(join(worktreePath, "lane-non-descendant.txt"))).toBe(true);
+  });
+
+  test("run workflow implement --reset-despite-continuable refuses a continuable lane with unlanded commits", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    await commitLaneWork(worktreePath, "continuable-reset");
+
+    const sent: unknown[] = [];
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        [
+          "run",
+          "workflow",
+          "implement",
+          "--branch",
+          resetBranch,
+          "--base",
+          "HEAD",
+          "--spec",
+          "index.md",
+          "--reset-despite-continuable",
+        ],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            // No open PR: an open PR would protect the commits and skip the unlanded-commits gate.
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return "[]";
+            return undefined;
+          }),
+          connectIpcClient: async () => makeStaleResetIpcClient([], { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const stderr = cap.read().stderr;
+    expect(stderr).toContain("Cannot re-run incomplete spec:");
+    expect(stderr).toContain("commit(s) not on base");
+    const continueAt = stderr.indexOf("re-run without `--reset-despite-continuable` to continue");
+    expect(continueAt).toBeGreaterThan(-1);
+    expect(continueAt).toBeLessThan(stderr.indexOf("hand-finish"));
+    expect(stderr.indexOf("hand-finish")).toBeLessThan(stderr.indexOf("jarvis cleanup --abandon"));
+    expect(teardownCalls).toEqual([]);
+    expect(ipcFramesWithMethod(sent, "start")).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  test("run workflow implement refuses stale reuse when HEAD lags base despite reset-despite-dirty", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    await commitLaneWork(worktreePath, "lags-dirty");
+    const dirtyFile = "stale-timeout-edit.txt";
+    writeFileSync(join(worktreePath, dirtyFile), "dirty\n", "utf8");
+    writeFileSync(join(resetProjectRoot, "base-advance.md"), "advance\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance main"], resetProjectRoot);
+
+    const sent: unknown[] = [];
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        [
+          "run",
+          "workflow",
+          "implement",
+          "--branch",
+          resetBranch,
+          "--base",
+          "HEAD",
+          "--spec",
+          "index.md",
+          STALE_RESET_OVERRIDE_CLI_FLAG,
+        ],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            return undefined;
+          }),
+          connectIpcClient: async () => makeStaleResetIpcClient([], { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("Cannot re-run incomplete spec:");
+    expect(stderr).toContain(dirtyFile);
+    expect(stderr).toContain("not a descendant");
+    expect(stderr).toContain("stale reuse refused");
+    expect(teardownCalls).toEqual([]);
+    expect(ipcFramesWithMethod(sent, "start")).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  test("redispatch continues a committed lane, leaving a stale remote-tracking ref untouched", async () => {
+    const cap = captureIo();
+    const originRoot = join(resetTmp, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], resetTmp);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], resetProjectRoot);
+    mkdirSync(join(resetProjectRoot, "node_modules"), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", "HEAD"], resetProjectRoot);
+
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-b", resetBranch], resetProjectRoot);
+    writeFileSync(join(resetProjectRoot, "stale-advance.md"), "stale\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "stale advance"], resetProjectRoot);
+    const staleTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    expect(staleTip).not.toBe(baseHead);
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", resetBranch], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", "-d", `refs/heads/${resetBranch}`], originRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", baseHead], resetProjectRoot);
+
+    const worktreePath = join(resetJarvisRoot, "worktrees", "demo", resetBranch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, resetBranch], resetProjectRoot);
+    expect(await originTrackingRefResolvesAsync(resetProjectRoot, resetBranch, realAsyncSubprocessRunner)).toBe(true);
+
+    const sent: unknown[] = [];
+    const subprocessRunner = staleResetSubprocessRunner();
+    const baseStep = resetImplementSteps()[0];
+    if (baseStep === undefined || baseStep.behavior !== "write") {
+      throw new Error("expected implement write step");
+    }
+    const stepsWithBase: AnyWorkflowStep[] = [
+      {
+        ...baseStep,
+        worktree: { ...baseStep.worktree, baseRef: baseHead },
+      },
+    ];
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", baseHead, "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          workflowPresetBuilders: {
+            implement: () => ({ ok: true as const, steps: stepsWithBase }),
+          },
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(
+              workflowFrames("start", "wait", "run-redispatch-stale-origin", COMPLETED_WAIT_RESULT),
+              { sent },
+            ),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+    // Continuation never retires the workspace, so a stale `origin/<branch>` tracking ref (the
+    // branch was deleted upstream after push) is left exactly as it was — pruning it is only a
+    // retirement step.
+    expect(await originTrackingRefResolvesAsync(resetProjectRoot, resetBranch, realAsyncSubprocessRunner)).toBe(true);
+    const branchTip = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(branchTip).toBe(staleTip);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  /** No `gh pr list` result for any branch: makes `classifyNeverLandedLane` see no open PR. */
+  function emptyPrListSubprocessRunner(
+    intercept?: (cmd: string, args: string[]) => string | undefined | Promise<string | undefined>,
+  ): AsyncSubprocessRunner {
+    return {
+      runAsync: async (cmd, args, cwd) => {
+        const intercepted = intercept ? await intercept(cmd, args) : undefined;
+        if (intercepted !== undefined) return intercepted;
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return "[]";
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+      },
+    };
+  }
+
+  test("run workflow plan retires and rematerializes a never-landed lane whose HEAD is not a descendant of base", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const { worktreeHead, baseHead } = await advanceBasePastStaleWorktree(worktreePath, "never-landed");
+    expect(worktreeHead).not.toBe(baseHead);
+
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = emptyPrListSubprocessRunner();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-never-landed-plan", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("failed plan resume worktree disposition: retired-and-rematerialized from base");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+
+    await withExternalWorktree(
+      {
+        projectRoot: resetProjectRoot,
+        projectName: "demo",
+        branchName: resetBranch,
+        baseRef: baseHead,
+        jarvisRoot: resetJarvisRoot,
+      },
+      async (worktree) => {
+        const branchTip = (
+          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+        ).trim();
+        expect(branchTip).toBe(baseHead);
+        const materializedHead = (
+          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktree.path)
+        ).trim();
+        expect(materializedHead).toBe(baseHead);
+      },
+      subprocessRunner,
+    );
+  });
+
+  test("run workflow plan destroyed-artifact summary reports the retired branch tip sha", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    await advanceBasePastStaleWorktree(worktreePath, "plan-tip");
+    const localTip = await localBranchTip();
+    const cap = captureIo();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner: emptyPrListSubprocessRunner(),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-plan-tip", { runStatus: "failed" })),
+        }),
+      ),
+    );
+
+    expect(code).toBe(3);
+    expect(cap.read().stderr).toContain(`  local branch: ${resetBranch} @ ${localTip}`);
+  });
+
+  test("run workflow plan retires a never-landed lane through landed-criteria-only drift", async () => {
+    const specRel = "index.md";
+    writeFileSync(join(resetProjectRoot, specRel), "# Plan\n\n## Acceptance criteria\n\n- [ ] Keep work\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "plan base"], resetProjectRoot);
+
+    // The ticked criterion lives only on disk (uncommitted): branch HEAD stays identical to base,
+    // so the descendant and unlanded-commit gates never trigger and landed-criteria drift is the
+    // sole refusal path. `--reset-despite-dirty` clears the unrelated dirty-worktree gate so it
+    // can't stand in for the landed-criteria gate either.
+    const worktreePath = await materializeStaleWorktree();
+    writeFileSync(join(worktreePath, specRel), "# Plan\n\n## Acceptance criteria\n\n- [x] Keep work\n", "utf8");
+
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = emptyPrListSubprocessRunner();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", specRel, "--reset-despite-dirty", "--detach"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(
+              workflowFrames("start", "wait", "run-landed-criteria-plan", COMPLETED_WAIT_RESULT),
+              { sent },
+            ),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("failed plan resume worktree disposition: retired-and-rematerialized from base");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+  });
+
+  test("run workflow plan continues an ahead-of-base non-staging commit lane, preserving the worktree, branch tip, and commit", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    writeFileSync(join(worktreePath, "impl.txt"), "implementation\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "impl.txt"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
+    const branchTipBefore = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = emptyPrListSubprocessRunner();
+
+    // This lane is a descendant of base (it is ahead of it) with no criteria to check, so it
+    // continues on the same worktree and branch instead of being refused or retired.
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-continue-plan", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("retired-and-rematerialized from base");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const branchTipAfter = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(branchTipAfter).toBe(branchTipBefore);
+  });
+
+  test("run workflow plan rebases and continues a non-descendant lane with an open PR", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    await commitLaneWork(worktreePath, "open-pr");
+    const { worktreeHead, baseHead } = await advanceBasePastStaleWorktree(worktreePath, "open-pr");
+    expect(worktreeHead).not.toBe(baseHead);
+
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = staleResetSubprocessRunner();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(
+              workflowFrames("start", "wait", "run-plan-rebase-continues", COMPLETED_WAIT_RESULT),
+              { sent },
+            ),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("Cannot re-run incomplete spec");
+    expect(stderr).not.toContain("retired-and-rematerialized from base");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const rebasedTip = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+    ).trim();
+    expect(rebasedTip).not.toBe(worktreeHead);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["merge-base", "--is-ancestor", baseHead, rebasedTip],
+      resetProjectRoot,
+    );
+    expect(existsSync(join(worktreePath, "lane-open-pr.txt"))).toBe(true);
+  });
+
+  test("run workflow plan --base drives the stale-workspace descendant gate instead of the repository default", async () => {
+    // Inversion target: planSource in publication-workflow-steps.ts — ignoring `input.baseRef` (always
+    // resolving the repository default) turns the `--base feature` half RED.
+    const planBranch = "plan/improve-api";
+    const worktreePath = await materializeStaleWorktree(planBranch);
+    const featureHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "feature", featureHead], resetProjectRoot);
+    await commitLaneWork(worktreePath, "base-driven");
+    const { baseHead } = await advanceBasePastStaleWorktree(worktreePath, "base-driven");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-B", "main"], resetProjectRoot);
+    const configPath = join(resetTmp, "plan-base-config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ projects: { demo: { root: realpathSync(resetProjectRoot), specs: "repo" } } }),
+      "utf8",
+    );
+    const resolvedDefaults: string[] = [];
+    // Built outside main's fixed-UUID window (the real builder mints its own ids); the fake preset
+    // hands main the real build for whatever `--base` the CLI threaded into the builder input.
+    const buildFor = async (baseRef: string | undefined) => {
+      const built = await buildPlanWorkflowSteps(
+        {
+          cwd: resetProjectRoot,
+          readyIntent: "index.md",
+          configPath,
+          jarvisRoot: resetJarvisRoot,
+          ...(baseRef === undefined ? {} : { baseRef }),
+        },
+        {
+          resolveProjectMatch: () => ({ key: "demo", root: realpathSync(resetProjectRoot) }),
+          readReadyIntent: () => ({ ok: true, name: "improve-api", content: "---\nname: improve-api\n---\n" }),
+          resolveBaseBranch: () => {
+            resolvedDefaults.push("main");
+            return "main";
+          },
+          loadWorkflowSteps: (steps) =>
+            steps.map((step) =>
+              step.behavior === "write"
+                ? { ...step, agents: ["claude"], agentModelConfig: {} }
+                : step.behavior === "review"
+                  ? { ...step, agents: { critic: ["claude"], actuator: ["claude"] }, agentModelConfig: {} }
+                  : {
+                      ...step,
+                      agents: {
+                        adversary: ["claude"],
+                        advocate: ["claude"],
+                        adjudicator: ["claude"],
+                        actuator: ["claude"],
+                      },
+                      agentModelConfig: {},
+                    },
+            ),
+        },
+      );
+      if (!built.ok) throw new Error(built.error);
+      return built;
+    };
+    const builds = new Map([
+      ["<default>", await buildFor(undefined)],
+      ["feature", await buildFor("feature")],
+    ]);
+    const baseRefsSeen: string[] = [];
+    const planBuilder = (input: unknown) => {
+      const built = builds.get((input as PlanWorkflowInput).baseRef ?? "<default>");
+      if (built === undefined) throw new Error("unexpected base");
+      const step = built.steps[0];
+      if (step?.behavior === "write") baseRefsSeen.push(step.worktree.baseRef);
+      return built;
+    };
+
+    const refusedCap = captureIo();
+    const refusedCode = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        refusedCap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: planBuilder },
+          subprocessRunner: staleResetSubprocessRunner(),
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
+    );
+    expect(refusedCode).toBe(1);
+    const refused = refusedCap.read().stderr;
+    expect(refused).toContain("not a descendant");
+    expect(refused).toContain(baseHead);
+    expect(baseRefsSeen).toEqual(["main"]);
+
+    const cap = captureIo();
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md", "--base", "feature"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: planBuilder },
+          subprocessRunner: staleResetSubprocessRunner(),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-plan-base", COMPLETED_WAIT_RESULT)),
+        }),
+      ),
+    );
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("not a descendant");
+    expect(stderr).not.toContain("stale reuse refused");
+    expect(code).toBe(0);
+    expect(baseRefsSeen).toEqual(["main", "feature"]);
+    expect(resolvedDefaults).toEqual(["main"]);
+  });
+
+  test("run workflow plan preserves the lane and refuses when the never-landed probe is inconclusive", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    await advanceBasePastStaleWorktree(worktreePath, "inconclusive");
+
+    const cap = captureIo();
+    const subprocessRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh") throw new Error("gh: connect: operation not permitted");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+      },
+    };
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner,
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("never-landed classification is inconclusive");
+    expect(stderr).toContain("gh is unreachable from this environment");
+    expect(stderr).toContain("outside the agent sandbox");
+    expect(stderr).toContain("jarvis run workflow plan --ready-intent <path>");
+    expect(stderr).not.toContain("retired-and-rematerialized from base");
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  test("run workflow plan makes no never-landed classification or gh probe for a fresh dispatch", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let ghCalled = false;
+    const subprocessRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh") {
+          ghCalled = true;
+          throw new Error("gh must not be probed for a fresh dispatch");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+      },
+    };
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-fresh-plan", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(ghCalled).toBe(false);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("retirement disposition");
+    expect(stderr).not.toContain("never-landed classification");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+  });
+
+  test("run workflow plan emits no disposition line when a never-landed lane's stale reset is a no-op", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    // Classification inspects resetProjectRoot/branch (never-landed: no PR, no unlanded commits),
+    // but the physical worktree link is broken, so stale reset's dirty-status probe reports
+    // "not-git-repository" and short-circuits to a no-op outcome before any retirement runs.
+    writeFileSync(join(worktreePath, ".git"), "gitdir: /nonexistent\n", "utf8");
+
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = emptyPrListSubprocessRunner();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-no-op-plan", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("worktree disposition");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+  });
+});
+
+describe("intent and plan presets", () => {
+  test("run workflow intent builds seed text before one daemon start", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let received: unknown;
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "intent", "--seed-text", "Improve API"], cap.io, {
+        cwd: () => fx.repoRoot,
+        workflowPresetBuilders: {
+          intent: (input) => {
+            received = input;
+            return { ok: true, steps: fx.fakeImplementSteps };
+          },
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "intent-1", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(received).toMatchObject({ cwd: fx.repoRoot, seedText: "Improve API" });
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: fx.fakeImplementSteps } });
+    expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "intent-1" } });
+    expect(cap.read().stdout).toContain("intent-1");
+    expect(cap.read().stdout).toContain('{"runStatus":"completed"');
+  });
+
+  test("run workflow intent rejects invalid seed arguments before daemon contact", async () => {
+    const cap = captureIo();
+
+    const code = await main(
+      ["run", "workflow", "intent", "--seed", "one", "--seed-text", "two"],
+      cap.io,
+      noDaemonDeps(),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: INTENT_USAGE });
+  });
+
+  test.each([
+    ["intent-reviewed", ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API"]],
+    ["plan-reviewed", ["run", "workflow", "plan-reviewed", "--ready-intent", "spec/ready-intents/demo.md"]],
+    ["plan-reviewed-light", ["run", "workflow", "plan-reviewed-light", "--ready-intent", "spec/ready-intents/demo.md"]],
+  ] as const)("run workflow %s rejects retired alias before daemon contact", async (_label, args) => {
+    const cap = captureIo();
+
+    const code = await main([...args], cap.io, noDaemonDeps());
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "usage: jarvis run workflow <intent|plan|implement|review-feedback> [flags]\n",
+    });
+  });
+});

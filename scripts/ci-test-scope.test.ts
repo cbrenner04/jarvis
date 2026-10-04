@@ -6,16 +6,16 @@ describe("resolveCiTestScope", () => {
     expect(resolveCiTestScope(["v1/src/index.ts", "v1/test/cli.test.ts", "v1/docs/run-loop.md"], true)).toEqual([]);
   });
 
-  test("v2-only change runs test:v2 + test:integration:v2", () => {
-    expect(resolveCiTestScope(["v2/src/foo.ts"], true)).toEqual(["test:v2", "test:integration:v2"]);
+  test("v2-only change runs test:agent + test:integration", () => {
+    expect(resolveCiTestScope(["src/foo.ts"], true)).toEqual(["test:agent", "test:integration"]);
   });
 
   test("shared-only change runs v2 slices only", () => {
-    expect(resolveCiTestScope(["v2/src/shared/git.ts"], true)).toEqual(["test:v2", "test:integration:v2"]);
+    expect(resolveCiTestScope(["src/shared/git.ts"], true)).toEqual(["test:agent", "test:integration"]);
   });
 
   test("v1 + v2 change scopes on v2 only", () => {
-    expect(resolveCiTestScope(["v1/src/index.ts", "v2/src/foo.ts"], true)).toEqual(["test:v2", "test:integration:v2"]);
+    expect(resolveCiTestScope(["v1/src/index.ts", "src/foo.ts"], true)).toEqual(["test:agent", "test:integration"]);
   });
 
   test.each([
@@ -33,11 +33,11 @@ describe("resolveCiTestScope", () => {
   });
 
   test("unresolvable base with code-bearing diff runs full suite", () => {
-    expect(resolveCiTestScope(["v2/src/index.ts"], false)).toBe("full");
+    expect(resolveCiTestScope(["src/index.ts"], false)).toBe("full");
   });
 
   test("spec-only diff with unresolvable base skips tests", () => {
-    expect(resolveCiTestScope(["v2/spec/some-spec/index.md"], false)).toEqual([]);
+    expect(resolveCiTestScope(["spec/some-spec/index.md"], false)).toEqual([]);
   });
 
   test.each([
@@ -47,17 +47,14 @@ describe("resolveCiTestScope", () => {
     ["report-only", ["reports/2026-07-05-session.md"]],
     [
       "mixed v1/v2 docs+specs",
-      ["v1/docs/run-loop.md", "v1/spec/some-spec/index.md", "v2/docs/architecture.md", "v2/spec/some-spec/index.md"],
+      ["v1/docs/run-loop.md", "v1/spec/some-spec/index.md", "docs/architecture.md", "spec/some-spec/index.md"],
     ],
   ])("no-test-impact diff (%s) skips tests", (_label, paths) => {
     expect(resolveCiTestScope(paths, true)).toEqual([]);
   });
 
   test("no-test-impact + code-path diff scopes on code paths only", () => {
-    expect(resolveCiTestScope(["v1/docs/run-loop.md", "v2/src/foo.ts"], true)).toEqual([
-      "test:v2",
-      "test:integration:v2",
-    ]);
+    expect(resolveCiTestScope(["v1/docs/run-loop.md", "src/foo.ts"], true)).toEqual(["test:agent", "test:integration"]);
   });
 
   test("root-tooling + no-test-impact diff still runs full suite", () => {
@@ -65,7 +62,7 @@ describe("resolveCiTestScope", () => {
   });
 
   test("test/ (harness) change runs v2 test slices", () => {
-    expect(resolveCiTestScope(["test/setup-fake-agents.ts"], true)).toEqual(["test:v2", "test:integration:v2"]);
+    expect(resolveCiTestScope(["test/setup-fake-agents.ts"], true)).toEqual(["test:agent", "test:integration"]);
   });
 
   test("empty changed-path input runs full suite", () => {
@@ -79,7 +76,7 @@ describe("resolveCiTestScope", () => {
   });
 
   test("a root doc beside v2 source scopes on v2", () => {
-    expect(classifyChangedPaths(["AGENTS.md", "v2/src/x.ts"])).toEqual(["test:v2", "test:integration:v2"]);
+    expect(classifyChangedPaths(["AGENTS.md", "src/x.ts"])).toEqual(["test:agent", "test:integration"]);
   });
 
   test("root tooling and unknown root paths still run the full suite", () => {

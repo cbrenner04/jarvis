@@ -1,6 +1,6 @@
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
+import { isSpawnTimeout, SUPPORTED_HEALTHY_FILE_BUDGET_MS } from "./run-slice-tests.ts";
 import { aggregateTestFiles } from "./run-tests.ts";
-import { isSpawnTimeout, SUPPORTED_HEALTHY_FILE_BUDGET_MS } from "./run-v2-tests.ts";
 
 /** One `bun test <file>` invocation's raw outcome, before any parsing. */
 export interface SpawnFileResult {

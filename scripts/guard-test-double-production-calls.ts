@@ -20,7 +20,7 @@ function lineAt(source: string, index: number): number {
   return source.slice(0, index).split("\n").length;
 }
 
-// A production path escapes v2/src/testing, e.g. "../cli.ts" or "../../shared/helpers.ts"; `*.test-support.ts` is test code
+// A production path escapes src/testing, e.g. "../cli.ts" or "../../shared/helpers.ts"; `*.test-support.ts` is test code
 function isProductionPath(importPath: string): boolean {
   if (isTestSupportImport(importPath)) return false;
   const parts = importPath.split("/");
@@ -39,7 +39,7 @@ export function findProductionCallViolations(files: readonly GuardFile[]): Guard
   const violations: GuardViolation[] = [];
 
   for (const { file, source } of files) {
-    if (!file.startsWith("v2/src/testing/")) continue;
+    if (!file.startsWith("src/testing/")) continue;
 
     // Imported binding name -> production module path
     const importedProductions = new Map<string, string>();
@@ -95,7 +95,7 @@ function collectFiles(root: string, cwd: string): GuardFile[] {
 }
 
 export function runProductionCallGuard(cwd: string): GuardViolation[] {
-  const files = collectFiles(join(cwd, "v2/src/testing"), cwd);
+  const files = collectFiles(join(cwd, "src/testing"), cwd);
   return findProductionCallViolations(files);
 }
 

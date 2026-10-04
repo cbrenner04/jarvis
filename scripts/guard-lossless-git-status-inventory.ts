@@ -5,10 +5,10 @@ export type LosslessGitStatusGuardFile = { file: string; source: string };
 export type LosslessGitStatusGuardViolation = { file: string; line: number; construct: string };
 
 export const LOSSLESS_GIT_STATUS_CONSUMER_FILES = [
-  "v2/src/execution/review-intent-enforcement.ts",
-  "v2/src/execution/completion-commit.ts",
-  "v2/src/execution/write-loop.ts",
-  "v2/src/commands/cleanup.ts",
+  "src/execution/review-intent-enforcement.ts",
+  "src/execution/completion-commit.ts",
+  "src/execution/write-loop.ts",
+  "src/commands/cleanup.ts",
 ] as const;
 
 const CONSUMER_FILES = new Set<string>(LOSSLESS_GIT_STATUS_CONSUMER_FILES);

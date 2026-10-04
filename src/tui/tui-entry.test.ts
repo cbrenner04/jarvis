@@ -1,0 +1,5624 @@
+import { describe, expect, spyOn, test } from "bun:test";
+import { Writable } from "node:stream";
+import { createElement, type ReactElement } from "react";
+import type { PipelineStartAdmissionResult } from "../commands/pipeline-start-admission.ts";
+import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
+import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { PipelineApprovalDecisionOutcome, ResumePipelineOutcome } from "../daemon/pipeline-execution.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
+import { buildAttentionRows } from "./tui-attention-rows.ts";
+import * as tuiCommandParser from "./tui-command-parser.ts";
+import type {
+  PipelineListResult,
+  PipelineResumeParams,
+  PipelineStageMutationParams,
+  TuiDaemonClient,
+} from "./tui-daemon-client.ts";
+import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
+import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import * as tuiEntry from "./tui-entry.tsx";
+import {
+  commandSubmissionBlockedByPendingAdmission,
+  expansionCommandSelectionError,
+  runTuiEntry,
+  shouldApplyCommandSettlement,
+} from "./tui-entry.tsx";
+import type { InkRender } from "./tui-ink-feedback.tsx";
+import { createMonitorDisplay, MonitorDock } from "./tui-ink-monitor.tsx";
+import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
+import {
+  buildTreeRunRow,
+  joinMonitorRow,
+  monitorDockLines,
+  monitorLeftPaneAttentionRows,
+  monitorLeftPaneTreeRows,
+  monitorLeftPaneWorkHeadingRows,
+  monitorSelectableNodeIds,
+  monitorTextLines,
+} from "./tui-monitor-lines.ts";
+import {
+  buildPipelineMonitorTreeRow,
+  monitorPipelineBranchNodeId,
+  monitorPipelineStageNodeId,
+} from "./tui-monitor-pipeline-tree.ts";
+import type {
+  DetachedPipelineStartAdmission,
+  RunTuiEntryDeps,
+  TuiMonitorControls,
+  TuiMonitorSession,
+  TuiMonitorState,
+  TuiViewHost,
+  TuiViewState,
+} from "./tui-monitor-types.ts";
+import type { PerformTuiRevisionReexecParams } from "./tui-revision-reexec.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
+
+const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
+// Recent-past relative to the entry frame clock (WORKFLOW_FILTER_NOW_MS, 1_700_000_000_000) and inside
+// the 12-hour attention recency window — for fixtures the attention projection must actually surface
+// through the window comparison, not the future-dated escape hatch.
+const ATTENTION_RECENT_FINISH_MS = 1_700_000_000_000 - 5_000;
+
+const noopDetachedAdmission: DetachedPipelineStartAdmission = async () => ({
+  kind: "admitted",
+  pipelineId: "test-pipeline",
+  admittedSelection: null,
+});
+
+const RUN_ALPHA: DaemonListRunRow = {
+  runId: "run-alpha",
+  project: "demo",
+  branch: "alpha",
+  createdAt: 0,
+  status: "in-progress",
+  isLive: true,
+};
+
+const RUN_BETA: DaemonListRunRow = {
+  runId: "run-beta",
+  project: "demo",
+  branch: "beta",
+  createdAt: 0,
+  status: "completed",
+  isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+};
+
+const RUN_GAMMA: DaemonListRunRow = {
+  runId: "run-gamma",
+  project: "demo",
+  branch: "gamma",
+  createdAt: 0,
+  status: "blocked",
+  isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+};
+
+const RUN_DELTA: DaemonListRunRow = {
+  runId: "run-delta",
+  project: "demo",
+  branch: "delta",
+  createdAt: 0,
+  status: "paused",
+  isLive: false,
+};
+
+const RUN_QUEUED: DaemonListRunRow = {
+  runId: "run-queued",
+  project: "demo",
+  branch: "queued",
+  createdAt: 0,
+  status: "queued",
+  isLive: false,
+};
+
+const RUN_DISMISSED: DaemonListRunRow = {
+  runId: "run-dismissed",
+  project: "demo",
+  branch: "dismissed",
+  createdAt: 0,
+  status: "completed",
+  isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+  dismissedAt: 1_700_000_600_000,
+};
+
+const PIPELINE_SNAPSHOT_ALPHA: PipelineSnapshot = {
+  pipelineId: "pipe-alpha",
+  name: "alpha-pipeline",
+  state: "running",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
+  dismissedAt: null,
+  stages: [
+    {
+      id: "stage-alpha-plan",
+      stageId: "plan",
+      branchKey: "default",
+      position: 0,
+      status: "running",
+      workflowInvocationId: "run-matched",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
+const PIPELINE_SNAPSHOT_BETA: PipelineSnapshot = {
+  pipelineId: "pipe-beta",
+  name: "beta-pipeline",
+  state: "succeeded",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_001_000,
+  finishedAtMs: 1_700_000_002_000,
+  dismissedAt: null,
+  stages: [
+    {
+      id: "stage-beta-s1",
+      stageId: "s1",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: "inv-2",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
+const PIPELINE_SNAPSHOT_DISMISSED: PipelineSnapshot = {
+  pipelineId: "pipe-dismissed",
+  name: "dismissed-pipeline",
+  state: "running",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_500_000,
+  finishedAtMs: null,
+  dismissedAt: 1_700_000_600_000,
+  stages: [
+    {
+      id: "stage-dismissed-plan",
+      stageId: "plan",
+      branchKey: "default",
+      position: 0,
+      status: "running",
+      workflowInvocationId: "inv-dismissed",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
+const PIPELINE_STAGE_ALPHA = monitorPipelineStageNodeId("pipe-alpha", "plan", "default");
+
+const PIPELINE_AWAITING_INVOCATION = "inv-await";
+const PIPELINE_SNAPSHOT_AWAITING: PipelineSnapshot = {
+  pipelineId: "pipe-await",
+  name: "await-pipeline",
+  state: "awaiting-approval",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
+  dismissedAt: null,
+  stages: [
+    {
+      id: "stage-await-gate",
+      stageId: "gate",
+      branchKey: "default",
+      position: 0,
+      status: "awaiting",
+      workflowInvocationId: "run-await",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+const PIPELINE_STAGE_AWAITING = monitorPipelineStageNodeId("pipe-await", "gate", "default");
+const PIPELINE_RUN_AWAITING: DaemonListRunRow = {
+  runId: "run-await",
+  project: "demo",
+  branch: "main",
+  createdAt: 0,
+  status: "in-progress",
+  isLive: true,
+  workflow: {
+    invocationId: PIPELINE_AWAITING_INVOCATION,
+    steps: [{ stepId: "gate", role: "actuator", status: "in_progress", attemptCount: 1 }],
+  },
+};
+
+// Stage timestamps sit 8-10s before WORKFLOW_FILTER_NOW_MS (1_700_000_000_000): recent-past incidents
+// inside the 12-hour recency window, not future-dated ones surfacing only via the clock-skew escape hatch.
+const PIPELINE_SNAPSHOT_ATTENTION_GATES: PipelineSnapshot = {
+  pipelineId: "pipe-attn-gates",
+  name: "full-review",
+  state: "awaiting-approval",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_699_999_990_000,
+  finishedAtMs: null,
+  dismissedAt: null,
+  stages: [
+    {
+      id: "stage-attn-intent",
+      stageId: "intent",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 1_699_999_990_100,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-approve-intent",
+      stageId: "approve-intent",
+      branchKey: "default",
+      position: 1,
+      status: "rejected",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: 1_699_999_991_500,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-plan",
+      stageId: "plan",
+      branchKey: "default",
+      position: 2,
+      status: "failed",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 1_699_999_992_000,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-approve-plan",
+      stageId: "approve-plan",
+      branchKey: "default",
+      position: 3,
+      status: "awaiting",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
+const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
+  pipelineId: "pipe-attn-published",
+  name: "full-review",
+  state: "succeeded",
+  terminalAction: "merge",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: { terminalAction: "merge", failure: { operation: "merge", message: "conflict" } },
+  createdAt: 1_699_999_990_000,
+  finishedAtMs: 1_699_999_993_000,
+  dismissedAt: null,
+  stages: [
+    {
+      id: "stage-attn-published-intent",
+      stageId: "intent",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 1_699_999_993_000,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-published-approve-intent",
+      stageId: "approve-intent",
+      branchKey: "default",
+      position: 1,
+      status: "approved",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: 1_699_999_993_100,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-published-plan",
+      stageId: "plan",
+      branchKey: "default",
+      position: 2,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 1_699_999_993_200,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-published-approve-plan",
+      stageId: "approve-plan",
+      branchKey: "default",
+      position: 3,
+      status: "approved",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: 1_699_999_993_300,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-published-implement",
+      stageId: "implement",
+      branchKey: "default",
+      position: 4,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 1_699_999_993_400,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
+function terminalAttentionPipeline(pipelineId: string): PipelineSnapshot {
+  return {
+    ...PIPELINE_SNAPSHOT_ATTENTION_GATES,
+    pipelineId,
+    state: "failed",
+    terminalAction: "merge",
+    terminalPublicationFailure: { terminalAction: "merge", failure: { operation: "merge", message: "conflict" } },
+    finishedAtMs: 1_699_999_994_000,
+    stages: PIPELINE_SNAPSHOT_ATTENTION_GATES.stages.map((stage) => ({
+      ...stage,
+      id: `${stage.id}-${pipelineId}`,
+    })),
+  };
+}
+
+const ATTENTION_FAILED_RUN: DaemonListRunRow = {
+  runId: "run-attn-failed",
+  project: "demo",
+  branch: "attn-failed",
+  createdAt: 0,
+  status: "failed",
+  isLive: false,
+  finishedAtMs: ATTENTION_RECENT_FINISH_MS,
+};
+
+const ATTENTION_BLOCKED_RUN: DaemonListRunRow = {
+  runId: "run-attn-blocked",
+  project: "demo",
+  branch: "attn-blocked",
+  createdAt: 0,
+  status: "blocked",
+  isLive: false,
+  finishedAtMs: ATTENTION_RECENT_FINISH_MS,
+};
+
+function attentionRunsFixture(): DaemonListRunRow[] {
+  return [ATTENTION_FAILED_RUN, ATTENTION_BLOCKED_RUN];
+}
+
+function attentionRowIdByKind(
+  state: TuiMonitorState | undefined,
+  kind: "awaiting-gate" | "rejected-gate" | "failed-stage" | "failed-run" | "blocked-run" | "publication-failure",
+): string {
+  if (state === undefined) throw new Error("expected a painted monitor state");
+  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs, {}, WORKFLOW_FILTER_NOW_MS);
+  const row = projection.rows.find((entry) => entry.kind === kind);
+  if (row === undefined) throw new Error(`expected an attention row of kind ${kind}`);
+  return row.id;
+}
+
+const PIPELINE_MULTI_INVOCATION = "inv-multi";
+const PIPELINE_MULTI_STEPS = [
+  { stepId: "implement", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+  { stepId: "implement-review", role: "actuator", status: "in_progress", attemptCount: 1 },
+] as const;
+
+const PIPELINE_SNAPSHOT_MULTI: PipelineSnapshot = {
+  pipelineId: "pipe-multi",
+  name: "multi-pipeline",
+  state: "running",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
+  dismissedAt: null,
+  stages: [
+    {
+      id: "stage-multi-implement",
+      stageId: "implement",
+      branchKey: "default",
+      position: 0,
+      status: "running",
+      workflowInvocationId: "run-implement",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
+const PIPELINE_STAGE_MULTI = monitorPipelineStageNodeId("pipe-multi", "implement", "default");
+
+const PIPELINE_SNAPSHOT_BRANCH: PipelineSnapshot = {
+  pipelineId: "pipe-branch",
+  name: "branch-pipeline",
+  state: "running",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
+  dismissedAt: null,
+  stages: [
+    {
+      id: "stage-branch-intent",
+      stageId: "intent",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-branch-plan-alpha",
+      stageId: "plan",
+      branchKey: "alpha",
+      position: 1,
+      status: "running",
+      workflowInvocationId: "inv-branch-alpha",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-branch-plan-beta",
+      stageId: "plan",
+      branchKey: "beta",
+      position: 1,
+      status: "running",
+      workflowInvocationId: "inv-branch-beta",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
+function pipelineMultiRun(
+  overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "runId" | "stepId" | "status">,
+): DaemonListRunRow {
+  return {
+    project: "demo",
+    branch: "main",
+    createdAt: 0,
+    isLive: overrides.status === "in-progress",
+    workflow: {
+      invocationId: PIPELINE_MULTI_INVOCATION,
+      steps: [...PIPELINE_MULTI_STEPS],
+    },
+    ...overrides,
+  };
+}
+
+function pipelineMultiListFixture(): DaemonListRunRow[] {
+  return [
+    pipelineMultiRun({ runId: "run-implement", stepId: "implement", status: "completed", isLive: false }),
+    pipelineMultiRun({ runId: "run-review", stepId: "implement-review", status: "in-progress" }),
+    PIPELINE_RUN_ORPHAN,
+  ];
+}
+
+function leftPaneTreeRowIds(state: TuiMonitorState | undefined): string[] {
+  if (state === undefined) return [];
+  const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
+  const { treeRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
+  return treeRows.map((row) => row.id);
+}
+
+function overflowPipelineEntryDeps(view: ReturnType<typeof createViewHost>) {
+  const terminalColumns = 80;
+  const terminalRows = 24;
+  const maxVisibleRows = computeShellLayout(terminalColumns, terminalRows, 0).paneHeight;
+  const pipelineCount = maxVisibleRows + 10;
+  const pipelines = Array.from({ length: pipelineCount }, (_, index) => ({
+    pipelineId: `pipe-${index}`,
+    name: `pipeline-${index}`,
+    state: "succeeded" as const,
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1_700_000_000_000 + index,
+    finishedAtMs: 1_700_000_100_000 + index,
+    dismissedAt: null,
+    stages: [
+      {
+        id: `stage-${index}`,
+        stageId: "plan",
+        branchKey: "default",
+        position: 0,
+        status: "succeeded" as const,
+        workflowInvocationId: `run-${index}`,
+        startedAt: null,
+        endedAt: null,
+        decidedAt: null,
+        artifact: null,
+        failureDetail: null,
+      },
+    ],
+  }));
+  const runs = pipelines.map((_, index) => ({
+    runId: `run-${index}`,
+    project: "demo",
+    branch: `branch-${index}`,
+    createdAt: 0,
+    status: "completed" as const,
+    isLive: false,
+    finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    workflow: {
+      invocationId: `inv-${index}`,
+      steps: [{ stepId: "plan", role: "plan", status: "completed" as const, attemptCount: 1 }],
+    },
+  }));
+  return {
+    deps: entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs }],
+        pipelineListResponses: [{ pipelines }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        terminalSize: () => ({ columns: terminalColumns, rows: terminalRows }),
+      },
+    ).deps,
+    terminalColumns,
+    terminalRows,
+    maxVisibleRows,
+    pipelineCount,
+    pipelines,
+  };
+}
+
+function attentionSelectionEntryDeps(view: ReturnType<typeof createViewHost>) {
+  const terminalColumns = 80;
+  const terminalRows = 24;
+  const maxVisibleRows = computeShellLayout(terminalColumns, terminalRows, 0).paneHeight;
+  const pipelineCount = maxVisibleRows + 10;
+  // Dated well before ATTENTION_RECENT_FINISH_MS so the ad-hoc failed run — the newest terminal
+  // node — still sorts ahead of every pipeline row, as the walk below assumes.
+  const pipelines = Array.from({ length: pipelineCount }, (_, index) => ({
+    pipelineId: `pipe-${index}`,
+    name: `pipeline-${index}`,
+    state: "succeeded" as const,
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1_699_990_000_000 + index,
+    finishedAtMs: 1_699_990_100_000 + index,
+    dismissedAt: null,
+    stages: [
+      {
+        id: `stage-${index}`,
+        stageId: "plan",
+        branchKey: "default",
+        position: 0,
+        status: "succeeded" as const,
+        workflowInvocationId: `run-${index}`,
+        startedAt: null,
+        endedAt: null,
+        decidedAt: null,
+        artifact: null,
+        failureDetail: null,
+      },
+    ],
+  }));
+  const pipelineRuns = pipelines.map((_, index) => ({
+    runId: `run-${index}`,
+    project: "demo",
+    branch: `branch-${index}`,
+    createdAt: 0,
+    status: "completed" as const,
+    isLive: false,
+    finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    workflow: {
+      invocationId: `inv-${index}`,
+      steps: [{ stepId: "plan", role: "plan", status: "completed" as const, attemptCount: 1 }],
+    },
+  }));
+  const failedRun: DaemonListRunRow = {
+    runId: "run-attention-failed",
+    project: "demo",
+    branch: "attention",
+    createdAt: 0,
+    status: "failed",
+    isLive: false,
+    finishedAtMs: ATTENTION_RECENT_FINISH_MS,
+  };
+  const runs = [...pipelineRuns, failedRun];
+  return {
+    deps: entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs }],
+        pipelineListResponses: [{ pipelines }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+        killError: new RpcError("run_not_active", "not active"),
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        terminalSize: () => ({ columns: terminalColumns, rows: terminalRows }),
+      },
+    ).deps,
+    terminalColumns,
+    terminalRows,
+    pipelineCount,
+    failedRun,
+  };
+}
+
+function pipelineMultiEntryDeps(view: ReturnType<typeof createViewHost>, overrides: Partial<RunTuiEntryDeps> = {}) {
+  return entryDeps(
+    {
+      methods: [],
+      listResponses: [{ runs: pipelineMultiListFixture() }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_MULTI] }],
+      waitImpl: async () => ({ runStatus: "completed" }),
+    },
+    {
+      viewHost: view.host,
+      nowMs: () => WORKFLOW_FILTER_NOW_MS,
+      terminalSize: () => ({ columns: 245, rows: 72 }),
+      ...overrides,
+    },
+  );
+}
+
+const PIPELINE_RUN_MATCHED: DaemonListRunRow = {
+  runId: "run-matched",
+  project: "demo",
+  branch: "main",
+  createdAt: 0,
+  status: "in-progress",
+  isLive: true,
+  workflow: {
+    invocationId: "inv-1",
+    steps: [{ stepId: "plan", role: "plan", status: "in_progress", attemptCount: 1 }],
+  },
+};
+
+const PIPELINE_RUN_ORPHAN: DaemonListRunRow = {
+  runId: "run-orphan",
+  project: "demo",
+  branch: "orphan",
+  createdAt: 0,
+  status: "completed",
+  isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+  workflow: {
+    invocationId: "inv-orphan",
+    steps: [{ stepId: "x", role: "implement", status: "completed", attemptCount: 1 }],
+  },
+};
+
+function pipelineTreeListFixture(): DaemonListRunRow[] {
+  return [PIPELINE_RUN_MATCHED, PIPELINE_RUN_ORPHAN];
+}
+
+function awaitingPipelineListFixture(): DaemonListRunRow[] {
+  return [PIPELINE_RUN_AWAITING, PIPELINE_RUN_ORPHAN];
+}
+
+function awaitingAndAlphaPipelineListFixture(): DaemonListRunRow[] {
+  return [PIPELINE_RUN_AWAITING, PIPELINE_RUN_MATCHED, PIPELINE_RUN_ORPHAN];
+}
+
+function pipelineTreeWithOutsideRunFixture(): DaemonListRunRow[] {
+  return [PIPELINE_RUN_MATCHED, PIPELINE_RUN_ORPHAN, RUN_ALPHA];
+}
+
+function pipelineTreeEntryDeps(
+  view: ReturnType<typeof createViewHost>,
+  overrides: Partial<RunTuiEntryDeps> = {},
+  runs: DaemonListRunRow[] = pipelineTreeListFixture(),
+) {
+  return entryDeps(
+    {
+      methods: [],
+      listResponses: [{ runs }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      waitImpl: async () => ({ runStatus: "completed" }),
+    },
+    {
+      viewHost: view.host,
+      nowMs: () => WORKFLOW_FILTER_NOW_MS,
+      ...overrides,
+    },
+  );
+}
+
+const WORKFLOW_FILTER_NOW_MS = 1_700_000_000_000;
+const WORKFLOW_INVOCATION_ID = "inv-implement-review";
+
+const WORKFLOW_STEPS = [
+  { stepId: "implement", role: "implement", status: "completed", attemptCount: 2, terminalOutcome: "complete" },
+  { stepId: "implement-review", role: "actuator", status: "in_progress", attemptCount: 1 },
+  { stepId: "verify", role: "verify", status: "pending", attemptCount: 0 },
+] as const;
+
+function workflowRun(
+  overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "runId" | "stepId" | "branch" | "status">,
+): DaemonListRunRow {
+  return {
+    project: "demo",
+    createdAt: 0,
+    isLive: overrides.status === "in-progress",
+    workflow: {
+      invocationId: WORKFLOW_INVOCATION_ID,
+      steps: [...WORKFLOW_STEPS],
+    },
+    ...overrides,
+  };
+}
+
+function _workflowListFixture(): DaemonListRunRow[] {
+  return [
+    workflowRun({
+      runId: "run-implement",
+      stepId: "implement",
+      branch: "feature",
+      status: "completed",
+      isLive: false,
+      finishedAtMs: WORKFLOW_FILTER_NOW_MS - 1_000,
+    }),
+    workflowRun({
+      runId: "run-review",
+      stepId: "implement-review",
+      branch: "feature-review",
+      status: "in-progress",
+      isLive: true,
+    }),
+    workflowRun({
+      runId: "run-verify",
+      stepId: "verify",
+      branch: "feature-verify",
+      status: "queued",
+      isLive: false,
+    }),
+  ];
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
+}
+
+function flattenRenderedText(stdoutText: string): string {
+  return stripAnsi(stdoutText).replace(/\s+/g, " ").trim();
+}
+
+function _tableBodyText(rendered: string): string {
+  const text = flattenRenderedText(rendered);
+  const header = "runId project branch status liveness";
+  const headerIndex = text.indexOf(header);
+  if (headerIndex === -1) return text;
+  const start = headerIndex + header.length;
+  const queueIndex = text.indexOf(" Queue ", start);
+  const end = queueIndex === -1 ? text.length : queueIndex;
+  return text.slice(start, end);
+}
+
+function _inkInputHarness() {
+  let inputHandler: Parameters<InkUseInput>[0] | undefined;
+  let instance: Awaited<ReturnType<InkRender>> | undefined;
+  let stdoutText = "";
+  const opened = deferred<void>();
+  let openedOnce = false;
+
+  const stdout = new Writable({
+    write(chunk, _encoding, callback) {
+      stdoutText += chunk.toString();
+      callback();
+    },
+  }) as NodeJS.WriteStream;
+  stdout.isTTY = true;
+  stdout.columns = 120;
+
+  const useInput: InkUseInput = (nextHandler) => {
+    inputHandler = nextHandler;
+  };
+
+  /**
+   * Waits for a complete painted frame. A fixed flush-render-flush sequence can return before ink
+   * paints on a loaded machine (empty text), or mid-paint (partial text), so drain until the
+   * rendered text is non-empty and stops changing.
+   */
+  async function drainUntilFrameSettles(inkInstance: NonNullable<typeof instance>): Promise<void> {
+    let previous: string | undefined;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await inkInstance.waitUntilRenderFlush();
+      await flush();
+      await inkInstance.waitUntilRenderFlush();
+      const current = flattenRenderedText(stdoutText);
+      if (current !== "" && current === previous) return;
+      previous = current;
+    }
+  }
+
+  return {
+    async injection(): Promise<InjectedInkUi> {
+      const ink = await import("ink");
+      return {
+        renderFn: ((element: ReactElement) => {
+          if (!openedOnce) {
+            openedOnce = true;
+            opened.resolve();
+          }
+          instance = ink.render(element, { exitOnCtrlC: false, stdout, patchConsole: false });
+          return instance;
+        }) as InkRender,
+        Text: ({ children, color }) => createElement(ink.Text, color === undefined ? null : { color }, children),
+        useInput,
+      };
+    },
+    async waitUntilOpen() {
+      await opened.promise;
+      if (instance === undefined) throw new Error("expected ink instance");
+      await drainUntilFrameSettles(instance);
+    },
+    async press(input: string, key: Parameters<Parameters<InkUseInput>[0]>[1] = {}) {
+      if (inputHandler === undefined) throw new Error("expected input handler");
+      stdoutText = "";
+      inputHandler(input, key);
+      if (instance === undefined) throw new Error("expected ink instance");
+      await drainUntilFrameSettles(instance);
+    },
+    renderedText() {
+      return flattenRenderedText(stdoutText);
+    },
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function cloneState(state: TuiMonitorState): TuiMonitorState {
+  return structuredClone(state);
+}
+
+function createIntervalScheduler() {
+  let onTick: (() => void) | undefined;
+  let closed = false;
+  return {
+    scheduler: {
+      start(callback: () => void) {
+        onTick = callback;
+        return {
+          close() {
+            closed = true;
+          },
+        };
+      },
+    },
+    tick() {
+      onTick?.();
+    },
+    isClosed() {
+      return closed;
+    },
+  };
+}
+
+function createViewHost() {
+  const feedbackStates: TuiViewState[] = [];
+  const monitorStates: TuiMonitorState[] = [];
+  let controls: TuiMonitorControls | undefined;
+  let closed = false;
+  const exit = deferred<void>();
+  const opened = deferred<void>();
+
+  const host: TuiViewHost = {
+    show(state) {
+      feedbackStates.push(state);
+    },
+    async openMonitor(state, nextControls): Promise<TuiMonitorSession> {
+      controls = nextControls;
+      monitorStates.push(cloneState(state));
+      opened.resolve();
+      return {
+        update(nextState) {
+          monitorStates.push(cloneState(nextState));
+        },
+        waitUntilExit() {
+          return exit.promise;
+        },
+        close() {
+          closed = true;
+        },
+      };
+    },
+  };
+
+  return {
+    host,
+    feedbackStates,
+    monitorStates,
+    getControls() {
+      return controls;
+    },
+    async waitUntilOpen() {
+      await opened.promise;
+    },
+    selectNode(nodeId: string) {
+      controls?.selectNode(nodeId);
+    },
+    revealSelectedAttentionTarget() {
+      controls?.revealSelectedAttentionTarget();
+    },
+    selectNextRun() {
+      controls?.selectNextRun();
+    },
+    selectPreviousRun() {
+      controls?.selectPreviousRun();
+    },
+    resumeSelected() {
+      controls?.resumeSelected();
+    },
+    killSelected() {
+      controls?.killSelected();
+    },
+    focusCommand() {
+      controls?.focusCommand();
+    },
+    focusTree() {
+      controls?.focusTree();
+    },
+    insertCommandText(text: string) {
+      controls?.insertCommandText(text);
+    },
+    moveCommandCursorLeft() {
+      controls?.moveCommandCursorLeft();
+    },
+    moveCommandCursorRight() {
+      controls?.moveCommandCursorRight();
+    },
+    deleteCommandBackward() {
+      controls?.deleteCommandBackward();
+    },
+    deleteCommandForward() {
+      controls?.deleteCommandForward();
+    },
+    submitCommand(commandBuffer: string) {
+      controls?.submitCommand(commandBuffer);
+    },
+    toggleSelectedWorkflowExpansion() {
+      controls?.toggleSelectedWorkflowExpansion();
+    },
+    toggleShowDismissed() {
+      controls?.toggleShowDismissed();
+    },
+    async toggleExpansion() {
+      controls?.toggleSelectedWorkflowExpansion();
+      await flush();
+    },
+    async toggleShowDismissedAndFlush() {
+      controls?.toggleShowDismissed();
+      await flush();
+    },
+    quit() {
+      controls?.quit();
+      exit.resolve();
+    },
+    quitFromControl() {
+      controls?.quit();
+    },
+    isClosed() {
+      return closed;
+    },
+  };
+}
+
+function nextFakeResponse<T>(responses: T[] | undefined, index: number): [T | undefined, number] {
+  if (!responses?.length) return [undefined, index + 1];
+  return [responses[Math.min(index, responses.length - 1)], index + 1];
+}
+
+function countRpcMethod(methods: string[] | undefined, method: string, prefix = false): number {
+  return methods?.filter((entry) => (prefix ? entry.startsWith(method) : entry === method)).length ?? 0;
+}
+
+async function flushIntervalTick(scheduler: ReturnType<typeof createIntervalScheduler>): Promise<void> {
+  scheduler.tick();
+  await flush();
+  await flush();
+  await flush();
+}
+
+async function expandPipelineAndSelect(
+  view: ReturnType<typeof createViewHost>,
+  pipelineId: string,
+  nodeId: string,
+): Promise<void> {
+  view.selectNode(pipelineId);
+  await flush();
+  const expanded = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+  if (!expanded.includes(pipelineId)) {
+    await view.toggleExpansion();
+  }
+  view.selectNode(nodeId);
+  await flush();
+}
+
+function wrapFailingSecondPipelineList(deps: RunTuiEntryDeps): void {
+  const originalConnect = deps.connectTuiDaemon;
+  let pipelineListCalls = 0;
+  deps.connectTuiDaemon = async (options) => {
+    if (originalConnect === undefined) throw new Error("missing connectTuiDaemon");
+    const client = await originalConnect(options);
+    const originalPipelineList = client.pipelineList.bind(client);
+    return {
+      ...client,
+      async pipelineList(params: { includeDismissed: boolean }) {
+        pipelineListCalls += 1;
+        if (pipelineListCalls === 1) return originalPipelineList(params);
+        throw new RpcConnectionError("pipeline_list failed");
+      },
+    };
+  };
+}
+
+/** Painted dock rows (status, input, continuation, hints) walked from the ink tree's dock region. */
+function renderedDockRows(state: TuiMonitorState | undefined): string[] {
+  if (state === undefined) throw new Error("expected monitor state");
+  const Text = (props: { children?: string }): ReactElement => createElement("dock-text", null, props.children);
+  const findDock = (node: unknown): ReactElement | undefined => {
+    if (Array.isArray(node)) return node.map(findDock).find((found) => found !== undefined);
+    if (typeof node !== "object" || node === null || !("props" in node)) return undefined;
+    const element = node as ReactElement<{ children?: unknown }>;
+    return element.type === MonitorDock ? element : findDock(element.props.children);
+  };
+  const dock = findDock(createMonitorDisplay(state, Text, undefined, WORKFLOW_FILTER_NOW_MS));
+  if (dock === undefined) throw new Error("expected dock region");
+  const rows = (dock as ReactElement<{ children?: unknown }>).props.children;
+  return (Array.isArray(rows) ? rows : [rows]).map((row) =>
+    String((row as ReactElement<{ children?: unknown }>).props.children ?? ""),
+  );
+}
+
+function dockCommandFailureAsserter(
+  view: ReturnType<typeof createViewHost>,
+  verb: string,
+): (feedback: string, setup?: () => void) => void {
+  return (feedback, setup = () => {}) => {
+    setup();
+    view.focusCommand();
+    while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+      view.deleteCommandBackward();
+    }
+    view.insertCommandText(verb);
+    const commandBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+    const commandCursor = view.monitorStates.at(-1)?.commandCursor ?? 0;
+    view.submitCommand(commandBuffer);
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      focus: "command",
+      commandBuffer,
+      commandCursor,
+      lastCommandResult: feedback,
+    });
+  };
+}
+
+function steeringFailureAsserter(
+  view: ReturnType<typeof createViewHost>,
+  clientOptions: FakeClientOptions,
+  verb: string,
+  rpcMethod: string,
+  rpcPrefix = false,
+): (feedback: string, setup?: () => void) => void {
+  const assertFailure = dockCommandFailureAsserter(view, verb);
+  return (feedback, setup = () => {}) => {
+    const rpcBefore = countRpcMethod(clientOptions.methods, rpcMethod, rpcPrefix);
+    assertFailure(feedback, setup);
+    expect(countRpcMethod(clientOptions.methods, rpcMethod, rpcPrefix)).toBe(rpcBefore);
+  };
+}
+
+async function runAwaitingStageSteeringRefusalTest(
+  verb: "pipeline approve" | "pipeline reject",
+  implKey: "pipelineApproveImpl" | "pipelineRejectImpl",
+): Promise<void> {
+  const refusalDetail = "status_not_awaiting\n";
+  const view = createViewHost();
+  const { deps } = entryDeps(
+    {
+      methods: [],
+      listResponses: [{ runs: awaitingPipelineListFixture() }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+      [implKey]: async () =>
+        ({
+          kind: "refused",
+          pipelineId: "pipe-await",
+          stageId: "gate",
+          reason: refusalDetail,
+        }) as unknown as PipelineApprovalDecisionOutcome,
+    },
+    { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+  );
+  const pending = runTuiEntry(deps);
+
+  try {
+    await view.waitUntilOpen();
+    await flush();
+    await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+    view.focusCommand();
+    view.insertCommandText(verb);
+    const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+    view.submitCommand(buffer);
+    await flush();
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      focus: "command",
+      commandBuffer: buffer,
+      lastCommandResult: refusalDetail,
+    });
+  } finally {
+    view.quit();
+  }
+  expect(await pending).toBe(0);
+}
+
+function elapsedCellForRun(state: TuiMonitorState | undefined, runId: string, nowMs: number): string {
+  if (state === undefined) return "";
+  const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
+  const leftPaneWidth = layout.leftWidth >= 90 ? 90 : layout.leftWidth;
+  const { treeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const runNode = treeRows.find(
+    (row) => (row.kind === "run" || row.kind === "adhoc") && monitorTreeRun(row.tableRow).runId === runId,
+  );
+  if (runNode?.kind !== "run" && runNode?.kind !== "adhoc") return "";
+  // The elapsed atom is always the rightmost cluster segment at this width.
+  return buildTreeRunRow(runNode.tableRow, runNode.depth, leftPaneWidth, nowMs).segments.at(-1)?.text ?? "";
+}
+
+function timingCellForPipeline(state: TuiMonitorState | undefined, pipelineId: string, nowMs: number): string {
+  if (state === undefined) return "";
+  const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
+  const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const pipeline = fullTreeRows.find((row) => row.kind === "pipeline" && row.id === pipelineId);
+  if (pipeline?.kind !== "pipeline") return "";
+  return buildPipelineMonitorTreeRow(pipeline, layout.leftWidth, nowMs).segments.at(-1)?.text.trim() ?? "";
+}
+
+type FakeClientOptions = {
+  methods?: string[];
+  healthError?: RpcError;
+  statusError?: RpcError;
+  listResponses?: DaemonListResult[];
+  listResponsesWithDismissed?: DaemonListResult[];
+  listRequests?: Array<{ includeDismissed: boolean } | undefined>;
+  listError?: Error;
+  pipelineListResponses?: PipelineListResult[];
+  pipelineListResponsesWithDismissed?: PipelineListResult[];
+  pipelineListRequests?: Array<{ includeDismissed: boolean }>;
+  pipelineListError?: Error;
+  waitImpl?: (runId: string) => Promise<WaitRunCompletionResult>;
+  resumeError?: Error;
+  killError?: Error;
+  resumeImpl?: (runId: string) => Promise<{ ok: true }>;
+  killImpl?: (runId: string) => Promise<{ ok: true }>;
+  pipelineApproveImpl?: (params: PipelineStageMutationParams) => Promise<PipelineApprovalDecisionOutcome>;
+  pipelineApproveError?: Error;
+  pipelineRejectImpl?: (params: PipelineStageMutationParams) => Promise<PipelineApprovalDecisionOutcome>;
+  pipelineRejectError?: Error;
+  pipelineResumeImpl?: (params: PipelineResumeParams) => Promise<ResumePipelineOutcome>;
+  pipelineResumeError?: Error;
+};
+
+function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
+  const methods = options.methods ?? [];
+  let listIndex = 0;
+  let pipelineListIndex = 0;
+
+  const steer =
+    (method: "kill") =>
+    async (runId: string): Promise<{ ok: true }> => {
+      methods.push(`${method}:${runId}`);
+      const errorKey = `${method}Error` as const;
+      if (options[errorKey] !== undefined) throw options[errorKey];
+      const impl = options[`${method}Impl` as const];
+      return (impl ?? (async () => ({ ok: true as const })))(runId);
+    };
+
+  const resume = async (runId: string): Promise<{ ok: true }> => {
+    methods.push(`resume:${runId}`);
+    if (options.resumeError !== undefined) throw options.resumeError;
+    return (options.resumeImpl ?? (async () => ({ ok: true as const })))(runId);
+  };
+
+  const stageMutationRpc =
+    (
+      rpcMethod: "pipeline_approve" | "pipeline_reject",
+      decision: "approved" | "rejected",
+      error: Error | undefined,
+      impl: ((params: PipelineStageMutationParams) => Promise<PipelineApprovalDecisionOutcome>) | undefined,
+    ) =>
+    async (params: PipelineStageMutationParams) => {
+      methods.push(rpcMethod);
+      if (error !== undefined) throw error;
+      return (
+        impl ??
+        (async () => ({
+          kind: "applied" as const,
+          pipelineId: params.pipelineId,
+          stageId: params.stageId,
+          decision,
+        }))
+      )(params);
+    };
+
+  return {
+    async health() {
+      methods.push("health");
+      if (options.healthError !== undefined) throw options.healthError;
+      return { ok: true };
+    },
+    async status() {
+      methods.push("status");
+      if (options.statusError !== undefined) throw options.statusError;
+      return { state: "running" };
+    },
+    async list(params?: { includeDismissed: boolean }) {
+      methods.push("list");
+      options.listRequests ??= [];
+      options.listRequests.push(params);
+      if (options.listError !== undefined) throw options.listError;
+      const responses =
+        params?.includeDismissed === true
+          ? (options.listResponsesWithDismissed ?? options.listResponses)
+          : options.listResponses;
+      const [response, nextIndex] = nextFakeResponse(responses, listIndex);
+      listIndex = nextIndex;
+      return response ?? { runs: [] };
+    },
+    async pipelineList(params: { includeDismissed: boolean }) {
+      methods.push("pipeline_list");
+      options.pipelineListRequests ??= [];
+      options.pipelineListRequests.push(params);
+      if (options.pipelineListError !== undefined) throw options.pipelineListError;
+      const responses =
+        params.includeDismissed === true
+          ? (options.pipelineListResponsesWithDismissed ?? options.pipelineListResponses)
+          : options.pipelineListResponses;
+      const [response, nextIndex] = nextFakeResponse(responses, pipelineListIndex);
+      pipelineListIndex = nextIndex;
+      return response ?? { pipelines: [] };
+    },
+    resume,
+    kill: steer("kill"),
+    pipelineApprove: stageMutationRpc(
+      "pipeline_approve",
+      "approved",
+      options.pipelineApproveError,
+      options.pipelineApproveImpl,
+    ),
+    pipelineReject: stageMutationRpc(
+      "pipeline_reject",
+      "rejected",
+      options.pipelineRejectError,
+      options.pipelineRejectImpl,
+    ),
+    async pipelineResume(params) {
+      methods.push("pipeline_resume");
+      if (options.pipelineResumeError !== undefined) throw options.pipelineResumeError;
+      return (
+        options.pipelineResumeImpl ?? (async () => ({ kind: "resumed" as const, pipelineId: params.pipelineId }))
+      )(params);
+    },
+    async wait(runId: string) {
+      methods.push(`wait:${runId}`);
+      return (options.waitImpl ?? (async () => ({ runStatus: "completed" })))(runId);
+    },
+    close() {
+      methods.push("close");
+    },
+  };
+}
+
+function showDismissedToggleEntryDeps(
+  view: ReturnType<typeof createViewHost>,
+  refresh: ReturnType<typeof createIntervalScheduler> = createIntervalScheduler(),
+) {
+  return entryDeps(
+    {
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }],
+      listResponsesWithDismissed: [{ runs: [RUN_ALPHA, RUN_DISMISSED] }],
+      listRequests: [],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      pipelineListResponsesWithDismissed: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA, PIPELINE_SNAPSHOT_DISMISSED] }],
+      pipelineListRequests: [],
+    },
+    { viewHost: view.host, refreshScheduler: refresh.scheduler },
+  );
+}
+
+function entryDeps(
+  clientOptions: FakeClientOptions = {},
+  overrides: Partial<RunTuiEntryDeps> = {},
+): { deps: RunTuiEntryDeps; clientOptions: FakeClientOptions } {
+  return {
+    clientOptions,
+    deps: {
+      socketPath: "/tmp/test.sock",
+      machineProfile: "unknown",
+      admitDetachedPipelineStart: noopDetachedAdmission,
+      connectTuiDaemon: async () => fakeClient(clientOptions),
+      ...overrides,
+    } as RunTuiEntryDeps,
+  };
+}
+
+async function flush(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+describe("runTuiEntry", () => {
+  test("quits through monitor controls without a renderer exit", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps({}, { viewHost: view.host });
+    const pending = runTuiEntry(deps);
+
+    await view.waitUntilOpen();
+    view.quitFromControl();
+
+    expect(await pending).toBe(0);
+    expect(view.isClosed()).toBe(true);
+  });
+
+  test("edits command state through monitor controls", async () => {
+    // @mutate src/tui/tui-entry.tsx "return Array.from(COMMAND_GRAPHEME_SEGMENTER.segment(value), ({ segment }) => segment);" -> "return Array.from(value);"
+    // @mutate src/tui/tui-entry.tsx "return Math.min(Math.max(cursor, 0), graphemeCount);" -> "return cursor;"
+    // @mutate src/tui/tui-entry.tsx "if (inserted.length === 0) return;" -> "if (false) return;"
+    // @mutate src/tui/tui-entry.tsx "if (deleteIndex < 0 || deleteIndex >= graphemes.length) return;" -> "if (false) return;"
+    const view = createViewHost();
+    const { deps } = entryDeps({}, { viewHost: view.host });
+    const pending = runTuiEntry(deps);
+    const expectEditor = (focus: "tree" | "command", buffer: string, cursor: number, input: string): void => {
+      const state = view.monitorStates.at(-1);
+      expect(state).toMatchObject({ focus, commandBuffer: buffer, commandCursor: cursor });
+      expect(state).toBeDefined();
+      if (state !== undefined) expect(monitorDockLines(state)[1]).toBe(input);
+    };
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      expectEditor("tree", "", 0, "> ▏");
+
+      view.focusCommand();
+      expectEditor("command", "", 0, "> ▏");
+      view.insertCommandText("Ae\u0301B");
+      expectEditor("command", "Ae\u0301B", 3, "> Ae\u0301B▏");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "Ae\u0301B", 2, "> Ae\u0301▏B");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "Ae\u0301B", 1, "> A▏e\u0301B");
+      view.insertCommandText("👩‍💻🇺🇳");
+      expectEditor("command", "A👩‍💻🇺🇳e\u0301B", 3, "> A👩‍💻🇺🇳▏e\u0301B");
+      view.insertCommandText("\u0301");
+      expectEditor("command", "A👩‍💻🇺🇳\u0301e\u0301B", 3, "> A👩‍💻🇺🇳\u0301▏e\u0301B");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "A👩‍💻🇺🇳\u0301e\u0301B", 2, "> A👩‍💻▏🇺🇳\u0301e\u0301B");
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻🇺🇳\u0301e\u0301B", 3, "> A👩‍💻🇺🇳\u0301▏e\u0301B");
+      view.deleteCommandBackward();
+      expectEditor("command", "A👩‍💻e\u0301B", 2, "> A👩‍💻▏e\u0301B");
+      view.deleteCommandForward();
+      expectEditor("command", "A👩‍💻B", 2, "> A👩‍💻▏B");
+
+      view.moveCommandCursorLeft();
+      expectEditor("command", "A👩‍💻B", 1, "> A▏👩‍💻B");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "A👩‍💻B", 0, "> ▏A👩‍💻B");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "A👩‍💻B", 0, "> ▏A👩‍💻B");
+      const beforeSuppressedEdits = view.monitorStates.length;
+      view.deleteCommandBackward();
+      view.insertCommandText("");
+      expect(view.monitorStates).toHaveLength(beforeSuppressedEdits);
+      expectEditor("command", "A👩‍💻B", 0, "> ▏A👩‍💻B");
+
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻B", 1, "> A▏👩‍💻B");
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻B", 2, "> A👩‍💻▏B");
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻B", 3, "> A👩‍💻B▏");
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻B", 3, "> A👩‍💻B▏");
+      const beforeSuppressedDelete = view.monitorStates.length;
+      view.deleteCommandForward();
+      expect(view.monitorStates).toHaveLength(beforeSuppressedDelete);
+      expectEditor("command", "A👩‍💻B", 3, "> A👩‍💻B▏");
+
+      view.focusTree();
+      expectEditor("tree", "A👩‍💻B", 3, "> A👩‍💻B▏");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("retains focused command editor state across refresh", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps({}, { viewHost: view.host, refreshScheduler: refresh.scheduler });
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+      view.insertCommandText("A👩‍💻B");
+      view.moveCommandCursorLeft();
+      const beforeRefresh = view.monitorStates.at(-1);
+      expect(beforeRefresh).toMatchObject({ focus: "command", commandBuffer: "A👩‍💻B", commandCursor: 2 });
+      expect(beforeRefresh).toBeDefined();
+      if (beforeRefresh === undefined) throw new Error("expected command editor state");
+      const dockBeforeRefresh = monitorDockLines(beforeRefresh);
+
+      await flushIntervalTick(refresh);
+
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        focus: "command",
+        commandBuffer: "A👩‍💻B",
+        commandCursor: 2,
+      });
+      const afterRefresh = view.monitorStates.at(-1);
+      expect(afterRefresh).toBeDefined();
+      if (afterRefresh !== undefined) expect(monitorDockLines(afterRefresh)).toEqual(dockBeforeRefresh);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("dispatches focused command submissions through parse-once routing and detached admission", async () => {
+    // @mutate src/tui/tui-entry.tsx "const parsed = parseTuiCommand(commandBuffer);" -> "parseTuiCommand(commandBuffer); const parsed = parseTuiCommand(commandBuffer);"
+    // @mutate src/tui/tui-entry.tsx "if (commandSubmissionBlockedByPendingAdmission(admissionPending)) return;" -> "if (false) return;"
+    // @mutate src/tui/tui-entry.tsx "return monitorOpen && submissionEditorGeneration === currentEditorGeneration;" -> "return false;"
+    // @mutate src/tui/tui-entry.tsx "lastCommandResult: result.pipelineId," -> "lastCommandResult: result.pipelineId, selectedNodeId: null,"
+    // @mutate src/tui/tui-entry.tsx "if (isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return null;" -> "if (false) return null;"
+    const parseSpy = spyOn(tuiCommandParser, "parseTuiCommand");
+    const view = createViewHost();
+    const admissionGate = deferred<PipelineStartAdmissionResult>();
+    let admissionCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        admitDetachedPipelineStart: async (input) => {
+          admissionCalls += 1;
+          if (input.seedPath !== undefined) {
+            expect(input).toEqual({ projectKey: "demo", seedPath: "seeds/foo.md" });
+          } else {
+            expect(input).toEqual({ projectKey: "demo", seedText: "Ship feature" });
+          }
+          return admissionGate.promise;
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+
+      view.insertCommandText("pipeline start demo --seed seeds/foo.md");
+      const pathSeedBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(pathSeedBuffer);
+      expect(parseSpy).toHaveBeenCalledTimes(1);
+      expect(parseSpy).toHaveBeenCalledWith(pathSeedBuffer);
+      expect(admissionCalls).toBe(1);
+      const pendingStateCount = view.monitorStates.length;
+      view.selectNode("run-orphan");
+      await flush();
+      expect(view.monitorStates.length).toBeGreaterThan(pendingStateCount);
+      expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
+
+      view.submitCommand(pathSeedBuffer);
+      // A pending admission parses the second Enter (the one grammar decides whether it is run steering) but never re-admits.
+      expect(parseSpy).toHaveBeenCalledTimes(2);
+      expect(admissionCalls).toBe(1);
+
+      admissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-admitted" });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-admitted",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+        selectedNodeId: "run-orphan",
+      });
+
+      view.focusCommand();
+      view.insertCommandText("pipeline start demo --seed-text Ship feature");
+      const _textSeedBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      const textAdmissionGate = deferred<PipelineStartAdmissionResult>();
+      let textAdmissionCalls = 0;
+      const textView = createViewHost();
+      const textPending = runTuiEntry(
+        entryDeps(
+          {
+            methods: [],
+            listResponses: [{ runs: pipelineTreeListFixture() }],
+            pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+          },
+          {
+            viewHost: textView.host,
+            nowMs: () => WORKFLOW_FILTER_NOW_MS,
+            admitDetachedPipelineStart: async (input) => {
+              textAdmissionCalls += 1;
+              expect(input).toEqual({ projectKey: "demo", seedText: "Ship feature" });
+              return textAdmissionGate.promise;
+            },
+          },
+        ).deps,
+      );
+      await textView.waitUntilOpen();
+      await flush();
+      textView.focusCommand();
+      textView.insertCommandText('pipeline start demo --seed-text "Ship feature"');
+      const textBuffer = textView.monitorStates.at(-1)?.commandBuffer ?? "";
+      const statesBeforeResolve = textView.monitorStates.length;
+      textView.submitCommand(textBuffer);
+      expect(textAdmissionCalls).toBe(1);
+      expect(textView.monitorStates.length).toBeGreaterThanOrEqual(statesBeforeResolve);
+      textAdmissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-text" });
+      await flush();
+      expect(textView.monitorStates.at(-1)?.lastCommandResult).toBe("pipe-text");
+      textView.quit();
+      expect(await textPending).toBe(0);
+    } finally {
+      parseSpy.mockRestore();
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("suppresses stale admission settlements and post-close updates", async () => {
+    const view = createViewHost();
+    const admissionGate = deferred<PipelineStartAdmissionResult>();
+    let admissionCalls = 0;
+    const { deps } = entryDeps(
+      { methods: [], listResponses: [{ runs: [RUN_ALPHA] }] },
+      {
+        viewHost: view.host,
+        admitDetachedPipelineStart: async () => {
+          admissionCalls += 1;
+          return admissionGate.promise;
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+      view.insertCommandText("pipeline start demo --seed-text pending");
+      const bufferBeforeEdit = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(bufferBeforeEdit);
+      expect(admissionCalls).toBe(1);
+
+      view.insertCommandText("!");
+      await flush();
+      const edited = view.monitorStates.at(-1);
+      expect(edited).toMatchObject({ commandBuffer: `${bufferBeforeEdit}!`, focus: "command" });
+
+      admissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-stale" });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        commandBuffer: `${bufferBeforeEdit}!`,
+        focus: "command",
+        lastCommandResult: null,
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+
+    const closeView = createViewHost();
+    const closeGate = deferred<PipelineStartAdmissionResult>();
+    let closeAdmissionCalls = 0;
+    const closePending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [RUN_ALPHA] }] },
+        {
+          viewHost: closeView.host,
+          admitDetachedPipelineStart: async () => {
+            closeAdmissionCalls += 1;
+            return closeGate.promise;
+          },
+        },
+      ).deps,
+    );
+    await closeView.waitUntilOpen();
+    await flush();
+    closeView.focusCommand();
+    closeView.insertCommandText("pipeline start demo --seed-text close");
+    const closeBuffer = closeView.monitorStates.at(-1)?.commandBuffer ?? "";
+    closeView.submitCommand(closeBuffer);
+    expect(closeAdmissionCalls).toBe(1);
+    const statesBeforeClose = closeView.monitorStates.length;
+    closeView.quit();
+    closeGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-after-close" });
+    await flush();
+    expect(closeView.monitorStates).toHaveLength(statesBeforeClose);
+    expect(await closePending).toBe(0);
+  });
+
+  test("reports parser and admission failures without losing repairable command input", async () => {
+    const view = createViewHost();
+    let admissionCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        admitDetachedPipelineStart: async () => {
+          admissionCalls += 1;
+          return {
+            kind: "pre-admission-failure",
+            failure: "unregistered-project",
+            detail: "unregistered project: missing\n",
+          };
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+
+      const submitParseFailure = (buffer: string, feedback: string): void => {
+        view.focusCommand();
+        while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+          view.deleteCommandBackward();
+        }
+        view.insertCommandText(buffer);
+        const current = view.monitorStates.at(-1);
+        expect(current).toBeDefined();
+        if (current === undefined) throw new Error("expected command editor state");
+        const beforeCalls = admissionCalls;
+        view.submitCommand(current.commandBuffer ?? "");
+        expect(admissionCalls).toBe(beforeCalls);
+        expect(view.monitorStates.at(-1)).toMatchObject({
+          focus: "command",
+          commandBuffer: current.commandBuffer,
+          commandCursor: current.commandCursor,
+          lastCommandResult: feedback,
+        });
+      };
+
+      submitParseFailure("wat", "unknown_verb");
+      submitParseFailure("pipeline approve foo", "unexpected_arguments");
+      submitParseFailure("pipeline start", "missing_project");
+
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("pipeline start missing --seed-text text");
+      const preAdmissionBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(preAdmissionBuffer);
+      await flush();
+      expect(admissionCalls).toBe(1);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        focus: "command",
+        commandBuffer: preAdmissionBuffer,
+        lastCommandResult: "unregistered-project: unregistered project: missing\n",
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+
+    const refusalDetail = "pipeline_start refused: branch locked\n";
+    const refusalView = createViewHost();
+    let refusalCalls = 0;
+    const refusalPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [RUN_ALPHA] }] },
+        {
+          viewHost: refusalView.host,
+          admitDetachedPipelineStart: async () => {
+            refusalCalls += 1;
+            return {
+              kind: "admission-failure",
+              failure: "daemon-refusal",
+              detail: refusalDetail,
+            };
+          },
+        },
+      ).deps,
+    );
+    await refusalView.waitUntilOpen();
+    await flush();
+    refusalView.focusCommand();
+    refusalView.insertCommandText("pipeline start demo --seed-text retry");
+    const refusalBuffer = refusalView.monitorStates.at(-1)?.commandBuffer ?? "";
+    refusalView.submitCommand(refusalBuffer);
+    await flush();
+    expect(refusalCalls).toBe(1);
+    expect(refusalView.monitorStates.at(-1)).toMatchObject({
+      focus: "command",
+      commandBuffer: refusalBuffer,
+      lastCommandResult: refusalDetail,
+    });
+    refusalView.quit();
+    expect(await refusalPending).toBe(0);
+  });
+
+  test("typed start whose admission throws reports feedback and keeps the painted command input", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      { methods: [], listResponses: [{ runs: [RUN_ALPHA] }] },
+      {
+        viewHost: view.host,
+        admitDetachedPipelineStart: async () => {
+          throw new RpcConnectionError("socket closed");
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+      view.insertCommandText("pipeline start demo --seed-text retry");
+      const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(buffer);
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        focus: "command",
+        commandBuffer: buffer,
+        lastCommandResult: "daemon_error: socket closed",
+      });
+      const [status, input] = renderedDockRows(view.monitorStates.at(-1));
+      expect(status).toContain("result: daemon_error: socket closed");
+      expect(input).toContain("retry");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("dispatches explicit expand and collapse without admission", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+    let admissionCalls = 0;
+    deps.admitDetachedPipelineStart = async () => {
+      admissionCalls += 1;
+      return { kind: "admitted", admittedSelection: null, pipelineId: "unused" };
+    };
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.selectNode("pipe-multi");
+      view.focusCommand();
+      view.insertCommandText("expand");
+      view.submitCommand("expand");
+      expect(admissionCalls).toBe(0);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        selectedNodeId: "pipe-multi",
+        commandBuffer: "",
+        commandCursor: 0,
+        lastCommandResult: null,
+      });
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain("pipe-multi");
+
+      view.insertCommandText("expand");
+      view.submitCommand("expand");
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain("pipe-multi");
+
+      view.insertCommandText("collapse");
+      view.submitCommand("collapse");
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain("pipe-multi");
+
+      view.insertCommandText("collapse");
+      view.submitCommand("collapse");
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain("pipe-multi");
+
+      view.insertCommandText("expand");
+      view.submitCommand("expand");
+      view.selectNode(PIPELINE_STAGE_MULTI);
+      view.focusCommand();
+      view.insertCommandText("expand");
+      view.submitCommand("expand");
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain(PIPELINE_STAGE_MULTI);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("reports expansion selection feedback without mutating expansion state", async () => {
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("expand");
+    emptyView.submitCommand("expand");
+    expect(emptyView.monitorStates.at(-1)).toMatchObject({
+      selectedNodeId: null,
+      focus: "command",
+      commandBuffer: "expand",
+      lastCommandResult: "no_selection",
+      expandedPipelineNodeIds: [],
+    });
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectExpansionFailure = (feedback: string, setup: () => void): void => {
+        setup();
+        const before = view.monitorStates.at(-1);
+        expect(before).toBeDefined();
+        if (before === undefined) throw new Error("expected monitor state");
+        const expandedBefore = [...(before.expandedPipelineNodeIds ?? [])];
+        view.focusCommand();
+        while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+          view.deleteCommandBackward();
+        }
+        view.insertCommandText("expand");
+        const commandBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+        view.submitCommand(commandBuffer);
+        expect(view.monitorStates.at(-1)).toMatchObject({
+          focus: "command",
+          commandBuffer,
+          lastCommandResult: feedback,
+        });
+        expect([...(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [])].sort()).toEqual(expandedBefore.sort());
+      };
+
+      await view.toggleExpansion();
+      view.selectNode("run-review");
+      expectExpansionFailure("run_leaf", () => {});
+
+      // @mutate src/tui/tui-entry.tsx "row.kind === \"adhoc\"" -> "false"
+      view.selectNode("run-orphan");
+      expectExpansionFailure("unattributed", () => {});
+
+      expect(
+        expansionCommandSelectionError(
+          {
+            runs: pipelineMultiListFixture(),
+            selectedNodeId: "pipe-gone",
+            steeringFeedback: null,
+            pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_MULTI] } },
+          },
+          WORKFLOW_FILTER_NOW_MS,
+        ),
+      ).toBe("stale_non_expandable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("command dispatch guard predicates reject inverted conditions", () => {
+    expect(commandSubmissionBlockedByPendingAdmission(true)).toBe(true);
+    expect(commandSubmissionBlockedByPendingAdmission(false)).toBe(false);
+    expect(shouldApplyCommandSettlement(1, 1, true)).toBe(true);
+    expect(shouldApplyCommandSettlement(1, 2, true)).toBe(false);
+    expect(shouldApplyCommandSettlement(1, 1, false)).toBe(false);
+  });
+
+  test("dock session state starts explicit and survives refresh and display updates", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const displayTick = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_BETA] }],
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        displayTickScheduler: displayTick.scheduler,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const dockSessionState = {
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+        lastCommandResult: null,
+        lastRpcError: null,
+      } as const;
+      expect(view.monitorStates.at(-1)).toMatchObject(dockSessionState);
+
+      await flushIntervalTick(refresh);
+      expect(view.monitorStates.at(-1)).toMatchObject(dockSessionState);
+
+      const stateCountBeforeDisplay = view.monitorStates.length;
+      await flushIntervalTick(displayTick);
+      expect(view.monitorStates.length).toBeGreaterThan(stateCountBeforeDisplay);
+      expect(view.monitorStates.at(-1)).toMatchObject(dockSessionState);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("recoverable refresh failures retain observations and latest feedback until full success", async () => {
+    // @mutate src/tui/tui-entry.tsx "if (error === undefined) return null;" -> "if (error !== undefined) return null;"
+    // @mutate src/tui/tui-entry.tsx "if (error instanceof RpcError || error instanceof RpcConnectionError) return steeringFeedbackFromError(error);" -> "if (!(error instanceof RpcError || error instanceof RpcConnectionError)) return steeringFeedbackFromError(error);"
+    // @mutate src/tui/tui-entry.tsx "if (error instanceof Error) return `daemon_error: ${(error as Error).message}`;" -> "if (!(error instanceof Error)) return `daemon_error: ${(error as Error).message}`;"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const client = fakeClient({
+      listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }, { runs: [RUN_BETA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }, { pipelines: [PIPELINE_SNAPSHOT_BETA] }],
+    });
+    let listCalls = 0;
+    const list = client.list.bind(client);
+    client.list = async () => {
+      listCalls += 1;
+      if (listCalls === 3) {
+        throw new RpcError("list_failed", "list failed");
+      }
+      return list();
+    };
+    let pipelineListCalls = 0;
+    const pipelineList = client.pipelineList.bind(client);
+    client.pipelineList = async (params) => {
+      pipelineListCalls += 1;
+      if (pipelineListCalls === 2) {
+        throw new RpcConnectionError("pipeline observation failed");
+      }
+      return pipelineList(params);
+    };
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => client,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const retainedResult = view.monitorStates.at(-1)?.lastCommandResult;
+      const retainedObservations = {
+        runs: [RUN_ALPHA],
+        pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_ALPHA] } },
+        lastCommandResult: retainedResult,
+      };
+
+      // Tick 1: pipeline_list fails; list still succeeds, so observations are retained.
+      await flushIntervalTick(refresh);
+      for (
+        let attempt = 0;
+        attempt < 20 && view.monitorStates.at(-1)?.lastRpcError !== "daemon_error: pipeline observation failed";
+        attempt += 1
+      ) {
+        await flush();
+      }
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        ...retainedObservations,
+        lastRpcError: "daemon_error: pipeline observation failed",
+      });
+      expect(view.isClosed()).toBe(false);
+
+      // Tick 2: list fails, dropping the connection; observations still retain the last-good snapshot.
+      await flushIntervalTick(refresh);
+      for (
+        let attempt = 0;
+        attempt < 20 && view.monitorStates.at(-1)?.lastRpcError !== "list_failed: list failed";
+        attempt += 1
+      ) {
+        await flush();
+      }
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        ...retainedObservations,
+        lastRpcError: "list_failed: list failed",
+      });
+
+      // Tick 3: reconnect and full success clears the error and replaces the observations.
+      await flushIntervalTick(refresh);
+      for (let attempt = 0; attempt < 20 && view.monitorStates.at(-1)?.lastRpcError !== null; attempt += 1) {
+        await flush();
+      }
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        runs: [RUN_BETA],
+        pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_BETA] } },
+        lastCommandResult: retainedResult,
+        lastRpcError: null,
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("retained rows lose actions while disconnected and resume ownership after reconnect", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const firstMethods: string[] = [];
+    const secondMethods: string[] = [];
+    const first = fakeClient({ methods: firstMethods, listResponses: [{ runs: [RUN_ALPHA] }] });
+    const firstList = first.list.bind(first);
+    let firstListCalls = 0;
+    first.list = async () => {
+      firstListCalls += 1;
+      if (firstListCalls > 1) throw new RpcConnectionError("connection reset");
+      return firstList();
+    };
+    const second = fakeClient({ methods: secondMethods, listResponses: [{ runs: [RUN_ALPHA] }] });
+    const clients = [first, second];
+    let clientIndex = 0;
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => clients[clientIndex++] ?? Promise.reject(new Error("missing client")),
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await flushIntervalTick(refresh);
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      runs: [RUN_ALPHA],
+      selectedNodeId: "run-alpha",
+      actionableRunIds: [],
+    });
+    view.killSelected();
+    await flush();
+    expect(firstMethods).not.toContain("kill:run-alpha");
+
+    await flushIntervalTick(refresh);
+    expect(view.monitorStates.at(-1)?.actionableRunIds).toEqual(["run-alpha"]);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("a selected pipeline that leaves the snapshot clears the selection", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }, { pipelines: [] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("pipe-alpha");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+
+    // The pipeline disappears from the next snapshot, so its row is no longer selectable.
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 20 && view.monitorStates.at(-1)?.selectedNodeId === "pipe-alpha"; i += 1) {
+      await flush();
+    }
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+
+    view.quit();
+    await pending;
+  });
+
+  test("work-tree model renders the complete pipeline_list result without its own retention filter", () => {
+    const pipelines: PipelineSnapshot[] = Array.from({ length: 52 }, (_, index) => {
+      const running = index === 51;
+      return {
+        pipelineId: `pipe-retained-${index}`,
+        name: `pipeline-${index}`,
+        state: running ? "running" : "succeeded",
+        terminalPublicationSucceededAt: null,
+        terminalPublicationFailure: null,
+        createdAt: index,
+        finishedAtMs: running ? null : index + 1,
+        dismissedAt: null,
+        stages: [],
+      };
+    });
+    const state: TuiMonitorState = {
+      runs: [],
+      selectedNodeId: null,
+      steeringFeedback: null,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines } },
+    };
+    const layout = computeShellLayout(245, 72, 0);
+    const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
+    const pipelineIds = fullTreeRows.filter((row) => row.kind === "pipeline").map((row) => row.id);
+
+    expect(pipelineIds).toHaveLength(pipelines.length);
+    expect(new Set(pipelineIds)).toEqual(new Set(pipelines.map((pipeline) => pipeline.pipelineId)));
+    expect(pipelineIds).toContain("pipe-retained-0");
+    expect(pipelineIds).toContain("pipe-retained-51");
+    expect(monitorLeftPaneWorkHeadingRows(state).map(joinMonitorRow)).toEqual(["── Work (52) ──"]);
+  });
+
+  test("attention model only projects incidents from pipelines in the pipeline_list result", () => {
+    const omitted = terminalAttentionPipeline("pipe-omitted");
+    const retained = terminalAttentionPipeline("pipe-retained");
+    const rowIds = (pipelines: PipelineSnapshot[]) =>
+      buildAttentionRows({ "/tmp/test.sock": { pipelines } }, [], {}, WORKFLOW_FILTER_NOW_MS).rows.map((row) => row.id);
+    const omittedIds = [
+      "attention:gate:pipe-omitted:approve-intent:default",
+      "attention:gate:pipe-omitted:approve-plan:default",
+      "attention:stage:pipe-omitted:plan:default",
+      "attention:publication:pipe-omitted",
+    ];
+    const retainedIds = [
+      "attention:gate:pipe-retained:approve-intent:default",
+      "attention:gate:pipe-retained:approve-plan:default",
+      "attention:stage:pipe-retained:plan:default",
+      "attention:publication:pipe-retained",
+    ];
+
+    const allRows = rowIds([omitted, retained]);
+    expect(allRows).toEqual(expect.arrayContaining([...omittedIds, ...retainedIds]));
+
+    const retainedRows = rowIds([retained]);
+    expect(retainedRows).toEqual(expect.arrayContaining(retainedIds));
+    expect(retainedRows.some((rowId) => rowId.includes(omitted.pipelineId))).toBe(false);
+  });
+
+  test("invocation identity carries the invoking digest-keyed socket through selection", async () => {
+    // @mutate src/tui/tui-entry.tsx "if (match === null) return \"unknown\";" -> "if (match !== null) return \"unknown\";"
+    const view = createViewHost();
+    const invokingSocket = "/tmp/daemon-ABCDEF0123456789.sock";
+    const { deps } = entryDeps(
+      { listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }] },
+      { socketPath: invokingSocket, viewHost: view.host },
+    );
+    const invocationDeps = { ...deps, machineProfile: "workstation" };
+    const invocationIdentity = {
+      machineProfile: "workstation",
+      keyedSocketDigest: "abcdef0123456789",
+    };
+
+    const pending = runTuiEntry(invocationDeps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)).toMatchObject(invocationIdentity);
+
+    view.selectNode("run-beta");
+    await flush();
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      selectedNodeId: "run-beta",
+      ...invocationIdentity,
+    });
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("unparseable invoking socket stays unknown", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      { listResponses: [{ runs: [RUN_ALPHA] }] },
+      { socketPath: "/tmp/not-a-keyed-daemon.sock", viewHost: view.host },
+    );
+
+    const invocationDeps = { ...deps, machineProfile: "workstation" };
+    const pending = runTuiEntry(invocationDeps);
+    await view.waitUntilOpen();
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      machineProfile: "workstation",
+      keyedSocketDigest: "unknown",
+    });
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("unavailable daemon at connect records unavailable feedback, exits 1, and skips list/wait", async () => {
+    const view = createViewHost();
+    let attempted = false;
+
+    const code = await runTuiEntry({
+      socketPath: "/tmp/test.sock",
+      machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
+      viewHost: view.host,
+      connectTuiDaemon: async () => {
+        attempted = true;
+        throw new RpcConnectionError("cannot connect");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(attempted).toBe(true);
+    expect(view.feedbackStates).toEqual([{ kind: "unavailable" }]);
+    expect(TUI_DAEMON_SOCKET_DISPLAY).toBe("~/.jarvis/daemon.sock");
+  });
+
+  test("monitor state carries the injected terminal size", async () => {
+    // Mutation checkpoint: flipping `stdout.columns !== undefined` to `===` in tui-entry.tsx
+    // (same for rows) leaves terminalColumns/terminalRows unset — this pin turns RED.
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      { listResponses: [{ runs: [RUN_ALPHA] }], waitImpl: async () => ({ runStatus: "completed" }) },
+      { viewHost: view.host, terminalSize: () => ({ columns: 245, rows: 72 }) },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const opened = view.monitorStates.at(-1);
+    expect(opened?.terminalColumns).toBe(245);
+    expect(opened?.terminalRows).toBe(72);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("monitor state omits terminal size when the terminal reports none", async () => {
+    // Mutation checkpoint: dropping the `!== undefined` guards entirely would write `undefined`
+    // keys onto the state; this pin asserts the fields stay absent.
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      { listResponses: [{ runs: [RUN_ALPHA] }], waitImpl: async () => ({ runStatus: "completed" }) },
+      { viewHost: view.host, terminalSize: () => ({}) },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const opened = view.monitorStates.at(-1);
+    expect(opened === undefined ? true : "terminalColumns" in opened).toBe(false);
+    expect(opened === undefined ? true : "terminalRows" in opened).toBe(false);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("drives pipeline tree expansion through the injected input hook", async () => {
+    // Mutation checkpoint: short-circuiting `toggleSelectedWorkflowExpansion` in tui-entry.tsx before
+    // it mutates `expandedPipelineNodeIds` must turn stage constituent rows RED.
+    // Mutation checkpoint: skipping the `e` binding in tui-ink-monitor.tsx must turn pipeline/stage expansion RED.
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    await view.toggleExpansion();
+    view.selectNode(PIPELINE_STAGE_MULTI);
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-review");
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("run-implement");
+
+    await view.toggleExpansion();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain(PIPELINE_STAGE_MULTI);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-implement");
+
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-implement");
+
+    view.selectNode(PIPELINE_STAGE_MULTI);
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_MULTI);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-implement");
+
+    await view.toggleExpansion();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain(PIPELINE_STAGE_MULTI);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("run-implement");
+
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("run-implement");
+    expect("expandedWorkflowInvocationIds" in (view.monitorStates.at(-1) ?? {})).toBe(false);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("e on a selected pipeline without seeding expandedPipelineNodeIds reveals stage and run rows after the first press and hides them after the second", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    view.selectNode("pipe-multi");
+    await flush();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain("pipe-multi");
+    await view.toggleExpansion();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain("pipe-multi");
+
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual([
+      "pipe-multi",
+      PIPELINE_STAGE_MULTI,
+      "run-review",
+      "run-orphan",
+    ]);
+
+    view.selectNode("pipe-multi");
+    await flush();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds).toContain("pipe-multi");
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual([
+      "pipe-multi",
+      PIPELINE_STAGE_MULTI,
+      "run-review",
+      "run-orphan",
+    ]);
+
+    view.selectNode("pipe-multi");
+    await flush();
+    await view.toggleExpansion();
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual(["pipe-multi", "run-orphan"]);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("e on a selected run leaf leaves expandedPipelineNodeIds unchanged", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    await view.toggleExpansion();
+    view.selectNode("run-review");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-review");
+    const before = [...(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [])].sort();
+
+    await view.toggleExpansion();
+    expect([...(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [])].sort()).toEqual(before);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("reachable daemon proves health and status, enters the monitor on one open client, and exits 0 on quit", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.quit();
+
+    const code = await pending;
+
+    expect(code).toBe(0);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
+    expect(view.monitorStates[0]).toMatchObject({
+      runs: [RUN_ALPHA],
+      selectedNodeId: "run-alpha",
+    });
+    expect(view.isClosed()).toBe(true);
+    expect(refresh.isClosed()).toBe(true);
+  });
+
+  test("monitor session issues no wait RPC", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("run-beta");
+    await flush();
+    view.selectNode("run-alpha");
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
+  });
+
+  test("successful resume does not re-issue wait", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }],
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.resumeSelected();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods).toContain("resume:run-alpha");
+    expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
+  });
+
+  test("terminal-first daemon order selects the topmost active run", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_BETA, RUN_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
+    expect(view.monitorStates[0]?.selectedNodeId).toBe("run-alpha");
+  });
+
+  test("empty launch list shows an explicit empty state, does not select a run, and does not wait", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [] }],
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
+    expect(view.monitorStates[0]).toEqual({
+      runs: [],
+      selectedNodeId: null,
+      steeringFeedback: null,
+      expandedPipelineNodeIds: [],
+      commandBuffer: "",
+      commandCursor: 0,
+      focus: "tree",
+      lastCommandResult: null,
+      lastRpcError: null,
+      machineProfile: "unknown",
+      keyedSocketDigest: "unknown",
+      refreshIntervalLabel: "1s",
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
+      actionableRunIds: [],
+    });
+  });
+
+  test("selectNode is a no-op for a queued run's id", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA, RUN_QUEUED] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.selectNode("run-queued");
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
+  });
+
+  test("navigates selectable rows in rendered order, skipping queued rows and clamping", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_BETA, RUN_QUEUED, RUN_ALPHA, RUN_GAMMA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNextRun();
+    await flush();
+    view.selectNextRun();
+    await flush();
+    view.selectNextRun();
+    await flush();
+    view.selectPreviousRun();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
+  });
+
+  test("drives row navigation through the injected input hook", async () => {
+    // @mutate src/tui/tui-entry.tsx "if (next !== undefined && next !== activeId) setSelection(next);" -> "if (next !== undefined && next !== activeId) { setState({ ...state, expandedPipelineNodeIds: [...(state.expandedPipelineNodeIds ?? []), activeId] }); setSelection(next); }"
+    const view = createViewHost();
+    const { deps } = pipelineTreeEntryDeps(view, {
+      terminalSize: () => ({ columns: 245, rows: 72 }),
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const expanded = (): readonly string[] => view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+    expect(expanded()).toEqual([]);
+
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
+    expect(expanded()).toEqual([]);
+
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
+    expect(expanded()).toEqual([]);
+
+    view.selectPreviousRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+    expect(expanded()).toEqual([]);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("j on a collapsed pipeline selects the next top-level row, not its first stage", async () => {
+    // @mutate src/tui/tui-entry.tsx "const ids = monitorSelectableNodeIds(state, nowMs);" -> "const ids = monitorSelectableNodeIds(state.selectedNodeId !== null && isExpandablePipelineNodeId(pipelineNodesForState(state), state.selectedNodeId) && !(state.expandedPipelineNodeIds ?? []).includes(state.selectedNodeId) ? { ...state, expandedPipelineNodeIds: [...(state.expandedPipelineNodeIds ?? []), state.selectedNodeId] } : state, nowMs);"
+    const view = createViewHost();
+    const { deps } = pipelineTreeEntryDeps(view, {
+      terminalSize: () => ({ columns: 245, rows: 72 }),
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+    const before = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+    expect(before).toEqual([]);
+
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).not.toBe(PIPELINE_STAGE_ALPHA);
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toEqual(before);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("j from a collapsed pipeline never paints its stage or run rows", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const expanded = (): readonly string[] => view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+    const paintedContains = (id: string): boolean => leftPaneTreeRowIds(view.monitorStates.at(-1)).includes(id);
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-multi");
+    expect(expanded()).toEqual([]);
+    expect(paintedContains(PIPELINE_STAGE_MULTI)).toBe(false);
+    expect(paintedContains("run-review")).toBe(false);
+    expect(paintedContains("run-implement")).toBe(false);
+
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
+    expect(expanded()).toEqual([]);
+    expect(paintedContains(PIPELINE_STAGE_MULTI)).toBe(false);
+    expect(paintedContains("run-review")).toBe(false);
+    expect(paintedContains("run-implement")).toBe(false);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("j from a collapsed branch never paints its stage rows", async () => {
+    const alphaBranchId = monitorPipelineBranchNodeId("pipe-branch", "alpha");
+    const betaBranchId = monitorPipelineBranchNodeId("pipe-branch", "beta");
+    const alphaStageId = monitorPipelineStageNodeId("pipe-branch", "plan", "alpha");
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_BRANCH] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, terminalSize: () => ({ columns: 245, rows: 72 }) },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    // Expand the pipeline (durable, via `e`) so its branch rows paint; then select the still-collapsed
+    // alpha branch directly — resolveSelectedAncestors reveals only the pipeline for it, not its own stage,
+    // so alpha's plan stage stays unpainted.
+    await expandPipelineAndSelect(view, "pipe-branch", alphaBranchId);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(alphaBranchId);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain(alphaStageId);
+    const before = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(betaBranchId);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).not.toBe(alphaStageId);
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toEqual(before);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain(alphaStageId);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("e-expanded stage stays expanded after walking through and past it", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA, PIPELINE_SNAPSHOT_BETA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, terminalSize: () => ({ columns: 245, rows: 72 }) },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    view.selectNode("pipe-alpha");
+    await flush();
+    await view.toggleExpansion();
+    view.selectNode(PIPELINE_STAGE_ALPHA);
+    await flush();
+    await view.toggleExpansion();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain(PIPELINE_STAGE_ALPHA);
+
+    const alphaSubtree = new Set(["pipe-alpha", PIPELINE_STAGE_ALPHA, "run-matched"]);
+    let left = false;
+    for (let step = 0; step < 6 && !left; step += 1) {
+      view.selectNextRun();
+      await flush();
+      const selected = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (selected !== null && !alphaSubtree.has(selected)) left = true;
+    }
+    expect(left).toBe(true);
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain(PIPELINE_STAGE_ALPHA);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("aligns selectable node ids with left-pane tree rows for the measured terminal size", async () => {
+    // Mutation checkpoint: currentState lacking measured terminalColumns/terminalRows when selectNextRun/selectPreviousRun call monitorSelectableNodeIds must turn this pin RED.
+    const view = createViewHost();
+    const { deps, terminalColumns, terminalRows, maxVisibleRows, pipelineCount, pipelines } =
+      overflowPipelineEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const assertMeasuredTerminal = (): void => {
+      const state = view.monitorStates.at(-1);
+      expect(state?.terminalColumns).toBe(terminalColumns);
+      expect(state?.terminalRows).toBe(terminalRows);
+      // Mutation checkpoint: requiring every monitorSelectableNodeIds entry in painted rows must turn this pin RED.
+      // Mutation checkpoint: dropping withMeasuredTerminal from setState in tui-entry.tsx leaves
+      // currentState on the 245x72 fallback, so ids are derived for a pane the shell never paints.
+    };
+
+    const initialState = view.monitorStates.at(-1);
+    if (!initialState) throw new Error("expected initial monitor state");
+    const initialLayout = computeShellLayout(terminalColumns, terminalRows, 0);
+    const { treeRows: initialPaintedTreeRows } = monitorLeftPaneTreeRows(
+      initialState,
+      initialLayout,
+      WORKFLOW_FILTER_NOW_MS,
+    );
+    expect(initialPaintedTreeRows.length).toBeLessThanOrEqual(maxVisibleRows);
+    expect(initialPaintedTreeRows.filter((row) => row.kind === "pipeline").map((row) => row.id)).toEqual(
+      [...pipelines]
+        .reverse()
+        .slice(0, initialPaintedTreeRows.length)
+        .map((pipeline) => pipeline.pipelineId),
+    );
+
+    const initialSelected = initialState.selectedNodeId;
+    expect(initialSelected).not.toBeNull();
+    if (initialSelected !== null) {
+      expect(leftPaneTreeRowIds(initialState)).toContain(initialSelected);
+    }
+    const selectableIds = monitorSelectableNodeIds(initialState, WORKFLOW_FILTER_NOW_MS);
+    expect(selectableIds.some((id) => !leftPaneTreeRowIds(initialState).includes(id))).toBe(true);
+
+    assertMeasuredTerminal();
+    const visitedForward = new Set<string>();
+    for (let step = 0; step < pipelineCount * 4; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (before !== null) visitedForward.add(before);
+      view.selectNextRun();
+      await flush();
+      assertMeasuredTerminal();
+      const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (after === before) break;
+    }
+    expect(visitedForward.size).toBeGreaterThan(1);
+
+    const visitedBackward = new Set<string>();
+    for (let step = 0; step < pipelineCount * 4; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (before !== null) visitedBackward.add(before);
+      view.selectPreviousRun();
+      await flush();
+      assertMeasuredTerminal();
+      const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (after === before) break;
+    }
+    expect(visitedBackward.size).toBeGreaterThan(1);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("overflow fixture backward walk exactly retraces the forward walk", async () => {
+    // Mutation checkpoint: reintroducing `ids[0]` fallthrough when `indexOf` is `-1` in selectNextRun/selectPreviousRun turns this pin RED.
+    const view = createViewHost();
+    const { deps, pipelineCount, pipelines } = overflowPipelineEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const forwardOrder: string[] = [];
+    const startId = view.monitorStates.at(-1)?.selectedNodeId;
+    if (startId !== null && startId !== undefined) forwardOrder.push(startId);
+
+    for (let step = 0; step < pipelineCount * 4; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      view.selectNextRun();
+      await flush();
+      const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (after === before || after === null) break;
+      forwardOrder.push(after);
+    }
+    expect(forwardOrder.length).toBeGreaterThan(1);
+
+    const backwardOrder: string[] = [];
+    for (let step = 0; step < pipelineCount * 4; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      view.selectPreviousRun();
+      await flush();
+      const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (after === before || after === null) break;
+      backwardOrder.push(after);
+    }
+    expect(backwardOrder.length).toBeGreaterThan(1);
+
+    // No expansion is ever written, so the selectable list never widens: the backward walk exactly
+    // retraces the forward walk in reverse, dropping the row the forward walk ended on (that's where the
+    // backward walk starts from), with no stage or run id interleaved.
+    const pipelineIds = new Set(pipelines.map((pipeline) => pipeline.pipelineId));
+    expect(forwardOrder.every((id) => pipelineIds.has(id))).toBe(true);
+    expect(backwardOrder.every((id) => pipelineIds.has(id))).toBe(true);
+    expect(backwardOrder).toEqual([...forwardOrder.slice(0, -1)].reverse());
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("j on the first painted pipeline row selects the next top-level row, not ids[0] via fallthrough", async () => {
+    // Mutation checkpoint: reintroducing `ids[0]` (and backward fallthrough) in selectNextRun/selectPreviousRun turns this pin RED.
+    const view = createViewHost();
+    const { deps } = pipelineTreeEntryDeps(view, {
+      terminalSize: () => ({ columns: 80, rows: 24 }),
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("after each selectNextRun or selectPreviousRun, selectedNodeId stays in monitorSelectableNodeIds", async () => {
+    const view = createViewHost();
+    const { deps, pipelineCount } = overflowPipelineEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const assertMembership = (): void => {
+      const state = view.monitorStates.at(-1);
+      if (state === undefined) return;
+      const selected = state.selectedNodeId;
+      if (selected === null) return;
+      expect(monitorSelectableNodeIds(state, WORKFLOW_FILTER_NOW_MS)).toContain(selected);
+    };
+
+    assertMembership();
+    for (let step = 0; step < pipelineCount * 2; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      view.selectNextRun();
+      await flush();
+      assertMembership();
+      if ((view.monitorStates.at(-1)?.selectedNodeId ?? null) === before) break;
+    }
+    for (let step = 0; step < pipelineCount * 2; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      view.selectPreviousRun();
+      await flush();
+      assertMembership();
+      if ((view.monitorStates.at(-1)?.selectedNodeId ?? null) === before) break;
+    }
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("j, k, and off-pane selectNode keep the selected tree row in the painted viewport", async () => {
+    const view = createViewHost();
+    const { deps, pipelineCount, pipelines } = overflowPipelineEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const assertPaintedTreeSelection = (): void => {
+      const state = view.monitorStates.at(-1);
+      const selected = state?.selectedNodeId;
+      if (selected === null || selected === undefined) return;
+      if (!selected.startsWith("pipe-")) return;
+      expect(leftPaneTreeRowIds(state)).toContain(selected);
+    };
+
+    for (let step = 0; step < pipelineCount; step += 1) {
+      view.selectNextRun();
+      await flush();
+      assertPaintedTreeSelection();
+    }
+    for (let step = 0; step < pipelineCount; step += 1) {
+      view.selectPreviousRun();
+      await flush();
+      assertPaintedTreeSelection();
+    }
+
+    const offPanePipeline = pipelines[0];
+    if (!offPanePipeline) throw new Error("expected an off-pane pipeline");
+    const offPaneId = offPanePipeline.pipelineId;
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain(offPaneId);
+    view.selectNode(offPaneId);
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(offPaneId);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain(offPaneId);
+
+    // Expanding the selected pipeline shrinks the remaining tree budget further still (the Work
+    // heading already claims one of its rows); the selected row must stay in the painted viewport.
+    await view.toggleExpansion();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(offPaneId);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain(offPaneId);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("e on a selected stage returns left-pane tree row ids to their starting value after two presses", async () => {
+    // Mutation checkpoint: short-circuiting stage e toggle or reintroducing selected-node self-expand in effective expansion must turn this pin RED.
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    await view.toggleExpansion();
+    view.selectNode(PIPELINE_STAGE_MULTI);
+    await flush();
+    const startingRowIds = leftPaneTreeRowIds(view.monitorStates.at(-1));
+
+    await view.toggleExpansion();
+    const intermediateRowIds = leftPaneTreeRowIds(view.monitorStates.at(-1));
+    expect(intermediateRowIds).not.toEqual(startingRowIds);
+
+    await view.toggleExpansion();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual(startingRowIds);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("selecting attention preserves stored tree navigation state", async () => {
+    // Mutation checkpoint: writing leftPaneTreeScrollOffset or expandedPipelineNodeIds on attention selection,
+    // or suppressing steering-feedback clearing, must turn this pin RED.
+    // @mutate src/tui/tui-entry.tsx "selectedNodeId: nodeId,\n      steeringFeedback: null," -> "selectedNodeId: nodeId,\n      steeringFeedback: currentState.steeringFeedback,"
+    const view = createViewHost();
+    const { deps, pipelineCount } = attentionSelectionEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    for (let step = 0; step < pipelineCount + 2; step += 1) {
+      view.selectNextRun();
+      await flush();
+    }
+    const lastTreeId = view.monitorStates.at(-1)?.selectedNodeId;
+    if (typeof lastTreeId !== "string" || !lastTreeId.startsWith("pipe-")) {
+      throw new Error("expected the walk to land on a pipeline row");
+    }
+    await view.toggleExpansion();
+    const expandedBefore = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+    expect(expandedBefore).toContain(lastTreeId);
+
+    view.selectNode("run-attention-failed");
+    await flush();
+    view.killSelected();
+    await flush();
+    const beforeState = view.monitorStates.at(-1);
+    if (beforeState === undefined) throw new Error("expected a painted monitor state");
+    expect(beforeState.steeringFeedback).toBe("run_not_active: not active");
+    const scrollOffsetBefore = beforeState.leftPaneTreeScrollOffset;
+
+    const attentionId = monitorSelectableNodeIds(beforeState, WORKFLOW_FILTER_NOW_MS).find((id) =>
+      id.startsWith("attention:"),
+    );
+    if (attentionId === undefined) throw new Error("expected an attention row id");
+
+    view.selectNode(attentionId);
+    await flush();
+    const afterState = view.monitorStates.at(-1);
+
+    // @mutate src/tui/tui-entry.tsx "selectedNodeId: nodeId,\n      steeringFeedback: null,\n    });" -> "selectedNodeId: nodeId,\n      steeringFeedback: null,\n      expandedPipelineNodeIds: nodeId === null ? currentState.expandedPipelineNodeIds : [...(currentState.expandedPipelineNodeIds ?? []), nodeId],\n    });"
+    expect(afterState?.selectedNodeId).toBe(attentionId);
+    expect(afterState?.leftPaneTreeScrollOffset).toBe(scrollOffsetBefore);
+    expect(afterState?.expandedPipelineNodeIds).toEqual(expandedBefore);
+    expect(afterState?.steeringFeedback).toBeNull();
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("Enter reveal selects the attention row's target inside the painted viewport", async () => {
+    // Mutation checkpoint: neutering revealSelectedAttentionTarget's dispatch turns this pin RED.
+    // @mutate src/tui/tui-entry.tsx "setSelection(targetId);" -> "return;"
+    const view = createViewHost();
+    const failedImplementRun = pipelineMultiRun({
+      runId: "run-implement",
+      stepId: "implement",
+      status: "failed",
+      isLive: false,
+      finishedAtMs: ATTENTION_RECENT_FINISH_MS,
+    });
+    const activeReviewRun = pipelineMultiRun({
+      runId: "run-review",
+      stepId: "implement-review",
+      status: "in-progress",
+    });
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [failedImplementRun, activeReviewRun] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ATTENTION_GATES, PIPELINE_SNAPSHOT_MULTI] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const initialState = view.monitorStates.at(-1);
+    const failedStageId = attentionRowIdByKind(initialState, "failed-stage");
+    const failedRunId = attentionRowIdByKind(initialState, "failed-run");
+    const stageTargetId = monitorPipelineStageNodeId("pipe-attn-gates", "plan", "default");
+
+    // Target sits under a collapsed pipeline ancestor and outside the painted viewport.
+    expect(leftPaneTreeRowIds(initialState)).not.toContain(stageTargetId);
+    view.selectNode(failedStageId);
+    await flush();
+    const expandedBefore = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+
+    view.revealSelectedAttentionTarget();
+    await flush();
+    const revealedState = view.monitorStates.at(-1);
+    expect(revealedState?.selectedNodeId).toBe(stageTargetId);
+    expect(revealedState?.expandedPipelineNodeIds ?? []).toEqual(expandedBefore);
+    expect(leftPaneTreeRowIds(revealedState)).toContain(stageTargetId);
+
+    // The failed-run target is a collapsed non-representative workflow member: reveal resolves its
+    // stage ancestor via resolveSelectedAncestors and materializes it as its own row.
+    view.selectNode(failedRunId);
+    await flush();
+    const expandedBeforeRun = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+    view.revealSelectedAttentionTarget();
+    await flush();
+    const revealedRunState = view.monitorStates.at(-1);
+    expect(revealedRunState?.selectedNodeId).toBe("run-implement");
+    expect(revealedRunState?.expandedPipelineNodeIds ?? []).toEqual(expandedBeforeRun);
+    expect(leftPaneTreeRowIds(revealedRunState)).toContain("run-implement");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("Enter reveal is inert for a selected pipeline, stage, or run row", async () => {
+    // Mutation checkpoint: deleting the attention-row resolution guard turns this pin RED (throws on a
+    // non-attention selection instead of no-op).
+    // @mutate src/tui/tui-entry.tsx "if (attentionRow === undefined) return;" -> "if (false) return;"
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    view.selectNode("pipe-multi");
+    await flush();
+    await view.toggleExpansion();
+
+    for (const nodeId of ["pipe-multi", PIPELINE_STAGE_MULTI, "run-review"]) {
+      view.selectNode(nodeId);
+      await flush();
+      const beforeState = view.monitorStates.at(-1);
+      const selectedBefore = beforeState?.selectedNodeId;
+      const expandedBefore = beforeState?.expandedPipelineNodeIds ?? [];
+
+      view.revealSelectedAttentionTarget();
+      await flush();
+      const afterState = view.monitorStates.at(-1);
+
+      expect(afterState?.selectedNodeId).toBe(selectedBefore);
+      expect(afterState?.expandedPipelineNodeIds ?? []).toEqual(expandedBefore);
+    }
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("after refresh, selectedNodeId is the first selectable tree or unattributed row in pane order", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineTreeEntryDeps(
+      view,
+      { terminalSize: () => ({ columns: 245, rows: 72 }) },
+      pipelineTreeWithOutsideRunFixture(),
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    // run-alpha is a running ad-hoc row with an earlier createdAt than pipe-alpha, so unified
+    // running-rank ordering selects it first.
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).not.toBe("pipe-alpha");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("when a refresh drops the selected id from the selectable list, selectedNodeId clears", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: pipelineTreeListFixture() }, { runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }, { pipelines: [] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        terminalSize: () => ({ columns: 245, rows: 72 }),
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await view.toggleExpansion();
+    view.selectNode(PIPELINE_STAGE_ALPHA);
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+
+    refresh.tick();
+    await flush();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("kill control no-ops when a pipeline or stage row is selected", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = pipelineTreeEntryDeps(view, {
+      terminalSize: () => ({ columns: 245, rows: 72 }),
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("pipe-alpha");
+    await flush();
+    view.killSelected();
+    await flush();
+    await view.toggleExpansion();
+    view.selectNode(PIPELINE_STAGE_ALPHA);
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+    view.killSelected();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods?.some((method) => method.startsWith("kill:"))).toBe(false);
+  });
+
+  test("programmatic selectNode with a pipeline or stage id updates selectedNodeId", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineTreeEntryDeps(view, {
+      terminalSize: () => ({ columns: 245, rows: 72 }),
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await view.toggleExpansion();
+    view.selectNode(PIPELINE_STAGE_ALPHA);
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+
+    view.selectNode("pipe-alpha");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("navigates from no selection and uses the selected run's refreshed display position", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        listResponses: [
+          { runs: [RUN_ALPHA, RUN_DELTA] },
+          { runs: [RUN_DELTA, RUN_ALPHA] },
+          { runs: [{ ...RUN_ALPHA, status: "queued", isLive: false }] },
+          { runs: [RUN_BETA, RUN_ALPHA] },
+        ],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    view.selectNextRun();
+    await flush();
+    refresh.tick();
+    await flush();
+    await flush();
+    await flush();
+    view.selectNextRun();
+    await flush();
+    refresh.tick();
+    await flush();
+    await flush();
+    await flush();
+    refresh.tick();
+    await flush();
+    await flush();
+    await flush();
+    view.selectPreviousRun();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
+  });
+
+  test("refresh clears selection when the selected run transitions to queued", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [{ ...RUN_ALPHA, status: "queued", isLive: false }] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    refresh.tick();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+  });
+
+  test("refresh updates displayed status and liveness in place and keeps selection anchored", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        listResponses: [
+          { runs: [RUN_ALPHA] },
+          { runs: [{ ...RUN_ALPHA, status: "completed", isLive: false, finishedAtMs: TERMINAL_LIST_FINISH_MS }] },
+        ],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    refresh.tick();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(view.monitorStates.at(-1)?.runs).toEqual([
+      { ...RUN_ALPHA, status: "completed", isLive: false, finishedAtMs: TERMINAL_LIST_FINISH_MS },
+    ]);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
+  });
+
+  test("refresh clears selection when the selected run disappears", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_BETA] }],
+      },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    refresh.tick();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods).toEqual([
+      "health",
+      "status",
+      "list",
+      "pipeline_list",
+      "status",
+      "list",
+      "pipeline_list",
+      "close",
+    ]);
+    expect(view.monitorStates.at(-1)).toEqual({
+      runs: [RUN_BETA],
+      selectedNodeId: null,
+      steeringFeedback: null,
+      expandedPipelineNodeIds: [],
+      leftPaneTreeScrollOffset: 0,
+      commandBuffer: "",
+      commandCursor: 0,
+      focus: "tree",
+      lastCommandResult: null,
+      lastRpcError: null,
+      machineProfile: "unknown",
+      keyedSocketDigest: "unknown",
+      refreshIntervalLabel: "1s",
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
+      actionableRunIds: ["run-beta"],
+    });
+  });
+
+  test("initial health and status RPC errors pass through as rpc-error and exit 1", async () => {
+    const view = createViewHost();
+
+    const unhealthy = await runTuiEntry({
+      socketPath: "/tmp/test.sock",
+      machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
+      viewHost: view.host,
+      connectTuiDaemon: async () =>
+        fakeClient({
+          healthError: new RpcError("unhealthy", "daemon not ready"),
+        }),
+    });
+
+    const unavailableStatus = await runTuiEntry({
+      socketPath: "/tmp/test.sock",
+      machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
+      viewHost: view.host,
+      connectTuiDaemon: async () =>
+        fakeClient({
+          statusError: new RpcError("status_unavailable", "no status"),
+        }),
+    });
+
+    expect(unhealthy).toBe(1);
+    expect(unavailableStatus).toBe(1);
+    expect(view.feedbackStates).toEqual([
+      { kind: "rpc-error", code: "unhealthy", message: "daemon not ready" },
+      { kind: "rpc-error", code: "status_unavailable", message: "no status" },
+    ]);
+  });
+
+  test("post-proof initial list failure shows rpc-error not unavailable feedback", async () => {
+    // @mutate src/tui/tui-entry.tsx "if (initial && allClientsFailed) throw firstError;" -> "if (initial && !allClientsFailed) throw firstError;"
+    const feedbackStates: TuiViewState[] = [];
+    let monitorOpened = false;
+    const refresh = createIntervalScheduler();
+    const viewHost: TuiViewHost = {
+      show(state) {
+        feedbackStates.push(state);
+      },
+      async openMonitor() {
+        monitorOpened = true;
+        return {
+          update() {},
+          async waitUntilExit() {},
+          close() {},
+        };
+      },
+    };
+
+    const code = await runTuiEntry({
+      socketPath: "/tmp/test.sock",
+      machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
+      viewHost,
+      refreshScheduler: refresh.scheduler,
+      connectTuiDaemon: async () =>
+        fakeClient({
+          listError: new RpcConnectionError("malformed RPC reply: invalid list result"),
+        }),
+    });
+
+    expect(code).toBe(1);
+    expect(monitorOpened).toBe(false);
+    expect(feedbackStates).toEqual([
+      {
+        kind: "rpc-error",
+        code: "daemon_error",
+        message: "malformed RPC reply: invalid list result",
+      },
+    ]);
+  });
+
+  test("refresh preserves selection changed while list is in flight", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const refreshList = deferred<DaemonListResult>();
+    let listCalls = 0;
+
+    const client: TuiDaemonClient = {
+      async health() {
+        return { ok: true };
+      },
+      async status() {
+        return { state: "running" };
+      },
+      async list() {
+        listCalls += 1;
+        if (listCalls === 1) {
+          return { runs: [RUN_ALPHA, RUN_BETA] };
+        }
+        return refreshList.promise;
+      },
+      async pipelineList(_params: { includeDismissed: boolean }) {
+        return { pipelines: [] };
+      },
+      async resume() {
+        return { ok: true };
+      },
+      async kill() {
+        return { ok: true };
+      },
+      async pipelineApprove() {
+        throw new Error("unexpected pipelineApprove");
+      },
+      async pipelineReject() {
+        throw new Error("unexpected pipelineReject");
+      },
+      async pipelineResume() {
+        throw new Error("unexpected pipelineResume");
+      },
+      async wait(runId) {
+        return runId === "run-alpha" ? { runStatus: "completed" } : { runStatus: "blocked", iterationsConsumed: 3 };
+      },
+      close() {},
+    };
+
+    const pending = runTuiEntry({
+      socketPath: "/tmp/test.sock",
+      machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
+      viewHost: view.host,
+      refreshScheduler: refresh.scheduler,
+      connectTuiDaemon: async () => client,
+    });
+    await view.waitUntilOpen();
+    await flush();
+    await flush();
+
+    refresh.tick();
+    await flush();
+    view.selectNode("run-beta");
+    await flush();
+    await flush();
+    refreshList.resolve({ runs: [RUN_BETA] });
+    await flush();
+    await flush();
+    await flush();
+
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      runs: [RUN_BETA],
+      selectedNodeId: "run-beta",
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("steering sends resume and kill for the selected run and keeps the monitor open", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA, RUN_BETA, RUN_GAMMA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("run-gamma");
+    await flush();
+    view.resumeSelected();
+    await flush();
+    view.killSelected();
+    await flush();
+    view.quit();
+    const code = await pending;
+
+    expect(code).toBe(0);
+    const methods = clientOptions.methods ?? [];
+    expect(methods).toContain("resume:run-gamma");
+    expect(methods).toContain("kill:run-gamma");
+  });
+
+  test("steering RPC errors render inline and keep the monitor open", async () => {
+    const cases = [
+      { action: "killSelected" as const, error: new RpcError("run_not_active", "not active") },
+      { action: "resumeSelected" as const, error: new RpcError("terminal_run", "terminal") },
+    ];
+
+    for (const { action, error } of cases) {
+      const view = createViewHost();
+      const errorKey = action === "killSelected" ? "killError" : "resumeError";
+      const { deps } = entryDeps(
+        {
+          listResponses: [{ runs: [RUN_ALPHA] }],
+          waitImpl: async () => ({ runStatus: "completed" }),
+          [errorKey]: error,
+        },
+        { viewHost: view.host },
+      );
+
+      const pending = runTuiEntry(deps);
+      await view.waitUntilOpen();
+      await flush();
+      view[action]();
+      await flush();
+      expect(view.monitorStates.at(-1)?.steeringFeedback).toBe(`${error.code}: ${error.message}`);
+      view.quit();
+      expect(await pending).toBe(0);
+    }
+  });
+
+  test("steering connection errors render inline as daemon_error and keep the monitor open", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+        killError: new RpcConnectionError("socket closed"),
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.killSelected();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("daemon_error: socket closed");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("a route the stable socket cannot serve surfaces the daemon's own error, with no fallback connect to another socket", async () => {
+    let connectCalls = 0;
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        connectTuiDaemon: async () => {
+          connectCalls += 1;
+          return fakeClient({
+            listResponses: [{ runs: [RUN_ALPHA] }],
+            killError: new RpcError("pipeline_no_live_owner", "no reachable live owner"),
+          });
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.killSelected();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("pipeline_no_live_owner: no reachable live owner");
+    expect(connectCalls).toBe(1);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("steering with no selected run is a no-op and shows no run selected", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [] }],
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.killSelected();
+    await flush();
+
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list"]);
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("no run selected");
+
+    view.quit();
+    await pending;
+  });
+
+  test("steering feedback replaces on the next action and clears on selection change", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+        resumeError: new RpcError("run_not_active", "not active"),
+        killError: new RpcError("unknown_run", "missing"),
+      },
+      { viewHost: view.host },
+    );
+
+    const _pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.resumeSelected();
+    await flush();
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("run_not_active: not active");
+
+    view.killSelected();
+    await flush();
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("unknown_run: missing");
+
+    view.selectNode("run-beta");
+    await flush();
+    expect(view.monitorStates.at(-1)?.steeringFeedback).toBeNull();
+  });
+
+  test("steering on terminal or non-live rows passes through to daemon without client pre-gate", async () => {
+    const cases = [
+      { row: RUN_BETA, action: "resumeSelected" as const, errorKey: "resumeError" as const },
+      { row: RUN_GAMMA, action: "killSelected" as const, errorKey: "killError" as const },
+    ];
+
+    for (const { row, action, errorKey } of cases) {
+      const view = createViewHost();
+      const error = new RpcError("run_not_active", "not active");
+      const { deps, clientOptions } = entryDeps(
+        {
+          methods: [],
+          listResponses: [{ runs: [RUN_ALPHA, row] }],
+          waitImpl: async () => ({ runStatus: "completed" }),
+          [errorKey]: error,
+        },
+        { viewHost: view.host },
+      );
+
+      const pending = runTuiEntry(deps);
+      await view.waitUntilOpen();
+      await flush();
+      view.selectNode(row.runId);
+      await flush();
+      view[action]();
+      await flush();
+
+      const rpcMethod = action === "resumeSelected" ? "resume" : "kill";
+      expect(clientOptions.methods).toContain(`${rpcMethod}:${row.runId}`);
+      expect(view.monitorStates.at(-1)?.steeringFeedback).toBe(`${error.code}: ${error.message}`);
+
+      view.quit();
+      expect(await pending).toBe(0);
+    }
+  });
+
+  test("invoking socket list failure retains rows while replacing the stale client on reconnect", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+
+    const invokingClient1 = fakeClient({ listResponses: [{ runs: [RUN_ALPHA] }] });
+    let listCallCount = 0;
+    const succeedOnce = invokingClient1.list.bind(invokingClient1);
+    invokingClient1.list = async () => {
+      listCallCount += 1;
+      if (listCallCount === 1) return succeedOnce();
+      throw new Error("connection reset");
+    };
+
+    const invokingClient2 = fakeClient({ listResponses: [{ runs: [RUN_BETA] }] });
+
+    const clients: TuiDaemonClient[] = [invokingClient1, invokingClient2];
+    let clientIndex = 0;
+
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => {
+          const c = clients[clientIndex++];
+          if (!c) throw new Error(`no client at index ${clientIndex - 1}`);
+          return c;
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await flush();
+    const initialState = view.monitorStates.at(-1);
+    if (!initialState) throw new Error("initialState is undefined");
+    const initialLines = monitorTextLines(initialState);
+    expect(initialLines.some((line) => line.includes("run-alpha"))).toBe(true);
+
+    // First refresh: invoking client list() fails, triggering eviction
+    refresh.tick();
+    await flush();
+    await flush();
+    await flush();
+    const afterFailureState = view.monitorStates.at(-1);
+    expect(afterFailureState?.runs.map((run) => run.runId)).toEqual(["run-alpha"]);
+    expect(afterFailureState?.lastRpcError).toBe("daemon_error: connection reset");
+
+    // Second refresh: new invoking client connects and succeeds
+    refresh.tick();
+    await flush();
+    await flush();
+    await flush();
+    const finalState = view.monitorStates.at(-1);
+    if (!finalState) throw new Error("finalState is undefined");
+    const finalLines = monitorTextLines(finalState);
+    expect(finalLines.some((line) => line.includes("run-beta"))).toBe(true);
+
+    view.quit();
+    await pending;
+  });
+
+  test("pipeline_list updates monitor state when list rows are unchanged", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
+        pipelineListResponses: [{ pipelines: [] }, { pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({ pipelines: [] });
+
+    await flushIntervalTick(refresh);
+
+    expect(view.monitorStates.at(-1)?.runs).toEqual([RUN_ALPHA]);
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("pipeline_list failure retains the last-good per-daemon snapshot", async () => {
+    // Mutation checkpoint: clearing per-daemon snapshots on `pipeline_list` failure in tui-entry.tsx
+    // turns this test RED.
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    let pipelineListCalls = 0;
+    const client = fakeClient({
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      waitImpl: async () => ({ runStatus: "completed" }),
+    });
+    const succeedPipelineList = client.pipelineList.bind(client);
+    client.pipelineList = async (params) => {
+      pipelineListCalls += 1;
+      if (pipelineListCalls === 1) return succeedPipelineList(params);
+      throw new RpcConnectionError("pipeline observation failed");
+    };
+
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => client,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+
+    await flushIntervalTick(refresh);
+
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("successful empty pipeline_list overwrites a prior non-empty snapshot", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }, { pipelines: [] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+
+    await flushIntervalTick(refresh);
+
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({ pipelines: [] });
+
+    view.quit();
+    await pending;
+  });
+
+  test("a smaller pipeline_list result replaces descendants, work counts, and attention", async () => {
+    const removed = terminalAttentionPipeline("pipe-removed");
+    const retained = PIPELINE_SNAPSHOT_ALPHA;
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [] }, { runs: [] }],
+        pipelineListResponses: [{ pipelines: [removed, retained] }, { pipelines: [retained] }],
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        terminalSize: () => ({ columns: 245, rows: 72 }),
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode(removed.pipelineId);
+    await view.toggleExpansion();
+
+    const initialState = view.monitorStates.at(-1);
+    if (initialState === undefined) throw new Error("expected initial monitor state");
+    const layout = computeShellLayout(245, 72, 0);
+    const initialRows = monitorLeftPaneTreeRows(initialState, layout, WORKFLOW_FILTER_NOW_MS).fullTreeRows;
+    const removedStageIds = removed.stages.map((stage) =>
+      monitorPipelineStageNodeId(removed.pipelineId, stage.stageId, stage.branchKey),
+    );
+    expect(initialRows.map((row) => row.id)).toEqual(expect.arrayContaining([removed.pipelineId, ...removedStageIds]));
+    expect(monitorLeftPaneWorkHeadingRows(initialState).map(joinMonitorRow)).toEqual(["── Work (2) ──"]);
+    expect(monitorLeftPaneAttentionRows(initialState, WORKFLOW_FILTER_NOW_MS).map(joinMonitorRow).join("\n")).toContain(
+      "full-review",
+    );
+
+    // Complements the selection-replacement pins by checking every pipeline-backed projection.
+    await flushIntervalTick(refresh);
+
+    const refreshedState = view.monitorStates.at(-1);
+    if (refreshedState === undefined) throw new Error("expected refreshed monitor state");
+    expect(refreshedState.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({ pipelines: [retained] });
+    const refreshedRowIds = monitorLeftPaneTreeRows(refreshedState, layout, WORKFLOW_FILTER_NOW_MS).fullTreeRows.map(
+      (row) => row.id,
+    );
+    expect(refreshedRowIds.some((rowId) => rowId.includes(removed.pipelineId))).toBe(false);
+    expect(monitorLeftPaneWorkHeadingRows(refreshedState).map(joinMonitorRow)).toEqual(["── Work (1) ──"]);
+    expect(monitorLeftPaneAttentionRows(refreshedState, WORKFLOW_FILTER_NOW_MS)).toEqual([]);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("display tick advances running work but not parked work without additional list or pipeline_list RPC", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const displayTick = createIntervalScheduler();
+    const runStartMs = 1_700_000_000_000;
+    let nowMs = runStartMs + 60_000;
+    const run = {
+      ...PIPELINE_RUN_MATCHED,
+      createdAt: runStartMs,
+    };
+    const runningStage = PIPELINE_SNAPSHOT_ALPHA.stages[0];
+    const parkedStage = PIPELINE_SNAPSHOT_BETA.stages[0];
+    if (runningStage === undefined || parkedStage === undefined) throw new Error("expected fixture stages");
+    const runningSnapshot: PipelineSnapshot = {
+      ...PIPELINE_SNAPSHOT_ALPHA,
+      createdAt: runStartMs,
+      stages: [{ ...runningStage, startedAt: runStartMs }],
+    };
+    const parkedSnapshot: PipelineSnapshot = {
+      ...PIPELINE_SNAPSHOT_BETA,
+      pipelineId: "pipe-parked",
+      state: "pending",
+      finishedAtMs: null,
+      createdAt: runStartMs - 600_000,
+      stages: [
+        {
+          ...parkedStage,
+          workflowInvocationId: null,
+          startedAt: runStartMs - 120_000,
+          endedAt: runStartMs - 60_000,
+        },
+      ],
+    };
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [run] }],
+        pipelineListResponses: [{ pipelines: [runningSnapshot, parkedSnapshot] }],
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        displayTickScheduler: displayTick.scheduler,
+        nowMs: () => nowMs,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    view.selectNode("pipe-alpha");
+    await flush();
+    await view.toggleExpansion();
+    view.selectNode(PIPELINE_STAGE_ALPHA);
+    await flush();
+    await view.toggleExpansion();
+    await flush();
+
+    const listCountBefore = countRpcMethod(clientOptions.methods, "list");
+    const pipelineListCountBefore = countRpcMethod(clientOptions.methods, "pipeline_list");
+    const elapsedBefore = elapsedCellForRun(view.monitorStates.at(-1), "run-matched", nowMs);
+    expect(elapsedBefore).toBe(formatElapsedWallClock(runStartMs, null, nowMs));
+    const runningBefore = timingCellForPipeline(view.monitorStates.at(-1), "pipe-alpha", nowMs);
+    const parkedBefore = timingCellForPipeline(view.monitorStates.at(-1), "pipe-parked", nowMs);
+    // The fixture's real left-pane width (~94 columns) is at or above the 80-column labeled-form floor,
+    // so this asserts the labeled `work <duration> · idle <duration>` cell that paints at ordinary widths.
+    expect(runningBefore).toBe("work 1m");
+    expect(parkedBefore).toBe("work 1m · idle 2m");
+
+    nowMs += 60_000;
+    // Mutation checkpoint: calling refreshRuns or list/pipeline_list from the display-tick callback must turn display-tick/no-RPC RED.
+    const statesBeforeTick = view.monitorStates.length;
+    await flushIntervalTick(displayTick);
+    expect(view.monitorStates.length).toBeGreaterThan(statesBeforeTick);
+
+    expect(countRpcMethod(clientOptions.methods, "list")).toBe(listCountBefore);
+    expect(countRpcMethod(clientOptions.methods, "pipeline_list")).toBe(pipelineListCountBefore);
+    const elapsedAfter = elapsedCellForRun(view.monitorStates.at(-1), "run-matched", nowMs);
+    expect(elapsedAfter).toBe(formatElapsedWallClock(runStartMs, null, nowMs));
+    expect(elapsedAfter).not.toBe(elapsedBefore);
+    const runningAfter = timingCellForPipeline(view.monitorStates.at(-1), "pipe-alpha", nowMs);
+    const parkedAfter = timingCellForPipeline(view.monitorStates.at(-1), "pipe-parked", nowMs);
+    expect(runningAfter).toBe("work 2m");
+    expect(runningAfter).not.toBe(runningBefore);
+    expect(parkedAfter).toBe("work 1m · idle 3m");
+
+    view.quit();
+    await pending;
+  });
+
+  test("typed log opens log follow with only the invoking socket path, no discovery seam", async () => {
+    const view = createViewHost();
+    let followedRunId: string | undefined;
+    let followDeps: Record<string, unknown> | undefined;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        runTuiLogFollow: async (runId, logDeps) => {
+          followedRunId = runId;
+          followDeps = logDeps as unknown as Record<string, unknown>;
+          return 0;
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+
+    await view.waitUntilOpen();
+    await flush();
+    await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+    view.focusCommand();
+    view.insertCommandText("run log");
+    view.submitCommand("run log");
+    await flush();
+
+    expect(view.isClosed()).toBe(true);
+    expect(await pending).toBe(0);
+    expect(followedRunId).toBe("run-matched");
+    expect(followDeps?.socketPath).toBe("/tmp/test.sock");
+    expect(followDeps?.socketDiscovery).toBeUndefined();
+    expect(Object.hasOwn(followDeps ?? {}, "socketDiscovery")).toBe(false);
+  });
+
+  test("typed log tears down monitor before entering log follow", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const displayTick = createIntervalScheduler();
+    const followGate = deferred<void>();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        refreshScheduler: refresh.scheduler,
+        displayTickScheduler: displayTick.scheduler,
+        runTuiLogFollow: async () => {
+          expect(view.isClosed()).toBe(true);
+          expect(refresh.isClosed()).toBe(true);
+          expect(displayTick.isClosed()).toBe(true);
+          await followGate.promise;
+          return 0;
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+
+    await view.waitUntilOpen();
+    await flush();
+    await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+    view.focusCommand();
+    view.insertCommandText("run log");
+    view.submitCommand("run log");
+    await flush();
+
+    expect(view.isClosed()).toBe(true);
+    expect(refresh.isClosed()).toBe(true);
+    expect(displayTick.isClosed()).toBe(true);
+
+    followGate.resolve();
+    expect(await pending).toBe(0);
+  });
+
+  test("typed log with no run selected reports no_selection and does not enter log follow", async () => {
+    const view = createViewHost();
+    let logFollowCalls = 0;
+    const pending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        {
+          viewHost: view.host,
+          nowMs: () => WORKFLOW_FILTER_NOW_MS,
+          runTuiLogFollow: async () => {
+            logFollowCalls += 1;
+            return 0;
+          },
+        },
+      ).deps,
+    );
+    await view.waitUntilOpen();
+    await flush();
+    dockCommandFailureAsserter(view, "run log")("no_selection");
+    expect(logFollowCalls).toBe(0);
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("typed log on pipeline or stage selection reports not_a_run and does not enter log follow", async () => {
+    // @mutate src/tui/tui-entry.tsx "if (selectedRunIdFromState(state) === null) return \"not_a_run\";" -> "if (selectedRunIdFromState(state) !== null) return \"not_a_run\";"
+    const view = createViewHost();
+    let logFollowCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        runTuiLogFollow: async () => {
+          logFollowCalls += 1;
+          return 0;
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+
+      const expectLogFailure = dockCommandFailureAsserter(view, "run log");
+
+      expectLogFailure("not_a_run", () => {
+        view.selectNode("pipe-alpha");
+      });
+      expect(logFollowCalls).toBe(0);
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectLogFailure("not_a_run");
+      expect(logFollowCalls).toBe(0);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed kill and resume-run steer the selected live run", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      for (const verb of ["run kill", "run resume"] as const) {
+        view.focusCommand();
+        while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+          view.deleteCommandBackward();
+        }
+        view.insertCommandText(verb);
+        view.submitCommand(verb);
+        await flush();
+      }
+      expect(countRpcMethod(clientOptions.methods, "kill:", true)).toBe(1);
+      expect(countRpcMethod(clientOptions.methods, "resume:", true)).toBe(1);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed resume-run issues a resume RPC and no wait RPC", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      view.focusCommand();
+      view.insertCommandText("run resume");
+      view.submitCommand("run resume");
+      await flush();
+      expect(clientOptions.methods).toContain("resume:run-matched");
+      expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed kill and resume-run clear the painted command input and restore tree focus after dispatch", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      for (const [verb, rpc] of [
+        ["run kill", "kill:run-matched"],
+        ["run resume", "resume:run-matched"],
+      ] as const) {
+        view.focusCommand();
+        view.insertCommandText(verb);
+        expect(renderedDockRows(view.monitorStates.at(-1))[1]).toContain(verb);
+        view.submitCommand(verb);
+        await flush();
+        expect(clientOptions.methods).toContain(rpc);
+        expect(view.monitorStates.at(-1)).toMatchObject({ focus: "tree", commandBuffer: "", commandCursor: 0 });
+        expect(renderedDockRows(view.monitorStates.at(-1))[1]).not.toContain(verb);
+      }
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed kill failing its selection guard keeps the painted command input and reports the code", async () => {
+    const terminalMatchedRun: DaemonListRunRow = {
+      ...PIPELINE_RUN_MATCHED,
+      status: "completed",
+      isLive: false,
+      finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    };
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [terminalMatchedRun] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      steeringFailureAsserter(view, clientOptions, "run kill", "kill:", true)("not_live_run");
+      const [status, input] = renderedDockRows(view.monitorStates.at(-1));
+      expect(status).toContain("result: not_live_run");
+      expect(input).toContain("run kill");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed run steering on ineligible selection reports feedback and issues no RPC", async () => {
+    // @mutate src/tui/tui-entry.tsx "if (method !== \"resume\" && !isLiveRunSteerable(currentState, runId))" -> "if (method !== \"resume\" && isLiveRunSteerable(currentState, runId))"
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("run kill");
+    emptyView.submitCommand("run kill");
+    expect(emptyView.monitorStates.at(-1)?.lastCommandResult).toBe("no_selection");
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const terminalMatchedRun: DaemonListRunRow = {
+      ...PIPELINE_RUN_MATCHED,
+      status: "completed",
+      isLive: false,
+      finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    };
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [terminalMatchedRun, PIPELINE_RUN_ORPHAN] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectKillFailure = steeringFailureAsserter(view, clientOptions, "run kill", "kill:", true);
+
+      view.selectNode("pipe-alpha");
+      expectKillFailure("stale_non_expandable");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectKillFailure("stale_non_expandable");
+
+      view.selectNode("run-orphan");
+      expectKillFailure("unattributed");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      expectKillFailure("not_live_run");
+
+      const runIdSpy = spyOn(tuiEntry, "selectedRunIdFromState").mockReturnValue(null);
+      try {
+        const expectResumeRunFailure = steeringFailureAsserter(view, clientOptions, "run resume", "resume:", true);
+        expectKillFailure("stale_non_expandable");
+        expectResumeRunFailure("stale_non_expandable");
+      } finally {
+        runIdSpy.mockRestore();
+      }
+
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("run resume");
+      const resumeBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      const resumeBefore = countRpcMethod(clientOptions.methods, "resume:", true);
+      view.submitCommand(resumeBuffer);
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "resume:", true)).toBe(resumeBefore + 1);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed run steering works during pending pipeline admission", async () => {
+    const view = createViewHost();
+    const admissionGate = deferred<PipelineStartAdmissionResult>();
+    let admissionCalls = 0;
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        admitDetachedPipelineStart: async () => {
+          admissionCalls += 1;
+          return admissionGate.promise;
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+      view.insertCommandText("pipeline start demo --seed-text pending");
+      const startBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(startBuffer);
+      expect(admissionCalls).toBe(1);
+
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("run resume");
+      view.submitCommand("run resume");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "resume:", true)).toBe(1);
+
+      const expectKillFailure = steeringFailureAsserter(view, clientOptions, "run kill", "kill:", true);
+      view.selectNode("pipe-alpha");
+      expectKillFailure("stale_non_expandable");
+
+      view.submitCommand(startBuffer);
+      expect(admissionCalls).toBe(1);
+
+      admissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-admitted" });
+      await flush();
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed approve issues pipeline_approve for the selected awaiting stage", async () => {
+    const view = createViewHost();
+    const approveCalls: PipelineStageMutationParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: awaitingPipelineListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+        pipelineApproveImpl: async (params) => {
+          approveCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "approved" };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      view.insertCommandText("pipeline approve");
+      view.submitCommand("pipeline approve");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_approve")).toBe(1);
+      expect(approveCalls).toEqual([{ pipelineId: "pipe-await", stageId: "gate", branchKey: "default" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-await",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed reject issues pipeline_reject for the selected awaiting stage", async () => {
+    const view = createViewHost();
+    const rejectCalls: PipelineStageMutationParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: awaitingPipelineListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+        pipelineRejectImpl: async (params) => {
+          rejectCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "rejected" };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      view.insertCommandText("pipeline reject");
+      view.submitCommand("pipeline reject");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_reject")).toBe(1);
+      expect(rejectCalls).toEqual([{ pipelineId: "pipe-await", stageId: "gate", branchKey: "default" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-await",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed resume issues pipeline_resume for the selected non-terminal pipeline", async () => {
+    const view = createViewHost();
+    const resumeCalls: PipelineResumeParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        pipelineResumeImpl: async (params) => {
+          resumeCalls.push(params);
+          return { kind: "resumed", pipelineId: params.pipelineId };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.selectNode("pipe-alpha");
+      view.focusCommand();
+      view.insertCommandText("pipeline resume");
+      view.submitCommand("pipeline resume");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_resume")).toBe(1);
+      expect(resumeCalls).toEqual([{ pipelineId: "pipe-alpha" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-alpha",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed approve on ineligible selection reports feedback and issues no RPC", async () => {
+    // @mutate src/tui/tui-entry.tsx "if (stage.status === \"awaiting\") return null;" -> "if (false) return null;"
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("pipeline approve");
+    emptyView.submitCommand("pipeline approve");
+    expect(emptyView.monitorStates.at(-1)).toMatchObject({
+      selectedNodeId: null,
+      focus: "command",
+      commandBuffer: "pipeline approve",
+      lastCommandResult: "no_selection",
+    });
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [
+          { runs: awaitingAndAlphaPipelineListFixture() },
+          { runs: awaitingAndAlphaPipelineListFixture() },
+        ],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING, PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+    wrapFailingSecondPipelineList(deps);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectApproveFailure = steeringFailureAsserter(view, clientOptions, "pipeline approve", "pipeline_approve");
+
+      await expandPipelineAndSelect(view, "pipe-await", "run-await");
+      expectApproveFailure("run_leaf");
+
+      view.selectNode("run-orphan");
+      expectApproveFailure("unattributed");
+
+      view.selectNode("pipe-await");
+      expectApproveFailure("not_awaiting_stage");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectApproveFailure("not_awaiting_stage");
+
+      await flushIntervalTick(refresh);
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      expectApproveFailure("stale_non_targetable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed reject on ineligible selection reports feedback and issues no RPC", async () => {
+    // @mutate src/tui/tui-entry.tsx "if (stage.status === \"awaiting\") return null;" -> "if (false) return null;"
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("pipeline reject");
+    emptyView.submitCommand("pipeline reject");
+    expect(emptyView.monitorStates.at(-1)?.lastCommandResult).toBe("no_selection");
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [
+          { runs: awaitingAndAlphaPipelineListFixture() },
+          { runs: awaitingAndAlphaPipelineListFixture() },
+        ],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING, PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+    wrapFailingSecondPipelineList(deps);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectRejectFailure = steeringFailureAsserter(view, clientOptions, "pipeline reject", "pipeline_reject");
+
+      await expandPipelineAndSelect(view, "pipe-await", "run-await");
+      expectRejectFailure("run_leaf");
+
+      view.selectNode("run-orphan");
+      expectRejectFailure("unattributed");
+
+      view.selectNode("pipe-await");
+      expectRejectFailure("not_awaiting_stage");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectRejectFailure("not_awaiting_stage");
+
+      await flushIntervalTick(refresh);
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      expectRejectFailure("stale_non_targetable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed resume on ineligible selection reports feedback and issues no RPC", async () => {
+    // @mutate src/tui/tui-entry.tsx "if (isPipelineTerminal(pipeline.snapshot.state)) return \"terminal_pipeline\";" -> "if (false) return \"terminal_pipeline\";"
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("pipeline resume");
+    emptyView.submitCommand("pipeline resume");
+    expect(emptyView.monitorStates.at(-1)?.lastCommandResult).toBe("no_selection");
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }, { runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA, PIPELINE_SNAPSHOT_BETA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+    wrapFailingSecondPipelineList(deps);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectResumeFailure = steeringFailureAsserter(view, clientOptions, "pipeline resume", "pipeline_resume");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      expectResumeFailure("run_leaf");
+
+      view.selectNode("run-orphan");
+      expectResumeFailure("unattributed");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectResumeFailure("not_pipeline");
+
+      view.selectNode("pipe-beta");
+      expectResumeFailure("terminal_pipeline");
+
+      await flushIntervalTick(refresh);
+      view.selectNode("pipe-alpha");
+      expectResumeFailure("stale_non_targetable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("attention commands act only on awaiting-gate pins", async () => {
+    // Mutation checkpoint: reverting attention selection to the pre-fix tree-only resolution
+    // (removing the attention-row branches added to approveRejectSelectionError and
+    // resolvePipelineSteeringDispatch) makes this test fail, since the awaiting-gate row's
+    // targetId is a stage row that is never itself selected here.
+    // @mutate src/tui/tui-entry.tsx "if (attentionRow.kind !== \"awaiting-gate\") return \"not_awaiting_stage\";" -> "if (false) return \"not_awaiting_stage\";"
+    // @mutate src/tui/tui-entry.tsx "if (attentionRow !== undefined && attentionRow.kind === \"awaiting-gate\" && attentionRow.gate !== undefined) {" -> "if (false) {"
+    // @mutate src/tui/tui-entry.tsx "      if (owner === undefined) return \"stale_non_targetable\";" -> "      if (false) return \"stale_non_targetable\";"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const approveCalls: PipelineStageMutationParams[] = [];
+    const rejectCalls: PipelineStageMutationParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: attentionRunsFixture() }, { runs: attentionRunsFixture() }],
+        pipelineListResponses: [
+          { pipelines: [PIPELINE_SNAPSHOT_ATTENTION_GATES, PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED] },
+        ],
+        pipelineApproveImpl: async (params) => {
+          approveCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "approved" };
+        },
+        pipelineRejectImpl: async (params) => {
+          rejectCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "rejected" };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+    wrapFailingSecondPipelineList(deps);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectApproveFailure = steeringFailureAsserter(view, clientOptions, "pipeline approve", "pipeline_approve");
+      const expectRejectFailure = steeringFailureAsserter(view, clientOptions, "pipeline reject", "pipeline_reject");
+
+      const initialState = view.monitorStates.at(-1);
+      const awaitingGateId = attentionRowIdByKind(initialState, "awaiting-gate");
+      const rejectedGateId = attentionRowIdByKind(initialState, "rejected-gate");
+      const failedStageId = attentionRowIdByKind(initialState, "failed-stage");
+      const failedRunId = attentionRowIdByKind(initialState, "failed-run");
+      const blockedRunId = attentionRowIdByKind(initialState, "blocked-run");
+      const publicationFailureId = attentionRowIdByKind(initialState, "publication-failure");
+
+      for (const nonAwaitingId of [rejectedGateId, failedStageId, failedRunId, blockedRunId, publicationFailureId]) {
+        view.selectNode(nonAwaitingId);
+        expectApproveFailure("not_awaiting_stage");
+        view.selectNode(nonAwaitingId);
+        expectRejectFailure("not_awaiting_stage");
+      }
+
+      view.selectNode(awaitingGateId);
+      view.focusCommand();
+      view.insertCommandText("pipeline approve");
+      view.submitCommand("pipeline approve");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_approve")).toBe(1);
+      expect(approveCalls).toEqual([{ pipelineId: "pipe-attn-gates", stageId: "approve-plan", branchKey: "default" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-attn-gates",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+
+      view.selectNode(awaitingGateId);
+      view.focusCommand();
+      view.insertCommandText("pipeline reject");
+      view.submitCommand("pipeline reject");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_reject")).toBe(1);
+      expect(rejectCalls).toEqual([{ pipelineId: "pipe-attn-gates", stageId: "approve-plan", branchKey: "default" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-attn-gates",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+
+      await flushIntervalTick(refresh);
+      view.selectNode(awaitingGateId);
+      expectApproveFailure("stale_non_targetable");
+      view.selectNode(awaitingGateId);
+      expectRejectFailure("stale_non_targetable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("approve reaches the newest gate behind a stale gate backlog", async () => {
+    // A shared six-row cap buries the newest gate in display-only overflow; only a gates-are-uncapped
+    // projection keeps every one of these seven awaiting gates selectable.
+    const gatePipelines: PipelineSnapshot[] = Array.from({ length: 7 }, (_, i) => ({
+      pipelineId: `pipe-gate-stack-${i}`,
+      name: "full-review",
+      state: "awaiting-approval",
+      terminalPublicationSucceededAt: null,
+      terminalPublicationFailure: null,
+      createdAt: 1_700_000_000_000,
+      finishedAtMs: null,
+      dismissedAt: null,
+      stages: [
+        {
+          id: `stage-gate-stack-${i}-intent`,
+          stageId: "intent",
+          branchKey: "default",
+          position: 0,
+          status: "succeeded",
+          workflowInvocationId: null,
+          startedAt: null,
+          endedAt: 1_000 * (i + 1),
+          decidedAt: null,
+          artifact: null,
+          failureDetail: null,
+        },
+        {
+          id: `stage-gate-stack-${i}-approve-intent`,
+          stageId: "approve-intent",
+          branchKey: "default",
+          position: 1,
+          status: "awaiting",
+          workflowInvocationId: null,
+          startedAt: null,
+          endedAt: null,
+          decidedAt: null,
+          artifact: null,
+          failureDetail: null,
+        },
+      ],
+    }));
+    const newestPipeline = gatePipelines[6]!;
+
+    const view = createViewHost();
+    const approveCalls: PipelineStageMutationParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [] }],
+        pipelineListResponses: [{ pipelines: gatePipelines }],
+        pipelineApproveImpl: async (params) => {
+          approveCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "approved" };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+
+      // Gates sort newest-reached-first and are exempt from the failure cap, so the first
+      // "awaiting-gate" row is the newest gate — reusing the same helper other attention
+      // tests in this file use to resolve a row id.
+      const newestGateId = attentionRowIdByKind(view.monitorStates.at(-1), "awaiting-gate");
+
+      view.selectNode(newestGateId);
+      view.focusCommand();
+      view.insertCommandText("pipeline approve");
+      view.submitCommand("pipeline approve");
+      await flush();
+
+      expect(countRpcMethod(clientOptions.methods, "pipeline_approve")).toBe(1);
+      expect(approveCalls).toEqual([
+        { pipelineId: newestPipeline.pipelineId, stageId: "approve-intent", branchKey: "default" },
+      ]);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed approve daemon refusal retains command input and reports verbatim detail", async () => {
+    await runAwaitingStageSteeringRefusalTest("pipeline approve", "pipelineApproveImpl");
+  });
+
+  test("typed reject daemon refusal retains command input and reports verbatim detail", async () => {
+    await runAwaitingStageSteeringRefusalTest("pipeline reject", "pipelineRejectImpl");
+  });
+
+  test("typed resume daemon refusal retains command input and reports verbatim detail", async () => {
+    const refusalDetail = "pipeline_not_found\n";
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        pipelineResumeImpl: async () =>
+          ({
+            kind: "refused",
+            pipelineId: "pipe-alpha",
+            reason: refusalDetail,
+          }) as unknown as ResumePipelineOutcome,
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.selectNode("pipe-alpha");
+      view.focusCommand();
+      view.insertCommandText("pipeline resume");
+      const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(buffer);
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        focus: "command",
+        commandBuffer: buffer,
+        lastCommandResult: refusalDetail,
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("suppresses stale pipeline mutation settlements", async () => {
+    const view = createViewHost();
+    const approveGate = deferred<PipelineApprovalDecisionOutcome>();
+    const rejectGate = deferred<PipelineApprovalDecisionOutcome>();
+    const resumeGate = deferred<ResumePipelineOutcome>();
+    let approveCalls = 0;
+    let rejectCalls = 0;
+    let resumeCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: awaitingPipelineListFixture() }, { runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING, PIPELINE_SNAPSHOT_ALPHA] }],
+        pipelineApproveImpl: async () => {
+          approveCalls += 1;
+          return approveGate.promise;
+        },
+        pipelineRejectImpl: async () => {
+          rejectCalls += 1;
+          return rejectGate.promise;
+        },
+        pipelineResumeImpl: async () => {
+          resumeCalls += 1;
+          return resumeGate.promise;
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      view.insertCommandText("pipeline approve");
+      const approveBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(approveBuffer);
+      expect(approveCalls).toBe(1);
+      view.insertCommandText("!");
+      await flush();
+      approveGate.resolve({
+        kind: "applied",
+        pipelineId: "pipe-await",
+        stageId: "gate",
+        decision: "approved",
+      });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        commandBuffer: `${approveBuffer}!`,
+        focus: "command",
+        lastCommandResult: null,
+      });
+
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("pipeline reject");
+      const rejectBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(rejectBuffer);
+      expect(rejectCalls).toBe(1);
+      view.insertCommandText("!");
+      await flush();
+      rejectGate.resolve({
+        kind: "applied",
+        pipelineId: "pipe-await",
+        stageId: "gate",
+        decision: "rejected",
+      });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        commandBuffer: `${rejectBuffer}!`,
+        focus: "command",
+        lastCommandResult: null,
+      });
+
+      view.selectNode("pipe-alpha");
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("pipeline resume");
+      const resumeBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(resumeBuffer);
+      expect(resumeCalls).toBe(1);
+      view.insertCommandText("!");
+      await flush();
+      resumeGate.resolve({ kind: "resumed", pipelineId: "pipe-alpha" });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        commandBuffer: `${resumeBuffer}!`,
+        focus: "command",
+        lastCommandResult: null,
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+
+    const closeView = createViewHost();
+    const closeGate = deferred<PipelineApprovalDecisionOutcome>();
+    let closeApproveCalls = 0;
+    const closePending = runTuiEntry(
+      entryDeps(
+        {
+          methods: [],
+          listResponses: [{ runs: awaitingPipelineListFixture() }],
+          pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+          pipelineApproveImpl: async () => {
+            closeApproveCalls += 1;
+            return closeGate.promise;
+          },
+        },
+        { viewHost: closeView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await closeView.waitUntilOpen();
+    await flush();
+    closeView.selectNode("pipe-await");
+    await flush();
+    const closeExpanded = closeView.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+    if (!closeExpanded.includes("pipe-await")) {
+      await closeView.toggleExpansion();
+    }
+    closeView.selectNode(PIPELINE_STAGE_AWAITING);
+    await flush();
+    closeView.focusCommand();
+    closeView.insertCommandText("pipeline approve");
+    const closeBuffer = closeView.monitorStates.at(-1)?.commandBuffer ?? "";
+    closeView.submitCommand(closeBuffer);
+    expect(closeApproveCalls).toBe(1);
+    const statesBeforeClose = closeView.monitorStates.length;
+    closeView.quit();
+    closeGate.resolve({
+      kind: "applied",
+      pipelineId: "pipe-await",
+      stageId: "gate",
+      decision: "approved",
+    });
+    await flush();
+    expect(closeView.monitorStates).toHaveLength(statesBeforeClose);
+    expect(await closePending).toBe(0);
+  });
+
+  test("blocks second pipeline mutation while admission is pending", async () => {
+    const view = createViewHost();
+    const approveGate = deferred<PipelineApprovalDecisionOutcome>();
+    let approveCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: awaitingPipelineListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+        pipelineApproveImpl: async () => {
+          approveCalls += 1;
+          return approveGate.promise;
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      view.insertCommandText("pipeline approve");
+      const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(buffer);
+      expect(approveCalls).toBe(1);
+      view.submitCommand(buffer);
+      expect(approveCalls).toBe(1);
+      approveGate.resolve({
+        kind: "applied",
+        pipelineId: "pipe-await",
+        stageId: "gate",
+        decision: "approved",
+      });
+      await flush();
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("the show-dismissed toggle requests the opt-in pipeline_list snapshot", async () => {
+    // @mutate src/tui/tui-entry.tsx "const pipelineResult = await client.pipelineList({ includeDismissed: currentState.showDismissed === true });" -> "const pipelineResult = await client.pipelineList();"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view, refresh);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      // Exact request shapes pin the retained default projection: no history/state selector is sent.
+      expect(clientOptions.pipelineListRequests).toEqual([{ includeDismissed: false }]);
+      await view.toggleShowDismissedAndFlush();
+      expect(clientOptions.pipelineListRequests).toEqual([{ includeDismissed: false }, { includeDismissed: true }]);
+      expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("pipe-dismissed");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("toggling show-dismissed off returns to the default pipeline_list request", async () => {
+    // @mutate src/tui/tui-entry.tsx "showDismissed: currentState.showDismissed !== true" -> "showDismissed: true"
+    const view = createViewHost();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("pipe-dismissed");
+      await view.toggleShowDismissedAndFlush();
+      // The off toggle returns to the same unqualified retained projection.
+      expect(clientOptions.pipelineListRequests?.at(-1)).toEqual({ includeDismissed: false });
+      expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("pipe-dismissed");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("the show-dismissed toggle refreshes immediately", async () => {
+    // @mutate src/tui/tui-entry.tsx "void refreshRuns().catch(() => {});" -> "return;"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view, refresh);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const countBefore = clientOptions.pipelineListRequests?.length ?? 0;
+      view.toggleShowDismissed();
+      await flush();
+      expect(clientOptions.pipelineListRequests?.length).toBe(countBefore + 1);
+      expect(clientOptions.pipelineListRequests?.at(-1)).toEqual({ includeDismissed: true });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("with show-dismissed on the dismissed pipeline paints with a dismissed marker", async () => {
+    const view = createViewHost();
+    const { deps } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      const state = view.monitorStates.at(-1);
+      expect(state).toBeDefined();
+      if (state === undefined) return;
+      const layout = computeShellLayout(
+        state.terminalColumns ?? 245,
+        state.terminalRows ?? 72,
+        state.dividerOffset ?? 0,
+      );
+      const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
+      const pipeline = fullTreeRows.find((row) => row.kind === "pipeline" && row.id === "pipe-dismissed");
+      expect(pipeline?.kind).toBe("pipeline");
+      if (pipeline?.kind !== "pipeline") return;
+      const label =
+        buildPipelineMonitorTreeRow(pipeline, layout.leftWidth, WORKFLOW_FILTER_NOW_MS).segments[3]?.text ?? "";
+      expect(label.trimEnd().endsWith("(dismissed)")).toBe(true);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("the show-dismissed toggle requests the opt-in run list snapshot", async () => {
+    // @mutate src/tui/tui-entry.tsx "const result = await client.list({ includeDismissed: currentState.showDismissed === true });" -> "const result = await client.list();"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view, refresh);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      expect(clientOptions.listRequests).toEqual([{ includeDismissed: false }]);
+      await view.toggleShowDismissedAndFlush();
+      expect(clientOptions.listRequests).toEqual([{ includeDismissed: false }, { includeDismissed: true }]);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("toggling show-dismissed off returns to the default run list request", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-dismissed");
+      await view.toggleShowDismissedAndFlush();
+      expect(clientOptions.listRequests?.at(-1)).toEqual({ includeDismissed: false });
+      const rowIds = leftPaneTreeRowIds(view.monitorStates.at(-1));
+      expect(rowIds).not.toContain("run-dismissed");
+      expect(rowIds).toContain("run-alpha");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("with show-dismissed on the dismissed run paints with a dismissed marker", async () => {
+    const view = createViewHost();
+    const { deps } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      const state = view.monitorStates.at(-1);
+      expect(state).toBeDefined();
+      if (state === undefined) return;
+      const layout = computeShellLayout(
+        state.terminalColumns ?? 245,
+        state.terminalRows ?? 72,
+        state.dividerOffset ?? 0,
+      );
+      const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
+      const runRow = fullTreeRows.find((row) => row.kind === "adhoc" && row.id === "run-dismissed");
+      expect(runRow?.kind).toBe("adhoc");
+      if (runRow?.kind !== "adhoc") return;
+      const rowLabel =
+        buildTreeRunRow(runRow.tableRow, runRow.depth, layout.leftWidth, WORKFLOW_FILTER_NOW_MS, runRow.label)
+          .segments[3]?.text ?? "";
+      expect(rowLabel.trimEnd().endsWith("(dismissed)")).toBe(true);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("the show-dismissed toggle widens both list and pipeline_list requests", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      expect(clientOptions.listRequests?.at(-1)).toEqual({ includeDismissed: true });
+      expect(clientOptions.pipelineListRequests?.at(-1)).toEqual({ includeDismissed: true });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("a fresh monitor session requests the default run list snapshot", async () => {
+    // @mutate src/tui/tui-entry.tsx "const result = await client.list({ includeDismissed: currentState.showDismissed === true });" -> "const result = await client.list({ includeDismissed: true });"
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      { methods: [], listResponses: [{ runs: [RUN_ALPHA] }], listRequests: [] },
+      { viewHost: view.host },
+    );
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      expect(clientOptions.listRequests?.[0]).toEqual({ includeDismissed: false });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  describe("revision-follow re-exec", () => {
+    /** Wraps a fake client's `status()` with a fixed sequence of reads; the last entry repeats once exhausted. */
+    function withStatusSequence(client: TuiDaemonClient, reads: readonly (string | "failure")[]): TuiDaemonClient {
+      let index = 0;
+      return {
+        ...client,
+        async status() {
+          const read = reads[Math.min(index, reads.length - 1)] ?? "failure";
+          index += 1;
+          if (read === "failure") throw new RpcConnectionError("status unavailable");
+          return { state: "running" as const, loadedRevision: read };
+        },
+      };
+    }
+
+    function revisionFollowDeps(
+      view: ReturnType<typeof createViewHost>,
+      refresh: ReturnType<typeof createIntervalScheduler>,
+      reads: readonly (string | "failure")[],
+      reexecCalls: PerformTuiRevisionReexecParams[],
+      overrides: Partial<RunTuiEntryDeps> = {},
+    ): RunTuiEntryDeps {
+      return {
+        socketPath: "/tmp/test.sock",
+        machineProfile: "unknown",
+        admitDetachedPipelineStart: noopDetachedAdmission,
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => withStatusSequence(fakeClient({}), reads),
+        resolveMonitorRevision: async () => "rev-a",
+        reexecTuiMonitor: async (params) => {
+          reexecCalls.push(params);
+        },
+        ...overrides,
+      };
+    }
+
+    test("re-execs onto current code once the daemon's differing revision stabilizes, without operator input", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const deps = revisionFollowDeps(view, refresh, ["rev-b", "rev-b"], reexecCalls);
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        refresh.tick();
+        await flush();
+        await flush();
+
+        expect(reexecCalls).toHaveLength(1);
+        expect(reexecCalls[0]?.daemonRevision).toBe("rev-b");
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
+
+    test("matching monitor and daemon revisions never re-exec across multiple refreshes", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const deps = revisionFollowDeps(view, refresh, ["rev-a", "rev-a", "rev-a"], reexecCalls);
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+        refresh.tick();
+        await flush();
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
+
+    test("a failed status read resets stability tracking and does not re-exec that tick", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      // connect: rev-b; tick1: failure (resets tracking); tick2: rev-b (fresh candidate, not yet stable);
+      // tick3: rev-b again (now stable against tick2) -> re-exec.
+      const deps = revisionFollowDeps(view, refresh, ["rev-b", "failure", "rev-b", "rev-b"], reexecCalls);
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        refresh.tick();
+        await flush();
+        await flush();
+        expect(reexecCalls).toHaveLength(1);
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
+
+    test("defers re-exec while the command dock has typed input, firing once it clears", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const deps = revisionFollowDeps(view, refresh, ["rev-b", "rev-b", "rev-b"], reexecCalls);
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+        view.focusCommand();
+        view.insertCommandText("x");
+
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        view.deleteCommandBackward();
+
+        refresh.tick();
+        await flush();
+        await flush();
+        expect(reexecCalls).toHaveLength(1);
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
+
+    test("defers re-exec while a command dispatch is in flight, firing once it settles", async () => {
+      const view = createViewHost();
+      const refresh = createIntervalScheduler();
+      const reexecCalls: PerformTuiRevisionReexecParams[] = [];
+      const admissionGate = deferred<PipelineStartAdmissionResult>();
+      const deps = revisionFollowDeps(view, refresh, ["rev-b", "rev-b", "rev-b"], reexecCalls, {
+        admitDetachedPipelineStart: async () => admissionGate.promise,
+      });
+
+      const pending = runTuiEntry(deps);
+      try {
+        await view.waitUntilOpen();
+        await flush();
+        view.focusCommand();
+        view.insertCommandText("pipeline start demo --seed seeds/foo.md");
+        const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+        view.submitCommand(buffer);
+        await flush();
+
+        refresh.tick();
+        await flush();
+        expect(reexecCalls).toHaveLength(0);
+
+        admissionGate.resolve({ kind: "admitted", admittedSelection: null, pipelineId: "pipe-revision-follow" });
+        await flush();
+        await flush();
+
+        refresh.tick();
+        await flush();
+        await flush();
+        expect(reexecCalls).toHaveLength(1);
+      } finally {
+        view.quit();
+      }
+      expect(await pending).toBe(0);
+    });
+  });
+});

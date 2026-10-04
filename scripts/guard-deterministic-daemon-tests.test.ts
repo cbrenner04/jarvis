@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { findDeterminismViolations, guarded } from "./guard-deterministic-daemon-tests.ts";
 
-function violations(source: string, file = "v2/src/daemon/example.test.ts") {
+function violations(source: string, file = "src/daemon/example.test.ts") {
   return findDeterminismViolations([{ file, source }]);
 }
 
@@ -86,31 +86,31 @@ describe("deterministic daemon tests guard", () => {
   describe("Sandbox-unrunnable exclusion", () => {
     test("excludes .sandbox-unrunnable.test.ts files", () => {
       const source = "await Bun.sleep(100);";
-      expect(violations(source, "v2/src/daemon/example.sandbox-unrunnable.test.ts")).toHaveLength(0);
+      expect(violations(source, "src/daemon/example.sandbox-unrunnable.test.ts")).toHaveLength(0);
     });
 
     test("excludes .sandbox-unrunnable.test.ts from execution", () => {
       const source = "await new Promise((resolve) => setTimeout(resolve, 100));";
-      expect(violations(source, "v2/src/execution/example.sandbox-unrunnable.test.ts")).toHaveLength(0);
+      expect(violations(source, "src/execution/example.sandbox-unrunnable.test.ts")).toHaveLength(0);
     });
   });
 
   describe("Scope filtering", () => {
     test("only guards daemon and execution test files", () => {
       const source = "await Bun.sleep(100);";
-      expect(violations(source, "v2/src/other/example.test.ts")).toHaveLength(0);
+      expect(violations(source, "src/other/example.test.ts")).toHaveLength(0);
       expect(violations(source, "v1/src/daemon/example.test.ts")).toHaveLength(0);
-      expect(violations(source, "v2/src/shared/daemon.test.ts")).toHaveLength(0);
+      expect(violations(source, "src/shared/daemon.test.ts")).toHaveLength(0);
     });
 
     test("does not guard non-test files", () => {
       const source = "await Bun.sleep(100);";
-      expect(violations(source, "v2/src/daemon/lifecycle.ts")).toHaveLength(0);
+      expect(violations(source, "src/daemon/lifecycle.ts")).toHaveLength(0);
     });
 
     test("only guards .test.ts files, not other patterns", () => {
       const source = "await Bun.sleep(100);";
-      expect(violations(source, "v2/src/daemon/example.spec.ts")).toHaveLength(0);
+      expect(violations(source, "src/daemon/example.spec.ts")).toHaveLength(0);
     });
   });
 
@@ -136,35 +136,35 @@ line 6`;
   });
 
   describe("guarded predicate", () => {
-    test("guards v2/src/daemon test files", () => {
-      expect(guarded("v2/src/daemon/lifecycle.test.ts")).toBe(true);
-      expect(guarded("v2/src/daemon/subdir/example.test.ts")).toBe(true);
+    test("guards src/daemon test files", () => {
+      expect(guarded("src/daemon/lifecycle.test.ts")).toBe(true);
+      expect(guarded("src/daemon/subdir/example.test.ts")).toBe(true);
     });
 
-    test("guards v2/src/execution test files", () => {
-      expect(guarded("v2/src/execution/write-loop.test.ts")).toBe(true);
-      expect(guarded("v2/src/execution/subdir/example.test.ts")).toBe(true);
+    test("guards src/execution test files", () => {
+      expect(guarded("src/execution/write-loop.test.ts")).toBe(true);
+      expect(guarded("src/execution/subdir/example.test.ts")).toBe(true);
     });
 
     test("excludes .sandbox-unrunnable.test.ts files", () => {
-      expect(guarded("v2/src/daemon/example.sandbox-unrunnable.test.ts")).toBe(false);
-      expect(guarded("v2/src/execution/example.sandbox-unrunnable.test.ts")).toBe(false);
+      expect(guarded("src/daemon/example.sandbox-unrunnable.test.ts")).toBe(false);
+      expect(guarded("src/execution/example.sandbox-unrunnable.test.ts")).toBe(false);
     });
 
     test("excludes non-test files", () => {
-      expect(guarded("v2/src/daemon/lifecycle.ts")).toBe(false);
-      expect(guarded("v2/src/execution/write-loop.ts")).toBe(false);
+      expect(guarded("src/daemon/lifecycle.ts")).toBe(false);
+      expect(guarded("src/execution/write-loop.ts")).toBe(false);
     });
 
     test("excludes non-.test.ts test files", () => {
-      expect(guarded("v2/src/daemon/example.spec.ts")).toBe(false);
-      expect(guarded("v2/src/daemon/example.integration.ts")).toBe(false);
+      expect(guarded("src/daemon/example.spec.ts")).toBe(false);
+      expect(guarded("src/daemon/example.integration.ts")).toBe(false);
     });
 
     test("excludes test files outside daemon and execution", () => {
-      expect(guarded("v2/src/cli/usage.test.ts")).toBe(false);
+      expect(guarded("src/cli/usage.test.ts")).toBe(false);
       expect(guarded("v1/src/daemon/example.test.ts")).toBe(false);
-      expect(guarded("v2/src/shared/example.test.ts")).toBe(false);
+      expect(guarded("src/shared/example.test.ts")).toBe(false);
     });
   });
 });

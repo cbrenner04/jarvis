@@ -2,8 +2,8 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SubprocessRunner } from "../v2/src/shared/subprocess.ts";
-import { trackedMkdtempSync } from "../v2/src/shared/tracked-temp-dir.test-support.ts";
+import type { SubprocessRunner } from "../src/shared/subprocess.ts";
+import { trackedMkdtempSync } from "../src/shared/tracked-temp-dir.test-support.ts";
 import {
   INSTALL_DIGEST_FILENAME,
   READY_STEP_COMPLETION_MARKER,
@@ -15,7 +15,7 @@ import {
   runReady,
   writeRecordedInstallDigest,
 } from "./ready.ts";
-import { FAILING_TEST_FILE_MARKER, failingTestFileRecord, READY_ATTEMPT_ENV } from "./run-v2-tests.ts";
+import { FAILING_TEST_FILE_MARKER, failingTestFileRecord, READY_ATTEMPT_ENV } from "./run-slice-tests.ts";
 
 const inheritedTier = process.env.JARVIS_READY_TIER;
 const inheritedScope = process.env.JARVIS_READY_TEST_SCOPE;
@@ -41,7 +41,7 @@ function selectRecords<T>(writes: string[], marker: string): T[] {
 
 function startFastReady(runCommandFn: NonNullable<Parameters<typeof runReady>[0]>["runCommandFn"]): Promise<void> {
   process.env.JARVIS_READY_TIER = "fast";
-  process.env.JARVIS_READY_TEST_SCOPE = "test:v2";
+  process.env.JARVIS_READY_TEST_SCOPE = "test:agent";
   const pending = runReady({ runCommandFn });
   if (inheritedTier === undefined) {
     delete process.env.JARVIS_READY_TIER;
@@ -79,7 +79,7 @@ describe("ready step completion evidence", () => {
     try {
       await startFastReady(async (_name, args, _armedMs, _bound, attemptId) => {
         events.push(`run:${attemptId}`);
-        if (args[1] === "test:v2") {
+        if (args[1] === "test:agent") {
           testAttempts += 1;
           return testAttempts === 1 ? 1 : 0;
         }
@@ -93,8 +93,8 @@ describe("ready step completion evidence", () => {
       `\n${READY_STEP_START_MARKER}${JSON.stringify({ stepId, attemptId, command })}\n`;
     for (const [attemptId, stepId, command] of [
       ["1.1", "1", "bun run typecheck"],
-      ["2.1", "2", "bun run test:v2"],
-      ["2.2", "2", "bun run test:v2"],
+      ["2.1", "2", "bun run test:agent"],
+      ["2.2", "2", "bun run test:agent"],
     ] as const) {
       const record = startRecord(stepId, attemptId, command);
       const runIndex = events.indexOf(`run:${attemptId}`);
@@ -117,7 +117,7 @@ describe("ready step completion evidence", () => {
     try {
       await expect(
         startFastReady(async (_name, args, _armedMs, _bound, attemptId) => {
-          if (args[1] !== "test:v2") {
+          if (args[1] !== "test:agent") {
             return 0;
           }
           process.stderr.write(failingTestFileRecord(`v2/${attemptId}.test.ts`, attemptId ?? ""));
@@ -129,7 +129,7 @@ describe("ready step completion evidence", () => {
     }
 
     const completions = selectRecords<ReadyStepCompletion>(writes, READY_STEP_COMPLETION_MARKER);
-    const testCompletions = completions.filter((record) => record.command === "bun run test:v2");
+    const testCompletions = completions.filter((record) => record.command === "bun run test:agent");
     expect(testCompletions.map(({ attemptId, status }) => ({ attemptId, status }))).toEqual([
       { attemptId: "2.1", status: 1 },
       { attemptId: "2.2", status: 1 },
@@ -150,7 +150,7 @@ describe("ready step completion evidence", () => {
     let testAttempts = 0;
 
     await startFastReady(async (_name, args, _armedMs, _bound, attemptId) => {
-      if (args[1] !== "test:v2") {
+      if (args[1] !== "test:agent") {
         return 0;
       }
       testAttempts += 1;
@@ -162,9 +162,9 @@ describe("ready step completion evidence", () => {
     });
 
     const completions = selectRecords<ReadyStepCompletion>(writes, READY_STEP_COMPLETION_MARKER);
-    expect(completions.filter((record) => record.command === "bun run test:v2")).toEqual([
-      { stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 },
-      { stepId: "2", attemptId: "2.2", command: "bun run test:v2", status: 0 },
+    expect(completions.filter((record) => record.command === "bun run test:agent")).toEqual([
+      { stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 },
+      { stepId: "2", attemptId: "2.2", command: "bun run test:agent", status: 0 },
     ]);
     expect(completions.at(-1)?.status).toBe(0);
   });
@@ -180,13 +180,13 @@ describe("ready step completion evidence", () => {
       throw new Error(`process.exit(${code})`);
     }) as never;
     process.env.JARVIS_READY_TIER = "full";
-    process.env.JARVIS_READY_TEST_SCOPE = "test:v2";
+    process.env.JARVIS_READY_TEST_SCOPE = "test:agent";
     let testAttempts = 0;
 
     try {
       const pending = runReady({
         runCommandFn: async (_name, args, _armedMs, _bound, attemptId) => {
-          if (args[1] === "test:v2") {
+          if (args[1] === "test:agent") {
             testAttempts += 1;
             if (testAttempts === 1) {
               process.stderr.write(failingTestFileRecord("v2/flaky.test.ts", attemptId ?? ""));

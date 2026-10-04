@@ -13,9 +13,9 @@
 
 ## Task checklist
 
-- [ ] Map terminal `iteration_timeout` to unconditional resume in `composeRunOperatorError` and `resolveFailedBlockedAttemptPrecedence`.
-- [ ] Align `RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout` and any `terminalResumeRefusalMessage` paths that special-case `iteration_timeout`.
-- [ ] Update `src/daemon/run-operator-error.test.ts` and any admission tests that pin the old stop/stop-copy behavior.
+- [x] Map terminal `iteration_timeout` to unconditional resume in `composeRunOperatorError` and `resolveFailedBlockedAttemptPrecedence`.
+- [x] Align `RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout` and any `terminalResumeRefusalMessage` paths that special-case `iteration_timeout`.
+- [x] Update `src/daemon/run-operator-error.test.ts` and any admission tests that pin the old stop/stop-copy behavior.
 
 ## Acceptance criteria
 

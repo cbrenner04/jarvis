@@ -12,9 +12,9 @@
 
 ## Task checklist
 
-- [ ] Edit `docs/daemon-host.md` `iteration_timeout` operator-error mapping and rollover note.
-- [ ] Edit `docs/v1-behaviors.md` operator projection entries.
-- [ ] Edit `docs/operator-runbook.md` recovery/triage copy if still inconsistent after subspecs 00–01.
+- [x] Edit `docs/daemon-host.md` `iteration_timeout` operator-error mapping and rollover note.
+- [x] Edit `docs/v1-behaviors.md` operator projection entries.
+- [x] Edit `docs/operator-runbook.md` recovery/triage copy if still inconsistent after subspecs 00–01.
 
 ## Acceptance criteria
 

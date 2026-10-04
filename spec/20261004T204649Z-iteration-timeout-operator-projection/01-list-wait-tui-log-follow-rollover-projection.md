@@ -13,8 +13,8 @@ During in-loop rollover the run stays `in-progress` with attempt `outcomeKind: "
 
 ## Task checklist
 
-- [ ] Extend `stoppedOutcomeForRun` / `workflowStepSnapshot` (or equivalent list wiring) for `iteration_timeout_continued` in-progress rollover.
-- [ ] Add or adjust daemon list/wait tests for in-progress rollover and for terminal `iteration_timeout` resume projection aligned with subspec 00.
+- [x] Extend `stoppedOutcomeForRun` / `workflowStepSnapshot` (or equivalent list wiring) for `iteration_timeout_continued` in-progress rollover.
+- [x] Add or adjust daemon list/wait tests for in-progress rollover and for terminal `iteration_timeout` resume projection aligned with subspec 00.
 
 ## Acceptance criteria
 

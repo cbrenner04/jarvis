@@ -83,6 +83,8 @@ Every export of a `src` production module (the `isProductionSourceFile` predicat
 
 `DEAD_EXPORT_ALLOWLIST` in the script names surface that is intentionally public but statically unreferenced, keyed `<file>#<symbol>` with a reason (today only `src/cli.ts#main`, the `bin/jarvis` entry point). Add an entry only for a real external consumer, never to keep an unused export. Manual red-check: add `export const probe = 1;` to any production file under `src/`, run `bun run check`, delete the line.
 
+`bun run check` runs `scripts/guard-operator-doc-v2-language.ts` over `docs/**`, `AGENTS.md`, and `README.md` (same markdownlint ignore globs for `completed/` and `verdict-*.md`): each physical line with `\bv2\b` must match a retired-generation-history predicate (former `v2/` tree layout, retired `test:v2` / `run-v2-tests` script names, frozen `v1/` contrast, or explicit `jarvis` vs `jarvis1` coexistence).
+
 ## Canonical helper homes
 
 One implementation per helper family; a second local copy is cruft, not convenience. Import from the home instead of re-declaring:

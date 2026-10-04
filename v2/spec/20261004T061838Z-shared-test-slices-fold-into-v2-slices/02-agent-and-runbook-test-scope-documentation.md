@@ -11,18 +11,18 @@
 
 ## Tasks
 
-- [ ] Update `AGENTS.md` and `CLAUDE.md` test-scope and sandbox-retry bullets per decisions.
-- [ ] Update `v2/docs/operator-runbook.md` ready-gate / CI-vs-aggregate section for two-slice scope (no retired script names).
-- [ ] Update `v2/docs/operator-practices.md` CI path-scope bullet and `v2/docs/test-writing.md` serial retry prose per decisions.
+- [x] Update `AGENTS.md` and `CLAUDE.md` test-scope and sandbox-retry bullets per decisions.
+- [x] Update `v2/docs/operator-runbook.md` ready-gate / CI-vs-aggregate section for two-slice scope (no retired script names).
+- [x] Update `v2/docs/operator-practices.md` CI path-scope bullet and `v2/docs/test-writing.md` serial retry prose per decisions.
 
 ## Acceptance criteria
 
-- [ ] `AGENTS.md` and `CLAUDE.md` contain no `test:shared` or `test:integration:shared` references.
-- [ ] `v2/docs/operator-practices.md` and `v2/docs/test-writing.md` contain no `test:shared` or `test:integration:shared` references.
-- [ ] `v2/docs/operator-runbook.md` ready-gate and CI-vs-aggregate prose names only `test:v2` and `test:integration:v2` for code-bearing diffs under `v2/**`, `v2/src/shared/**`, `test/**`, and `scripts/**/*.test.ts` (no shared slice scripts; aggregate roster prose matches two scoped slices).
-- [ ] `AGENTS.md` scoped-test bullets map `v2/**`, `v2/src/shared/**`, `test/**`, and `scripts/**/*.test.ts` to `test:v2` + `test:integration:v2` only.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run lint:md` passes (authored markdown touched).
+- [x] `AGENTS.md` and `CLAUDE.md` contain no `test:shared` or `test:integration:shared` references.
+- [x] `v2/docs/operator-practices.md` and `v2/docs/test-writing.md` contain no `test:shared` or `test:integration:shared` references.
+- [x] `v2/docs/operator-runbook.md` ready-gate and CI-vs-aggregate prose names only `test:v2` and `test:integration:v2` for code-bearing diffs under `v2/**`, `v2/src/shared/**`, `test/**`, and `scripts/**/*.test.ts` (no shared slice scripts; aggregate roster prose matches two scoped slices).
+- [x] `AGENTS.md` scoped-test bullets map `v2/**`, `v2/src/shared/**`, `test/**`, and `scripts/**/*.test.ts` to `test:v2` + `test:integration:v2` only.
+- [x] `bun run typecheck` passes.
+- [x] `bun run lint:md` passes (authored markdown touched).
 
 ## Documentation updates
 

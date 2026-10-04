@@ -322,7 +322,15 @@ async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFix
         const branch = args[args.indexOf("--head") + 1];
         if (branch === undefined) throw new Error("missing --head branch");
         const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd)).trim();
-        return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
+        return JSON.stringify([
+          {
+            number: 1,
+            baseRefName: "main",
+            state: "MERGED",
+            mergedAt: "2026-01-01T00:00:00Z",
+            headRefOid: oid,
+          },
+        ]);
       }
       return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
     },
@@ -541,7 +549,15 @@ describe("named cleanup project scope", () => {
           if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
             if (args.includes("--state") && args[args.indexOf("--state") + 1] === "open") return "[]";
             const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd)).trim();
-            return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
+            return JSON.stringify([
+              {
+                number: 1,
+                baseRefName: "main",
+                state: "MERGED",
+                mergedAt: "2026-01-01T00:00:00Z",
+                headRefOid: oid,
+              },
+            ]);
           }
           return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
         },
@@ -760,7 +776,15 @@ describe("cleanup command through main", () => {
             const oid = (
               await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
             ).trim();
-            return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
+            return JSON.stringify([
+              {
+                number: 1,
+                baseRefName: "main",
+                state: "MERGED",
+                mergedAt: "2026-01-01T00:00:00Z",
+                headRefOid: oid,
+              },
+            ]);
           } catch {
             return "[]";
           }

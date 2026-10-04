@@ -41,6 +41,7 @@ import {
   discoverStrandedArtifacts,
   evaluateImplementLandedElsewhereReport,
   exactOriginTrackingRefOid,
+  checkEligibility,
   gateOnOpenPrs,
   handLandedArtifactArchivability,
   hasBranchKeyedArtifactOwner,
@@ -73,15 +74,58 @@ import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 const GH_PR_LIST_PROBE_ERROR = new AsyncSubprocessError("gh unreachable", 1, "", "network error", undefined);
 type OpenPr = { number: number; isDraft: boolean };
 
+function ghPrListJsonRows(
+  rows: Array<{
+    number: number;
+    baseRefName?: string;
+    state?: string;
+    isDraft?: boolean;
+    mergedAt?: string | null;
+    headRefOid?: string;
+  }>,
+): string {
+  return JSON.stringify(
+    rows.map((row) => ({
+      baseRefName: "main",
+      state: row.state ?? "OPEN",
+      ...row,
+    })),
+  );
+}
+
+function ghPrViewStateJson(state: string, mergedAt: string | null): string {
+  return JSON.stringify({ state, mergedAt, isCrossRepository: false });
+}
+
 function ghPrListRunner(projectRoot: string, prs: OpenPr[]): AsyncSubprocessRunner {
   return {
     runAsync: async (cmd, args, cwd) => {
-      if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return JSON.stringify(prs);
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+        return ghPrListJsonRows(prs.map((pr) => ({ number: pr.number, isDraft: pr.isDraft, state: "OPEN" })));
+      }
       if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
       if (cmd === "gh" && args[0] === "pr" && args[1] === "close") return "";
       return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
     },
   };
+}
+
+const cleanupModuleSource = () => readFileSync(join(import.meta.dir, "cleanup.ts"), "utf8");
+
+function cleanupFunctionBody(functionHead: string): string {
+  const src = cleanupModuleSource();
+  const start = src.indexOf(functionHead);
+  if (start < 0) throw new Error(`missing ${functionHead}`);
+  const open = src.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unclosed ${functionHead}`);
 }
 
 function ghPrListProbeFailureRunner(projectRoot: string, teardownCalls: string[]): AsyncSubprocessRunner {
@@ -144,7 +188,7 @@ function cleanupArchiveBranchProbeResponse(args: readonly string[]): string {
         baseRefName: "main",
       });
     }
-    return JSON.stringify({ state: "OPEN", mergedAt: null });
+    return ghPrViewStateJson("OPEN", null);
   }
   return "[]";
 }
@@ -215,6 +259,92 @@ async function cleanupArchiveTree(root: string): Promise<string[]> {
   return paths;
 }
 
+describe("cleanup: GitHub operations boundary", () => {
+  const projectRoot = "/repo";
+
+  test("isMerged requires MERGED state and mergedAt", async () => {
+    const branch = "implement/merged-without-timestamp";
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[1] === "view") {
+          return JSON.stringify({ state: "MERGED", mergedAt: null, isCrossRepository: false });
+        }
+        if (cmd === "gh" && args[1] === "list") return "[]";
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    const worktree: DiscoveredWorktree = { path: "/wt", branch };
+    const result = await checkEligibility(worktree, "project", runner, async () => [], {
+      listRuns: () => [],
+    } as unknown as StateStore);
+    expect(result.status).toBe("ineligible");
+    if (result.status === "ineligible") expect(result.reason).toContain("PR not merged");
+  });
+
+  test("planSubsumedPrGateAllows delegates listPrs for head state", async () => {
+    const calls: Array<{ branch: string; state: string }> = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[1] === "list") {
+          calls.push({
+            branch: args[args.indexOf("--head") + 1] ?? "",
+            state: args[args.indexOf("--state") + 1] ?? "",
+          });
+          return ghPrListJsonRows([{ number: 1, baseRefName: "main", state: "CLOSED" }]);
+        }
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    expect(await planSubsumedPrGateAllows("plan/x", projectRoot, runner)).toBe(true);
+    expect(calls).toEqual([{ branch: "plan/x", state: "all" }]);
+    expect(cleanupFunctionBody("export async function planSubsumedPrGateAllows")).not.toMatch(
+      /runAsync\(\s*["']gh["']/,
+    );
+  });
+
+  test("listOpenPrsForBranch delegates listPrs", async () => {
+    const calls: Array<{ branch: string; state: string }> = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[1] === "list") {
+          calls.push({
+            branch: args[args.indexOf("--head") + 1] ?? "",
+            state: args[args.indexOf("--state") + 1] ?? "",
+          });
+          return ghPrListJsonRows([{ number: 2, baseRefName: "main", state: "OPEN", isDraft: true }]);
+        }
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    const gate = await gateOnOpenPrs("feat/x", runner, projectRoot);
+    expect(calls).toEqual([{ branch: "feat/x", state: "open" }]);
+    expect(gate.status).toBe("ok");
+    expect(cleanupFunctionBody("async function listOpenPrsForBranch")).not.toMatch(/runAsync\(\s*["']gh["']/);
+  });
+
+  test("mergedPrHeadAuthorityMatches delegates listPrs for head authority", async () => {
+    const oid = "deadbeef";
+    const calls: Array<{ branch: string; state: string }> = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[1] === "list") {
+          calls.push({
+            branch: args[args.indexOf("--head") + 1] ?? "",
+            state: args[args.indexOf("--state") + 1] ?? "",
+          });
+          return JSON.stringify([
+            { number: 1, baseRefName: "main", state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+          ]);
+        }
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    expect(await mergedPrHeadAuthorityMatches("branch", oid, projectRoot, runner)).toBe(true);
+    expect(calls).toEqual([{ branch: "branch", state: "all" }]);
+    expect(cleanupFunctionBody("async function ghPrHeadRecordsForBranch")).not.toMatch(/runAsync\(\s*["']gh["']/);
+  });
+});
+
 describe("cleanup: end-to-end via runCleanupCommand", () => {
   let tempRoot: string;
   let projectRoot: string;
@@ -268,12 +398,15 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     return mergeArchivePublicationRunner(
       {
         runAsync: async (cmd, args, cwd) => {
-          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
-            return JSON.stringify(
-              state === "MERGED"
-                ? { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" }
-                : { state: "OPEN", mergedAt: null },
-            );
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+            const jsonIndex = args.indexOf("--json");
+            const fields = jsonIndex >= 0 ? (args[jsonIndex + 1] ?? "") : "";
+            if (fields.includes("state,mergedAt")) {
+              return state === "MERGED"
+                ? ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z")
+                : ghPrViewStateJson("OPEN", null);
+            }
+          }
           if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
             if (state !== "MERGED" || (args.includes("--state") && args[args.indexOf("--state") + 1] === "open")) {
               return "[]";
@@ -285,7 +418,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
               const oid = (
                 await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
               ).trim();
-              return JSON.stringify([
+              return ghPrListJsonRows([
                 { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
               ]);
             } catch {
@@ -411,7 +544,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
       },
@@ -490,7 +623,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       {
         runAsync: async (cmd, args, cwd) => {
           if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+            return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
           if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
             if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
               const headIndex = args.indexOf("--head");
@@ -499,7 +632,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
                 const oid = (
                   await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
                 ).trim();
-                return JSON.stringify([
+                return ghPrListJsonRows([
                   { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
                 ]);
               }
@@ -565,9 +698,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       {
         runAsync: async (cmd, args, cwd) => {
           if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-            if (prState === "CLOSED") return JSON.stringify({ state: "CLOSED", mergedAt: null });
-            if (prState === "OPEN") return JSON.stringify({ state: "OPEN", mergedAt: null });
-            throw new AsyncSubprocessError("not found", 1, "", "", undefined);
+            const jsonIndex = args.indexOf("--json");
+            const fields = jsonIndex >= 0 ? (args[jsonIndex + 1] ?? "") : "";
+            if (fields.includes("state,mergedAt")) {
+              if (prState === "CLOSED") return ghPrViewStateJson("CLOSED", null);
+              if (prState === "OPEN") return ghPrViewStateJson("OPEN", null);
+              throw new AsyncSubprocessError("not found", 1, "", "", undefined);
+            }
           }
           if (cmd === "gh" && args[1] === "list") {
             const stateIndex = args.indexOf("--state");
@@ -580,8 +717,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
               if (branchName === undefined) return "[]";
               const planLane = branchName.startsWith("plan/");
               if (laneKind === "plan" ? !planLane : planLane) return "[]";
-              if (prState === "CLOSED") return JSON.stringify([{ state: "CLOSED" }]);
-              if (prState === "OPEN") return JSON.stringify([{ state: "OPEN" }]);
+              if (prState === "CLOSED") return ghPrListJsonRows([{ number: 1, state: "CLOSED", mergedAt: null }]);
+              if (prState === "OPEN") return ghPrListJsonRows([{ number: 1, state: "OPEN", mergedAt: null }]);
               return "[]";
             }
           }
@@ -970,14 +1107,14 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   test("planSubsumedPrGateAllows guard inversion: OPEN PR blocks retirement", async () => {
     const runner: AsyncSubprocessRunner = {
       runAsync: async (cmd, _args) => {
-        if (cmd === "gh") return JSON.stringify([{ state: "OPEN" }]);
+        if (cmd === "gh") return ghPrListJsonRows([{ number: 1, state: "OPEN" }]);
         throw new Error(`unexpected ${cmd}`);
       },
     };
     expect(await planSubsumedPrGateAllows("plan/x", projectRoot, runner)).toBe(false);
     const allowRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd) => {
-        if (cmd === "gh") return JSON.stringify([{ state: "CLOSED" }]);
+        if (cmd === "gh") return ghPrListJsonRows([{ number: 1, state: "CLOSED" }]);
         throw new Error(`unexpected ${cmd}`);
       },
     };
@@ -1258,7 +1395,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       {
         runAsync: async (cmd, args, cwd) => {
           if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+            return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
           if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
             if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
               const headIndex = args.indexOf("--head");
@@ -1267,7 +1404,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
                 const oid = (
                   await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
                 ).trim();
-                return JSON.stringify([
+                return ghPrListJsonRows([
                   { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
                 ]);
               }
@@ -1328,7 +1465,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       {
         runAsync: async (cmd, args, cwd) => {
           if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+            return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
           if (
             cmd === "gh" &&
             args[0] === "pr" &&
@@ -1342,7 +1479,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
               const oid = (
                 await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
               ).trim();
-              return JSON.stringify([
+              return ghPrListJsonRows([
                 { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
               ]);
             }
@@ -1467,12 +1604,15 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
       {
         runAsync: async (cmd, args, cwd) => {
-          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
-            return JSON.stringify({ state: "CLOSED", mergedAt: null });
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+            const jsonIndex = args.indexOf("--json");
+            const fields = jsonIndex >= 0 ? (args[jsonIndex + 1] ?? "") : "";
+            if (fields.includes("state,mergedAt")) return ghPrViewStateJson("CLOSED", null);
+          }
           if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
             const headIndex = args.indexOf("--head");
             const head = headIndex >= 0 ? args[headIndex + 1] : undefined;
-            return head === open ? '[{"number":1}]' : "[]";
+            return head === open ? ghPrListJsonRows([{ number: 1, state: "OPEN" }]) : "[]";
           }
           return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
         },
@@ -2749,7 +2889,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
       },
@@ -2857,7 +2997,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
       },
@@ -3188,7 +3328,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
       },
@@ -3225,7 +3365,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const brokenRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
         }
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
           throw new Error("git worktree remove failed");
@@ -3666,8 +3806,18 @@ describe("cleanup: runAbandonCommand", () => {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
           if (probe.prs === "unreachable") throw GH_PR_LIST_PROBE_ERROR;
-          if (args.includes("closed")) return JSON.stringify(probe.closedPrs ?? []);
-          return JSON.stringify(probe.prs ?? []);
+          if (args.includes("closed")) {
+            return ghPrListJsonRows(
+              (probe.closedPrs ?? []).map((pr) => ({
+                number: pr.number,
+                isDraft: pr.isDraft,
+                state: pr.state,
+              })),
+            );
+          }
+          return ghPrListJsonRows(
+            (probe.prs ?? []).map((pr) => ({ number: pr.number, isDraft: pr.isDraft, state: "OPEN" })),
+          );
         }
         if (cmd === "gh" && args[0] === "repo") return "main\n";
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
@@ -3914,7 +4064,7 @@ describe("cleanup: runAbandonCommand", () => {
       runAsync: async (cmd, args, cwd) => {
         invocations.push({ cmd, args: [...args] });
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 123, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 123, isDraft: true }]);
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
           return "";
@@ -3976,7 +4126,7 @@ describe("cleanup: runAbandonCommand", () => {
         if (cmd === "gh") {
           ghInvocations.push({ cmd, args: [...args] });
           if (args[0] === "pr" && args[1] === "list") {
-            return JSON.stringify([{ number: 456, isDraft: true }]);
+            return ghPrListJsonRows([{ number: 456, isDraft: true }]);
           } else if (args[0] === "pr" && args[1] === "close") {
             return "";
           }
@@ -4016,7 +4166,7 @@ describe("cleanup: runAbandonCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 789, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 789, isDraft: true }]);
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
           return "";
@@ -4108,7 +4258,7 @@ describe("cleanup: runAbandonCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 789, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 789, isDraft: true }]);
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
           return "";
@@ -4236,7 +4386,7 @@ describe("cleanup: runAbandonCommand", () => {
           gitRemoveInvoked = true;
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 222, isDraft: false }]);
+          return ghPrListJsonRows([{ number: 222, isDraft: false }]);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ number: 222, state: "OPEN" });
@@ -4280,9 +4430,9 @@ describe("cleanup: runAbandonCommand", () => {
           gitRemoveInvoked = true;
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([
-            { number: 333, state: "DRAFT" },
-            { number: 334, state: "OPEN" },
+          return ghPrListJsonRows([
+            { number: 333, isDraft: true, state: "OPEN" },
+            { number: 334, isDraft: true, state: "OPEN" },
           ]);
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
@@ -4328,7 +4478,7 @@ describe("cleanup: runAbandonCommand", () => {
           return "";
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 445, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 445, isDraft: true }]);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ number: 445, state: "DRAFT" });
@@ -4385,7 +4535,7 @@ describe("cleanup: runAbandonCommand", () => {
           invocations.push({ cmd, args: [...args], step: "close-pr" });
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 555, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 555, isDraft: true }]);
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -4432,7 +4582,7 @@ describe("cleanup: runAbandonCommand", () => {
           invocations.push("close-pr");
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 556, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 556, isDraft: true }]);
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -4474,7 +4624,7 @@ describe("cleanup: runAbandonCommand", () => {
           invocations.push("close-pr");
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 557, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 557, isDraft: true }]);
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -4522,7 +4672,7 @@ describe("cleanup: runAbandonCommand", () => {
           invocations.push("close-pr");
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 558, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 558, isDraft: true }]);
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
@@ -4564,7 +4714,7 @@ describe("cleanup: runAbandonCommand", () => {
           throw new Error("simulated PR close failure");
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 558, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 558, isDraft: true }]);
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -4626,7 +4776,7 @@ describe("cleanup: runAbandonCommand", () => {
           return "";
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 559, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 559, isDraft: true }]);
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -4702,7 +4852,7 @@ describe("cleanup: runAbandonCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 561, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 561, isDraft: true }]);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
           stepOrder.push("close-pr");
@@ -4744,7 +4894,7 @@ describe("cleanup: runAbandonCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 560, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 560, isDraft: true }]);
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -5485,7 +5635,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 123, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 123, isDraft: true }]);
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
           return "";
@@ -5594,7 +5744,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 789, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 789, isDraft: true }]);
         }
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
           invocationOrder.push("remove-worktree");
@@ -5642,7 +5792,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 790, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 790, isDraft: true }]);
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
           throw new Error("remote rejected: protected branch");
@@ -5666,7 +5816,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 791, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 791, isDraft: true }]);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
           closedPrs.push(Number(args[2]));
@@ -5890,7 +6040,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
       {
         runAsync: async (cmd, args, cwd) => {
           if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-            return JSON.stringify([{ number: 901, isDraft: true }]);
+            return ghPrListJsonRows([{ number: 901, isDraft: true }]);
           }
           if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
           return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
@@ -5962,7 +6112,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
       {
         runAsync: async (cmd, args, cwd) => {
           if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-            return JSON.stringify([{ number: 903, isDraft: true }]);
+            return ghPrListJsonRows([{ number: 903, isDraft: true }]);
           }
           if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
           return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
@@ -7034,7 +7184,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
           return "";
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([{ number: 806, isDraft: true }]);
+          return ghPrListJsonRows([{ number: 806, isDraft: true }]);
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") return "";
@@ -7081,7 +7231,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-          return JSON.stringify([openDraftPr]);
+          return ghPrListJsonRows([openDraftPr]);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
@@ -7118,7 +7268,9 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     );
     expect(remoteBranches.trim()).toContain(`origin/${branch}`);
     const prListAfter = await mockRunner.runAsync("gh", ["pr", "list"], projectRoot);
-    expect(JSON.parse(prListAfter)).toEqual([openDraftPr]);
+    expect(JSON.parse(prListAfter)).toEqual([
+      { number: openDraftPr.number, isDraft: openDraftPr.isDraft, baseRefName: "main", state: "OPEN" },
+    ]);
   });
 
   test("resetStaleWorkspace refuses fail-closed when claim probe is missing or throws", async () => {
@@ -7240,6 +7392,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
 type MergedBranchGhPr = {
   number: number;
+  baseRefName: string;
   state: "MERGED" | "OPEN" | "CLOSED";
   mergedAt?: string | null;
   headRefOid?: string;
@@ -7282,9 +7435,11 @@ function supersedeFixtureForBranch(
   } = {},
 ): SupersedeGhFixture {
   const headRefOid = options.headOid ?? oid;
-  const prs: MergedBranchGhPr[] = [{ number: closedPrNumber, state: "CLOSED", mergedAt: null, headRefOid }];
+  const prs: MergedBranchGhPr[] = [
+    { number: closedPrNumber, baseRefName: "main", state: "CLOSED", mergedAt: null, headRefOid },
+  ];
   if (options.openPr === true) {
-    prs.push({ number: closedPrNumber + 100, state: "OPEN", mergedAt: null, headRefOid: oid });
+    prs.push({ number: closedPrNumber + 100, baseRefName: "main", state: "OPEN", mergedAt: null, headRefOid: oid });
   }
   const commentBody = options.commentBody ?? supersedeSettlementBody(successorPrNumber);
   const commentsByPr: Record<number, string[]> = {};
@@ -7309,7 +7464,7 @@ function supersedeFixtureForBranch(
 }
 
 function mergedBranchPr(oid: string, number = 1): MergedBranchGhPr {
-  return { number, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid };
+  return { number, baseRefName: "main", state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid };
 }
 
 async function initMergedBranchTestRepo(root: string): Promise<void> {
@@ -7371,7 +7526,7 @@ function ghPrRunnerByRepo(
             throw new AsyncSubprocessError("not found", 1, "", "", undefined);
           }
           if (options.mergedView) {
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+            return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
           }
         }
       }
@@ -7395,6 +7550,14 @@ describe("cleanup: superseded-pipeline branch retirement", () => {
 
   afterEach(() => {
     rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("ghSuccessorPrMergedInRepo rejects cross-repository successor", async () => {
+    const branch = "implement/cross-repo-successor";
+    const oid = "abc123456789";
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 20, 88, { crossRepo: true });
+    const runner = ghPrRunnerByRepo({}, projectRoot, { supersede: fixture });
+    expect(await supersededPipelinePrHeadAuthorityMatches(branch, oid, projectRoot, runner)).toBe(false);
   });
 
   test("materialized worktree dry-run and apply retire under supersede proof", async () => {
@@ -7538,7 +7701,10 @@ describe("cleanup: discover merged branch-ref candidates", () => {
     const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "open-pr-branch");
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const runner = ghPrListRunner({
-      [projectRoot]: [{ number: 1, state: "OPEN", mergedAt: null, headRefOid: oid }, mergedBranchPr(oid, 2)],
+      [projectRoot]: [
+        { number: 1, baseRefName: "main", state: "OPEN", mergedAt: null, headRefOid: oid },
+        mergedBranchPr(oid, 2),
+      ],
     });
 
     const result = await discoverMergedBranchRefCandidates(registry, { runner });
@@ -7550,7 +7716,7 @@ describe("cleanup: discover merged branch-ref candidates", () => {
     const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "closed-unmerged");
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const runner = ghPrListRunner({
-      [projectRoot]: [{ number: 1, state: "CLOSED", mergedAt: null, headRefOid: oid }],
+      [projectRoot]: [{ number: 1, baseRefName: "main", state: "CLOSED", mergedAt: null, headRefOid: oid }],
     });
 
     const result = await discoverMergedBranchRefCandidates(registry, { runner });
@@ -8138,7 +8304,7 @@ describe("cleanup: prune verified merged branch refs", () => {
     const runner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([mergedBranchPr(oid)]);

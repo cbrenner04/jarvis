@@ -70,8 +70,8 @@ function expectFailure(
   expect(isRetryableGitHubError(error)).toBe(retryable);
 }
 
-const LIST_OPEN = "gh pr list --head feat --state open --json number,url,baseRefName,isDraft,state,headRefOid";
-const LIST_ALL = "gh pr list --head feat --state all --json number,url,baseRefName,isDraft,state,headRefOid";
+const LIST_OPEN = "gh pr list --head feat --state open --json number,url,baseRefName,isDraft,state,headRefOid,mergedAt";
+const LIST_ALL = "gh pr list --head feat --state all --json number,url,baseRefName,isDraft,state,headRefOid,mergedAt";
 
 describe("listPrs", () => {
   test("pins the command, uses network-bounded options, and parses rows", async () => {
@@ -140,27 +140,64 @@ describe("viewPr", () => {
   });
 });
 
+const VIEW_STATE_FIELDS = "state,mergedAt,isCrossRepository";
+
 describe("viewPrState", () => {
   test("reports merged with its timestamp, open and closed without", async () => {
     const runner = fakeGh({
-      "gh pr view 1 --json state,mergedAt": JSON.stringify({ state: "MERGED", mergedAt: "2024-01-01T00:00:00Z" }),
-      "gh pr view 2 --json state,mergedAt": JSON.stringify({ state: "OPEN", mergedAt: null }),
-      "gh pr view 3 --json state,mergedAt": JSON.stringify({ state: "CLOSED", mergedAt: null }),
+      [`gh pr view 1 --json ${VIEW_STATE_FIELDS}`]: JSON.stringify({
+        state: "MERGED",
+        mergedAt: "2024-01-01T00:00:00Z",
+        isCrossRepository: false,
+      }),
+      [`gh pr view 2 --json ${VIEW_STATE_FIELDS}`]: JSON.stringify({
+        state: "OPEN",
+        mergedAt: null,
+        isCrossRepository: false,
+      }),
+      [`gh pr view 3 --json ${VIEW_STATE_FIELDS}`]: JSON.stringify({
+        state: "CLOSED",
+        mergedAt: null,
+        isCrossRepository: false,
+      }),
     });
     expect(await viewPrState(runner, "/repo", 1)).toEqual({
       state: "MERGED",
       merged: true,
       mergedAt: "2024-01-01T00:00:00Z",
+      isCrossRepository: false,
     });
-    expect(await viewPrState(runner, "/repo", 2)).toEqual({ state: "OPEN", merged: false, mergedAt: null });
-    expect(await viewPrState(runner, "/repo", 3)).toEqual({ state: "CLOSED", merged: false, mergedAt: null });
+    expect(await viewPrState(runner, "/repo", 2)).toEqual({
+      state: "OPEN",
+      merged: false,
+      mergedAt: null,
+      isCrossRepository: false,
+    });
+    expect(await viewPrState(runner, "/repo", 3)).toEqual({
+      state: "CLOSED",
+      merged: false,
+      mergedAt: null,
+      isCrossRepository: false,
+    });
+  });
+
+  test("viewPrState accepts branch PrSelector", async () => {
+    const payload = JSON.stringify({ state: "OPEN", mergedAt: null, isCrossRepository: false });
+    const runner = fakeGh({ [`gh pr view feat/lane --json ${VIEW_STATE_FIELDS}`]: payload });
+    expect(await viewPrState(runner, "/repo", "feat/lane")).toEqual({
+      state: "OPEN",
+      merged: false,
+      mergedAt: null,
+      isCrossRepository: false,
+    });
+    expect(runner.calls[0]?.args.join(" ")).toContain("pr view feat/lane");
   });
 
   test("rejects an unknown state as failed, naming the PR", async () => {
-    const runner = fakeGh({ "gh pr view 7 --json state,mergedAt": JSON.stringify({ state: 1 }) });
+    const runner = fakeGh({ [`gh pr view 7 --json ${VIEW_STATE_FIELDS}`]: JSON.stringify({ state: 1 }) });
     const error = await rejection(viewPrState(runner, "/repo", 7));
     expectFailure(error, "pr-view", "failed", false);
-    expect(error.message).toContain("unexpected gh pr view state for #7");
+    expect(error.message).toContain("unexpected gh pr view state for 7");
   });
 });
 
@@ -339,16 +376,17 @@ describe("ghCommandRunner", () => {
     const seen: Array<{ cwd: string; args: readonly string[]; options: AsyncSubprocessOptions }> = [];
     const runner = ghCommandRunner(async (cwd, args, options) => {
       seen.push({ cwd, args, options });
-      return JSON.stringify({ state: "OPEN", mergedAt: null });
+      return JSON.stringify({ state: "OPEN", mergedAt: null, isCrossRepository: false });
     });
     const controller = new AbortController();
     expect(await viewPrState(runner, "/wt", 3, { signal: controller.signal })).toEqual({
       state: "OPEN",
       merged: false,
       mergedAt: null,
+      isCrossRepository: false,
     });
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toMatchObject({ cwd: "/wt", args: ["pr", "view", "3", "--json", "state,mergedAt"] });
+    expect(seen[0]).toMatchObject({ cwd: "/wt", args: ["pr", "view", "3", "--json", VIEW_STATE_FIELDS] });
     expect(seen[0]?.options.timeoutMs).toBe(NETWORK_SUBPROCESS_TIMEOUT_MS);
     expect(seen[0]?.options.signal).toBe(controller.signal);
     expect(seen[0]?.options.env?.GIT_TERMINAL_PROMPT).toBe("0");

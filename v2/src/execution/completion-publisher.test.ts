@@ -1546,7 +1546,7 @@ describe("createCompletionPublisher", () => {
     expect(
       ghCalls
         .find((c) => c.startsWith("pr list") && c.includes("--state all"))
-        ?.includes("--json number,url,baseRefName,isDraft,state,headRefOid"),
+        ?.includes("--json number,url,baseRefName,isDraft,state,headRefOid,mergedAt"),
     ).toBe(true);
     expect(writeBodyCalls).toBe(0);
   });
@@ -1559,8 +1559,8 @@ describe("createCompletionPublisher", () => {
 
     const listJson = (state: string) =>
       ghCalls.find((c) => c.startsWith("pr list") && c.includes(`--state ${state}`))?.split("--json ")[1];
-    expect(listJson("open")).toBe("number,url,baseRefName,isDraft,state,headRefOid");
-    expect(listJson("all")).toBe("number,url,baseRefName,isDraft,state,headRefOid");
+    expect(listJson("open")).toBe("number,url,baseRefName,isDraft,state,headRefOid,mergedAt");
+    expect(listJson("all")).toBe("number,url,baseRefName,isDraft,state,headRefOid,mergedAt");
   });
 
   it.each([

@@ -543,7 +543,13 @@ describe("cleanup apply-end archive publication", () => {
                 await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
               ).trim();
               return JSON.stringify([
-                { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+                {
+                  number: 1,
+                  baseRefName: "main",
+                  state: "MERGED",
+                  mergedAt: "2026-01-01T00:00:00Z",
+                  headRefOid: oid,
+                },
               ]);
             }
             return "[]";

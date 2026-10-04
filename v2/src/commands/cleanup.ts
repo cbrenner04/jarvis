@@ -44,7 +44,14 @@ import {
 import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
 import { publishArchiveReady } from "../execution/completion-publisher.ts";
 import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
-import { GitHubOperationError } from "../execution/github-operations.ts";
+import {
+  closePr,
+  ghSubprocessSeamFromRunner,
+  GitHubOperationError,
+  listPrs,
+  viewPrReviewActivity,
+  viewPrState,
+} from "../execution/github-operations.ts";
 import {
   planSourcePublishesExternally,
   resolveExternalPlanSpecIdentity,
@@ -409,20 +416,14 @@ type MergedCheckResult = { merged: true } | { merged: false; reason: string };
  */
 async function isMerged(branch: string, runner: AsyncSubprocessRunner, cwd = "."): Promise<MergedCheckResult> {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "view", branch, "--json", "state,mergedAt"],
-      cwd,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output);
-    if (parsed.state === "MERGED" && parsed.mergedAt) {
+    const view = await viewPrState(runner, cwd, branch, networkSubprocessOptions());
+    if (view.state === "MERGED" && view.mergedAt) {
       return { merged: true };
     }
-    return { merged: false, reason: `PR state is ${parsed.state}` };
+    return { merged: false, reason: `PR state is ${view.state}` };
   } catch (err) {
-    if (err instanceof AsyncSubprocessError) {
-      return { merged: false, reason: `gh failed: ${err.message}` };
+    if (err instanceof GitHubOperationError || err instanceof AsyncSubprocessError) {
+      return { merged: false, reason: `gh failed: ${err instanceof Error ? err.message : String(err)}` };
     }
     return { merged: false, reason: `Unexpected error: ${String(err)}` };
   }
@@ -520,14 +521,13 @@ async function ghPrHeadRecordsForBranch(
   runner: AsyncSubprocessRunner,
 ): Promise<GhPrHeadRecord[] | undefined> {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "list", "--head", branch, "--state", "all", "--json", "number,state,mergedAt,headRefOid"],
-      repoRoot,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output) as GhPrHeadRecord[];
-    return Array.isArray(parsed) ? parsed : undefined;
+    const rows = await listPrs(runner, repoRoot, { branch, state: "all" }, networkSubprocessOptions());
+    return rows.map((row) => ({
+      number: row.number,
+      ...(row.state !== undefined ? { state: row.state } : {}),
+      ...(row.mergedAt !== undefined ? { mergedAt: row.mergedAt } : {}),
+      ...(row.headRefOid !== undefined ? { headRefOid: row.headRefOid } : {}),
+    }));
   } catch {
     return undefined;
   }
@@ -553,16 +553,10 @@ async function listGhPrCommentBodies(
   runner: AsyncSubprocessRunner,
 ): Promise<string[] | undefined> {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "view", String(prNumber), "--json", "comments"],
-      repoRoot,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output) as { comments?: { body?: string }[] };
-    if (!Array.isArray(parsed.comments)) return undefined;
+    const activity = await viewPrReviewActivity(runner, repoRoot, prNumber, networkSubprocessOptions());
+    if (!Array.isArray(activity.comments)) return undefined;
     const bodies: string[] = [];
-    for (const comment of parsed.comments) {
+    for (const comment of activity.comments) {
       if (typeof comment.body === "string") bodies.push(comment.body);
     }
     return bodies;
@@ -577,19 +571,9 @@ async function ghSuccessorPrMergedInRepo(
   runner: AsyncSubprocessRunner,
 ): Promise<boolean> {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "view", String(successorPrNumber), "--json", "state,mergedAt,isCrossRepository"],
-      repoRoot,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output) as {
-      state?: string;
-      mergedAt?: string | null;
-      isCrossRepository?: boolean;
-    };
-    if (parsed.isCrossRepository === true) return false;
-    return parsed.state === "MERGED" && Boolean(parsed.mergedAt);
+    const view = await viewPrState(runner, repoRoot, successorPrNumber, networkSubprocessOptions());
+    if (view.isCrossRepository === true) return false;
+    return view.state === "MERGED" && Boolean(view.mergedAt);
   } catch {
     return false;
   }
@@ -630,15 +614,8 @@ export async function planSubsumedPrGateAllows(
   runner: AsyncSubprocessRunner,
 ): Promise<boolean> {
   try {
-    const output = await runner.runAsync(
-      "gh",
-      ["pr", "list", "--head", branch, "--state", "all", "--json", "state"],
-      repoRoot,
-      networkSubprocessOptions(),
-    );
-    const parsed = JSON.parse(output) as GhPrHeadRecord[];
-    if (!Array.isArray(parsed)) return false;
-    return !parsed.some((pr) => pr.state === "OPEN");
+    const rows = await listPrs(runner, repoRoot, { branch, state: "all" }, networkSubprocessOptions());
+    return !rows.some((pr) => pr.state === "OPEN");
   } catch {
     return false;
   }
@@ -1259,18 +1236,8 @@ type OpenPr = { number: number; isDraft: boolean };
 
 /** List open PRs whose head is <branch> via `gh pr list`. Throws on gh failure or malformed output. */
 async function listOpenPrsForBranch(branch: string, cwd: string, runner: AsyncSubprocessRunner): Promise<OpenPr[]> {
-  const output = await runner.runAsync(
-    "gh",
-    ["pr", "list", "--head", branch, "--state", "open", "--json", "number,isDraft"],
-    cwd,
-    networkSubprocessOptions(),
-  );
-  const parsed: unknown = JSON.parse(output);
-  if (!Array.isArray(parsed)) throw new Error("unexpected gh response");
-  return parsed.map((item: unknown) => {
-    const pr = item as { number?: number; isDraft?: boolean };
-    return { number: pr.number ?? 0, isDraft: pr.isDraft ?? false };
-  });
+  const rows = await listPrs(runner, cwd, { branch, state: "open" }, networkSubprocessOptions());
+  return rows.map((row) => ({ number: row.number, isDraft: row.isDraft ?? false }));
 }
 
 function hasInRepoArtifactOwner(
@@ -1550,11 +1517,10 @@ async function applyEndArchivePublication(
         throw failure;
       }
     };
-    const gh = async (cwd: string, args: readonly string[]) => runner.runAsync("gh", [...args], cwd);
     try {
       const result = await publishArchiveReady(
         { worktreePath: target.worktreePath, branch: target.branch, baseRef, title, body },
-        { git, gh },
+        { git, gh: ghSubprocessSeamFromRunner(runner) },
       );
       io.stdout(`${result.prUrl}\n`);
     } catch (failure: unknown) {
@@ -4529,7 +4495,7 @@ async function performAbandonmentSteps(
 
   if (prNumber !== undefined) {
     try {
-      await runner.runAsync("gh", ["pr", "close", String(prNumber)], cwd, networkSubprocessOptions());
+      await closePr(runner, cwd, prNumber, networkSubprocessOptions());
       io.stdout(`Closed PR #${prNumber}\n`);
       destroyed.closedPrNumber = prNumber;
     } catch (err) {

@@ -200,9 +200,10 @@ export type PrListEntry = {
   isDraft?: boolean;
   state?: PrState;
   headRefOid?: string;
+  mergedAt?: string | null;
 };
 
-const PR_LIST_FIELDS = "number,url,baseRefName,isDraft,state,headRefOid";
+const PR_LIST_FIELDS = "number,url,baseRefName,isDraft,state,headRefOid,mergedAt";
 
 function prListEntryOf(row: unknown, stdout: string): PrListEntry {
   const record = (row ?? {}) as Record<string, unknown>;
@@ -217,6 +218,7 @@ function prListEntryOf(row: unknown, stdout: string): PrListEntry {
     ...(typeof record.isDraft === "boolean" ? { isDraft: record.isDraft } : {}),
     ...(state !== undefined ? { state } : {}),
     ...(typeof record.headRefOid === "string" ? { headRefOid: record.headRefOid } : {}),
+    ...(record.mergedAt === null || typeof record.mergedAt === "string" ? { mergedAt: record.mergedAt } : {}),
   };
 }
 
@@ -262,29 +264,50 @@ export async function viewPr(
   return { number: record.number, url: record.url, baseRefName: record.baseRefName };
 }
 
-type PrStateView = { state: PrState; merged: boolean; mergedAt: string | null };
+type PrStateView = {
+  state: PrState;
+  merged: boolean;
+  mergedAt: string | null;
+  isCrossRepository?: boolean;
+};
 
 /** Open/closed/merged state of a PR; `merged` is true only for `MERGED` and `mergedAt` is then set. */
 export async function viewPrState(
   runner: AsyncSubprocessRunner,
   cwd: string,
-  prNumber: number,
+  selector: PrSelector,
   options: GitHubOperationOptions = {},
 ): Promise<PrStateView> {
   const stdout = await gh(
     runner,
     cwd,
     "pr-view",
-    ["pr", "view", String(prNumber), "--json", "state,mergedAt"],
+    ["pr", "view", String(selector), "--json", "state,mergedAt,isCrossRepository"],
     options,
   );
   const record = (parseJson("pr-view", stdout) ?? {}) as Record<string, unknown>;
   const state = prStateOf(record.state);
   if (state === undefined) {
-    throw malformed("pr-view", `unexpected gh pr view state for #${prNumber}: ${JSON.stringify(record.state)}`, stdout);
+    throw malformed(
+      "pr-view",
+      `unexpected gh pr view state for ${String(selector)}: ${JSON.stringify(record.state)}`,
+      stdout,
+    );
   }
   const mergedAt = typeof record.mergedAt === "string" ? record.mergedAt : null;
-  return { state, merged: state === "MERGED", mergedAt };
+  const isCrossRepository =
+    record.isCrossRepository === true ? true : record.isCrossRepository === false ? false : undefined;
+  return {
+    state,
+    merged: state === "MERGED",
+    mergedAt,
+    ...(isCrossRepository !== undefined ? { isCrossRepository } : {}),
+  };
+}
+
+/** Adapts an injected subprocess runner to the raw gh seam publication uses when tests inject `runner`. */
+export function ghSubprocessSeamFromRunner(runner: AsyncSubprocessRunner): GhCommandSeam {
+  return (cwd, args, options) => runner.runAsync("gh", [...args], cwd, { ...networkSubprocessOptions(), ...options });
 }
 
 export type PrReviewActivity = {

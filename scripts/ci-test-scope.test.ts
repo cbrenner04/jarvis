@@ -10,13 +10,8 @@ describe("resolveCiTestScope", () => {
     expect(resolveCiTestScope(["v2/src/foo.ts"], true)).toEqual(["test:v2", "test:integration:v2"]);
   });
 
-  test("shared-only change runs v2 + shared slices", () => {
-    expect(resolveCiTestScope(["v2/src/shared/git.ts"], true)).toEqual([
-      "test:v2",
-      "test:integration:v2",
-      "test:shared",
-      "test:integration:shared",
-    ]);
+  test("shared-only change runs v2 slices only", () => {
+    expect(resolveCiTestScope(["v2/src/shared/git.ts"], true)).toEqual(["test:v2", "test:integration:v2"]);
   });
 
   test("v1 + v2 change scopes on v2 only", () => {
@@ -69,8 +64,8 @@ describe("resolveCiTestScope", () => {
     expect(resolveCiTestScope(["package.json", "v1/docs/run-loop.md"], true)).toBe("full");
   });
 
-  test("test/ (harness) change runs shared test slices", () => {
-    expect(resolveCiTestScope(["test/setup-fake-agents.ts"], true)).toEqual(["test:shared", "test:integration:shared"]);
+  test("test/ (harness) change runs v2 test slices", () => {
+    expect(resolveCiTestScope(["test/setup-fake-agents.ts"], true)).toEqual(["test:v2", "test:integration:v2"]);
   });
 
   test("empty changed-path input runs full suite", () => {

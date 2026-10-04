@@ -16,8 +16,12 @@ import {
   v2Tests,
   walkV2TestFiles,
 } from "./run-v2-tests.ts";
-import { sharedTests } from "./run-shared-tests.ts";
-import { walkTestFiles } from "./test-slice.ts";
+import { sliceTestFiles, walkTestFiles } from "./test-slice.ts";
+
+function formerSharedTests(mode: "agent" | "integration"): string[] {
+  const roster = [...walkTestFiles("v2/src/shared"), ...walkTestFiles("test"), ...walkTestFiles("scripts")];
+  return sliceTestFiles(roster, mode);
+}
 
 const POLL_UNTIL_DONE_FILE = "v2/src/commands/workflow.test.ts";
 const SUBPROCESS_SPAWNING_FILE = "v2/src/execution/diff-derived-mutation-verifier.test.ts";
@@ -30,8 +34,8 @@ describe("walkV2TestFiles", () => {
 
   test("v2 discovery roster matches former sharedTests baseline", () => {
     const all = walkV2TestFiles();
-    const baselineAgent = sharedTests("agent");
-    const baselineIntegration = sharedTests("integration");
+    const baselineAgent = formerSharedTests("agent");
+    const baselineIntegration = formerSharedTests("integration");
     const v2Agent = v2Tests("agent");
     const v2Integration = v2Tests("integration");
     for (const file of [...baselineAgent, ...baselineIntegration]) {

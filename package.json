@@ -26,8 +26,6 @@
     "test:cost": "bun run scripts/measure-test-cost.ts",
     "test:v2": "bun run scripts/run-v2-tests.ts agent",
     "test:integration:v2": "bun run scripts/run-v2-tests.ts integration",
-    "test:shared": "bun run scripts/run-shared-tests.ts agent",
-    "test:integration:shared": "bun run scripts/run-shared-tests.ts integration",
     "coverage": "bun test --coverage ./v2/ ./test/",
     "coverage:v2": "bun test --coverage ./v2/",
     "coverage:shared": "bun test --coverage ./v2/src/shared/ ./test/",

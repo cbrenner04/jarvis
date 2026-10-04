@@ -25,8 +25,8 @@ describe("Test slice boundaries", () => {
     const pkgJsonText = await Bun.file("package.json").text();
     const pkgJson = JSON.parse(pkgJsonText);
     expect(pkgJson.scripts.test).toBe("bun run scripts/run-tests.ts");
-    expect(pkgJson.scripts["test:shared"]).toBe("bun run scripts/run-shared-tests.ts agent");
-    expect(pkgJson.scripts["test:integration:shared"]).toBe("bun run scripts/run-shared-tests.ts integration");
+    expect(pkgJson.scripts["test:shared"]).toBeUndefined();
+    expect(pkgJson.scripts["test:integration:shared"]).toBeUndefined();
     expect(pkgJson.scripts.coverage).toBe("bun test --coverage ./v2/ ./test/");
   });
 

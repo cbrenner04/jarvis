@@ -22,6 +22,8 @@ Natural-language requests use the same closed action catalog and admission paths
 
 **Shell quoting:** only the shell's word splitting applies — Jarvis does not re-parse quotes inside argv. Use one quoted argument when the sentence must stay one token; use `jarvis request …` when words should stay separate without shell globbing. Variable and command substitution happen before Jarvis runs.
 
+**Routing audit (`~/.jarvis/routing-audit.jsonl`):** each free-text invocation appends one JSON line (`appendFile`, create-if-missing): `at` (ISO-8601), `operatorSessionId`, `requestSha256` (SHA-256 hex of the trimmed request body — not the raw text), `requestLength`, `outcome` (`routing-rejected` | `routing-failed` | `validation-rejected` | `resolution-rejected` | `dispatched`), and when applicable `action`, `dispatchExitCode`, `reason`. Audit write failures log a stderr warning and do not change the routing exit code. There is no cross-invocation dedupe by `requestSha256`; repeating the same sentence starts a new admission attempt. Free-text dispatch performs at most one daemon RPC per invocation — no in-process retry on `rpc-transport-failure` or `connection-lifecycle-failure`. After a transport-class failure the audit records `outcome: "dispatched"` with the failure in `reason`; confirm daemon/pipeline state before re-running the same request so a succeeded first attempt is not duplicated blindly.
+
 ## Where planning artifacts live
 
 Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project that is `v2/spec` (the default).

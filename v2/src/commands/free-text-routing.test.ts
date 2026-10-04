@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RoutingInvocationResult } from "../../../shared/invocation/agents.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
@@ -14,7 +14,8 @@ import {
   type PipelineStartAdmissionDeps,
   type PipelineStartAdmissionInput,
 } from "./pipeline-start-admission.ts";
-import { routingCatalogExcerpt, runFreeTextRouting, type FreeTextRoutingSeams } from "./free-text-routing.ts";
+import { type RoutingAuditLine, routingAuditFilePath } from "./free-text-routing-audit.ts";
+import { routingCatalogExcerpt, runFreeTextRouting } from "./free-text-routing.ts";
 
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
   claude: {
@@ -54,10 +55,16 @@ type AdmissionHarness = {
 let fixtureRoot: string;
 let invocationCwd: string;
 let seedRelativePath: string;
+let jarvisHomeDir: string;
+let routingAuditPath: string;
 
 beforeAll(() => {
   mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
   fixtureRoot = trackedMkdtempSync(join(process.cwd(), ".scratch", "free-text-routing-"));
+  jarvisHomeDir = join(fixtureRoot, "jarvis-home");
+  mkdirSync(jarvisHomeDir, { recursive: true });
+  process.env.JARVIS_HOME = jarvisHomeDir;
+  routingAuditPath = routingAuditFilePath(jarvisHomeDir);
   invocationCwd = join(fixtureRoot, "invocation");
   mkdirSync(invocationCwd);
   seedRelativePath = "seeds/intent.md";
@@ -66,10 +73,12 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  delete process.env.JARVIS_HOME;
   rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
 function makeAdmissionHarness(overrides: Partial<PipelineStartAdmissionDeps> = {}): AdmissionHarness {
+  const { connect: connectOverride, request: requestOverride, ...restOverrides } = overrides;
   const connectCalls = { value: 0 };
   const requests: RequestRecord[] = [];
   const deps: PipelineStartAdmissionDeps = {
@@ -81,15 +90,19 @@ function makeAdmissionHarness(overrides: Partial<PipelineStartAdmissionDeps> = {
     loadAgentModelConfig: () => AGENT_MODEL_CONFIG,
     resolveProjectPipeline,
     getPipelineDefinition,
-    ...overrides,
-    connect: async () => {
-      connectCalls.value += 1;
-      return { close: () => undefined };
-    },
-    request: async (_connection, method, params) => {
-      requests.push({ method, params });
-      return { pipelineId: "pipeline-123" };
-    },
+    ...restOverrides,
+    connect:
+      connectOverride ??
+      (async () => {
+        connectCalls.value += 1;
+        return { close: () => undefined };
+      }),
+    request:
+      requestOverride ??
+      (async (_connection, method, params) => {
+        requests.push({ method, params });
+        return { pipelineId: "pipeline-123" };
+      }),
   };
   return { deps, connectCalls, requests };
 }
@@ -126,6 +139,16 @@ function makeCliDeps(overrides: Partial<CliDeps> = {}): CliDeps {
 
 function routingOk(stdout: string): RoutingInvocationResult {
   return { kind: "ok", stdout, stderr: "" };
+}
+
+function readRoutingAuditLines(): RoutingAuditLine[] {
+  const raw = readFileSync(routingAuditPath, "utf8").trim();
+  if (raw.length === 0) return [];
+  return raw.split("\n").map((line) => JSON.parse(line) as RoutingAuditLine);
+}
+
+function truncateRoutingAudit(): void {
+  writeFileSync(routingAuditPath, "", "utf8");
 }
 
 function expectNoDaemonRpc(harness: AdmissionHarness): void {
@@ -394,7 +417,7 @@ describe("runFreeTextRouting", () => {
     const exit = await runFreeTextRouting("?", io, makeCliDeps(), "s", {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.approve", pipelineId })),
       runPipelineCommand: async (argv) => {
-        pipelineArgv.push(argv);
+        pipelineArgv.push([...argv]);
         return 0;
       },
     });
@@ -452,5 +475,80 @@ describe("runFreeTextRouting", () => {
     expect(exit).toBe(1);
     expectRoutingStderr(io, "no-routable-agent");
     expectNoDaemonRpc(harness);
+  });
+
+  describe("routing execution audit", () => {
+    beforeEach(() => {
+      truncateRoutingAudit();
+    });
+
+    test("appends validation-rejected audit line with operatorSessionId", async () => {
+      const harness = makeAdmissionHarness();
+      const io = captureIo();
+      const operatorSessionId = "audit-session-validation";
+      const exit = await runFreeTextRouting("?", io, makeCliDeps(), operatorSessionId, {
+        invokeRouting: async () =>
+          routingOk(JSON.stringify({ action: "run.log", runId: "00000000-0000-4000-8000-000000000001", extra: "x" })),
+      });
+      expect(exit).toBe(1);
+      expectRoutingStderr(io, "extra-field");
+      expectNoDaemonRpc(harness);
+      const lines = readRoutingAuditLines();
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.operatorSessionId).toBe(operatorSessionId);
+      expect(lines[0]?.outcome).toBe("validation-rejected");
+      expect(lines[0]?.reason).toBe("extra-field");
+    });
+
+    test("appends dispatched audit line after successful pipeline.start", async () => {
+      const routingHarness = makeAdmissionHarness();
+      const io = captureIo();
+      const operatorSessionId = "audit-session-dispatch";
+      const routingJson = JSON.stringify({
+        action: "pipeline.start",
+        seedPath: seedRelativePath,
+        project: "demo",
+      });
+      const exit = await runFreeTextRouting("start pipeline for seed", io, makeCliDeps(), operatorSessionId, {
+        invokeRouting: async () => routingOk(routingJson),
+        admitPipelineStart: async (input) => admitPipelineStart(input, routingHarness.deps),
+      });
+      expect(exit).toBe(0);
+      const lines = readRoutingAuditLines();
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.operatorSessionId).toBe(operatorSessionId);
+      expect(lines[0]?.outcome).toBe("dispatched");
+      expect(lines[0]?.action).toBe("pipeline.start");
+      expect(lines[0]?.dispatchExitCode).toBe(0);
+    });
+
+    test("attempts one pipeline_start RPC and audits transport failure as dispatched", async () => {
+      let routingHarness: AdmissionHarness;
+      routingHarness = makeAdmissionHarness({
+        request: async (_connection, method, params) => {
+          routingHarness.requests.push({ method, params });
+          throw new Error("IPC connection lost");
+        },
+      });
+      const io = captureIo();
+      const routingJson = JSON.stringify({
+        action: "pipeline.start",
+        seedPath: seedRelativePath,
+        project: "demo",
+      });
+      const exit = await runFreeTextRouting("start pipeline for seed", io, makeCliDeps(), "audit-session-transport", {
+        invokeRouting: async () => routingOk(routingJson),
+        admitPipelineStart: async (input) => admitPipelineStart(input, routingHarness.deps),
+      });
+      expect(exit).toBe(1);
+      expect(routingHarness.connectCalls.value).toBe(1);
+      expect(routingHarness.requests).toHaveLength(1);
+      expect(routingHarness.requests[0]?.method).toBe("pipeline_start");
+      const lines = readRoutingAuditLines();
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.outcome).toBe("dispatched");
+      expect(lines[0]?.reason).toBe("rpc-transport-failure");
+      expect(lines[0]?.dispatchExitCode).toBe(1);
+    });
   });
 });

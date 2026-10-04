@@ -92,7 +92,7 @@ export function findCommand(name: string): CommandEntry | undefined {
   return commandEntries.find((entry) => entry.name === name);
 }
 
-export type FreeTextArgvClassification =
+type FreeTextArgvClassification =
   | { kind: "body"; body: string }
   | { kind: "empty-request" }
   | { kind: "unknown-flag"; flag: string };

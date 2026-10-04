@@ -41,7 +41,7 @@ export const FREE_TEXT_ROUTING_STDERR_PREFIX = "free-text-routing:";
 
 const TARGET_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type RoutingInvocationSeam = (args: { prompt: string; cwd: string }) => Promise<RoutingInvocationResult>;
+type RoutingInvocationSeam = (args: { prompt: string; cwd: string }) => Promise<RoutingInvocationResult>;
 
 export type FreeTextRoutingSeams = {
   invokeRouting?: RoutingInvocationSeam;
@@ -97,6 +97,16 @@ function pipelineStartAdmissionDeps(cliDeps: CliDeps): PipelineStartAdmissionDep
   };
 }
 
+/** Routing binding resolution as a value: a refusal (no eligible vendor) becomes the command's error result. */
+function resolveBindingsOrError(agents: readonly string[], config: Parameters<typeof resolveRoutingBindings>[1]) {
+  try {
+    return resolveRoutingBindings(agents, config, (binding) => createRoutingAgentBinding(binding));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { kind: "error" as const, exitCode: -1, stderr: message };
+  }
+}
+
 async function defaultInvokeRouting(
   prompt: string,
   cwd: string,
@@ -113,13 +123,8 @@ async function defaultInvokeRouting(
   if (isLoadError(config)) {
     return { kind: "error", exitCode: -1, stderr: config.errors.join("; ") };
   }
-  let bindings;
-  try {
-    bindings = resolveRoutingBindings(agents, config, (binding) => createRoutingAgentBinding(binding));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { kind: "error", exitCode: -1, stderr: message };
-  }
+  const bindings = resolveBindingsOrError(agents, config);
+  if ("stderr" in bindings) return bindings;
   const execution = await executeWithQuotaFallback({
     prompt,
     cwd,

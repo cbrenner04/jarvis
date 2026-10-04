@@ -10,8 +10,8 @@ const NO_TEST_IMPACT_PATTERNS = [
   /^ready-intents\//,
   /^reports\//,
   /^v1\//,
-  /^v2\/docs\//,
-  /^v2\/spec\//,
+  /^docs\//,
+  /^spec\//,
   /^[^/]+\.md$/,
   /^LICENSE$/,
 ];
@@ -34,11 +34,11 @@ export function classifyChangedPaths(paths: string[]): ScopedTests {
   }
 
   for (const path of filtered) {
-    if (!path.startsWith("v2/") && !path.startsWith("test/")) {
+    if (!path.startsWith("src/") && !path.startsWith("test/")) {
       return "full";
     }
   }
-  return ["test:v2", "test:integration:v2"];
+  return ["test:agent", "test:integration"];
 }
 
 /** Entry point: falls back to `full` whenever the base SHA didn't resolve. */

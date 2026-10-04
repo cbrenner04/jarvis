@@ -1,0 +1,1621 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { RUN_DISMISS_USAGE, RUN_RESUME_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
+import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
+import { acquireGateInvocationLease } from "../execution/gate-invocation-lease.ts";
+import { createReadyFinalizer } from "../execution/ready-finalize.ts";
+import type { PersistedRecord } from "../persistence/log-stream.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import {
+  type CliRepoFixture,
+  captureIo,
+  cliMain as main,
+  makeCliRepoFixture,
+  makeIpcClient,
+} from "../testing/cli-test-helpers.ts";
+import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { formatSlotRedriveCell } from "./run.ts";
+
+let fx: CliRepoFixture;
+
+beforeAll(() => {
+  fx = makeCliRepoFixture();
+});
+
+afterAll(() => {
+  fx.cleanup();
+});
+
+const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000010";
+const OPERATOR_SESSION_ID = "00000000-0000-4000-8000-000000000002";
+const SOLO_LIST_ROW_REQUEST_ID = "00000000-0000-4000-8000-000000000011";
+const COMPLETION_COMMIT_ERROR_MSG = "failed to push some refs to 'origin/feature'";
+
+function soloDaemonListRow(runId: string) {
+  return { runId, project: "demo", branch: "main", status: "completed", isLive: true };
+}
+
+function waitResponse(result: unknown): unknown {
+  return { kind: "response", id: WAIT_REQUEST_ID, result };
+}
+
+function waitError(code: string, message: string): unknown {
+  return { kind: "error", id: WAIT_REQUEST_ID, code, message };
+}
+
+async function runSoloList(runs: Record<string, unknown>[], extraArgv: readonly string[] = []) {
+  const cap = captureIo();
+  const sent: unknown[] = [];
+  const code = await withFixedUuid(SOLO_LIST_ROW_REQUEST_ID, () =>
+    main(["run", "list", ...extraArgv], cap.io, {
+      connectIpcClient: async () =>
+        makeIpcClient([{ kind: "response", id: SOLO_LIST_ROW_REQUEST_ID, result: { runs } }], { sent }),
+    }),
+  );
+  const stdout = cap.read().stdout;
+  return {
+    code,
+    stdout,
+    sent,
+    row: () => stdout.trimEnd().split("\t"),
+    rows: () =>
+      stdout
+        .trimEnd()
+        .split("\n")
+        .map((line) => line.split("\t")),
+  };
+}
+
+async function runWait(
+  cap: ReturnType<typeof captureIo>,
+  runId: string,
+  frames: unknown[],
+  sent: unknown[] = [],
+): Promise<number> {
+  return withFixedUuid([OPERATOR_SESSION_ID, WAIT_REQUEST_ID], () =>
+    main(["run", "wait", runId], cap.io, {
+      connectIpcClient: async () => makeIpcClient(frames, { sent }),
+    }),
+  );
+}
+
+function logRecord(seq: number, eventKind: PersistedRecord["event"]["kind"]): PersistedRecord {
+  return {
+    runId: "run-123",
+    seq,
+    ts: `2026-06-28T03:27:0${seq}.000Z`,
+    event:
+      eventKind === "iteration_started"
+        ? { kind: "iteration_started", attemptId: `attempt-${seq}` }
+        : eventKind === "boundary_committed"
+          ? {
+              kind: "boundary_committed",
+              attemptId: `attempt-${seq}`,
+              outcomeKind: "progress",
+              runStatus: "in-progress",
+            }
+          : {
+              kind: "loop_finished",
+              loopOutcomeKind: "complete",
+              iterationsConsumed: 1,
+              resumable: false,
+            },
+  };
+}
+
+describe("dispatch to keyed daemons", () => {
+  test("run resume dispatches without listing runs, so live runs cannot refuse it", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000001";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "resume", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { ok: true, outcome: "settled", runId: "run-123", status: "killed", survivors: [] },
+              },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      kind: "request",
+      method: "resume",
+      params: { runId: "run-123" },
+    });
+    expect(cap.read()).toEqual({ stdout: "resumed run-123\n", stderr: "" });
+  });
+
+  test("run resume --allow-lane-pr-republish forwards allowLanePrRepublish on the resume RPC", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000002";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "resume", "run-123", "--allow-lane-pr-republish"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent[0]).toMatchObject({
+      kind: "request",
+      method: "resume",
+      params: { runId: "run-123", allowLanePrRepublish: true },
+    });
+    const frame = sent[0] as { params: Record<string, unknown> };
+    expect(frame.params).not.toHaveProperty("allowLanePrRepublish", false);
+    expect(cap.read()).toEqual({ stdout: "resumed run-123\n", stderr: "" });
+  });
+});
+
+describe("keyed daemon auto-start on dispatch", () => {
+  const KEYED_SOCKET = "/keyed/digest-a.sock";
+
+  test("read-only run list reports the missing daemon instead of starting one", async () => {
+    const cap = captureIo();
+    let started = 0;
+    const code = await main(["run", "list"], cap.io, {
+      socketPath: KEYED_SOCKET,
+      connectIpcClient: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+      startDaemon: async (socketPath) => {
+        started += 1;
+        return { pid: 7, socketPath };
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(started).toBe(0);
+    expect(cap.read().stderr).toBe("ECONNREFUSED\n");
+  });
+});
+
+describe("run control", () => {
+  test("run log prints replay and follow records as compact JSONL in order", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000004";
+    const records = [
+      logRecord(1, "iteration_started"),
+      logRecord(2, "boundary_committed"),
+      logRecord(3, "loop_finished"),
+      {
+        runId: "run-123",
+        seq: 4,
+        ts: "2026-01-01T00:00:04.000Z",
+        event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" },
+      },
+    ];
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[0]) },
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[1]) },
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[2]) },
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[3]) },
+              { kind: "stream-end", streamId },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
+    expect(cap.read()).toEqual({
+      stdout: `${JSON.stringify(records[0])}\n${JSON.stringify(records[1])}\n${JSON.stringify(records[2])}\n${JSON.stringify(records[3])}\n`,
+      stderr: "",
+    });
+  });
+
+  test("run log stops at stream-end and ignores frames queued after it", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000005";
+    const record = logRecord(1, "iteration_started");
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              { kind: "stream-end", streamId },
+              { kind: "stream-data", streamId, payload: JSON.stringify(record) },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
+  test("run log sends no follow flag by default", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000006";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123"], cap.io, {
+        connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
+  });
+
+  test("run log --follow sends follow: true", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000007";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123", "--follow"], cap.io, {
+        connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0, follow: true } }]);
+  });
+
+  test("run log --follow exits when the daemon closes the stream", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000009";
+    const record = logRecord(1, "iteration_started");
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123", "--follow"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              { kind: "stream-data", streamId, payload: JSON.stringify(record) },
+              { kind: "stream-end", streamId },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0, follow: true } }]);
+    expect(cap.read()).toEqual({ stdout: `${JSON.stringify(record)}\n`, stderr: "" });
+  });
+
+  test("run log exits 0 when the daemon closes the connection without a stream-end frame", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000012";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "run-123"], cap.io, {
+        connectIpcClient: async () => makeIpcClient([], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+  });
+
+  test("run log --follow before the run id also sends follow: true", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000008";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, streamId], () =>
+      main(["run", "log", "--follow", "run-123"], cap.io, {
+        connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0, follow: true } }]);
+  });
+
+  test("run log rejects extra positional args", async () => {
+    const cap = captureIo();
+    const code = await main(["run", "log", "run-123", "extra"], cap.io, {});
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("usage:");
+  });
+
+  test("run pause is an unknown subcommand", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "pause", "run-123"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("must not connect: retired verb");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: RUN_USAGE });
+    expect(RUN_USAGE).not.toContain("pause");
+  });
+
+  test("run start is an unknown subcommand", async () => {
+    const cap = captureIo();
+
+    const code = await main(fx.runStartArgs, cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("must not connect: retired verb");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: RUN_USAGE });
+    expect(RUN_USAGE).not.toContain("start");
+  });
+
+  test("run resume passes through terminal_run errors", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000006";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "resume", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([
+            { kind: "error", id: requestId, code: "terminal_run", message: "Cannot resume a completed run" },
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "terminal_run: Cannot resume a completed run\n" });
+  });
+
+  test("run kill passes through unknown_run errors", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000007";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "run-404"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "error", id: requestId, code: "unknown_run", message: "Run run-404 not found" }]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
+  });
+
+  test("run kill --force forwards the force param", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000012";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "--force", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { ok: true, outcome: "settled", runId: "run-123", status: "killed", survivors: [] },
+              },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([
+      { kind: "request", id: requestId, method: "kill", params: { runId: "run-123", force: true } },
+    ]);
+    expect(cap.read()).toEqual({ stdout: "killed run-123\n", stderr: "" });
+  });
+
+  test("run kill without --force sends no force param", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000013";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { ok: true, outcome: "settled", runId: "run-123", status: "killed", survivors: [] },
+              },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method: "kill", params: { runId: "run-123" } }]);
+    expect(cap.read()).toEqual({ stdout: "killed run-123\n", stderr: "" });
+  });
+
+  test("run kill reports a non-settling outcome on stderr with exit 1 and prints no killed line", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000031";
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: {
+                ok: false,
+                outcome: "unsettled",
+                runId: "run-123",
+                status: "in-progress",
+                survivors: [{ pid: 4242, ppid: 77 }],
+                boundMs: 30000,
+              },
+            },
+          ]),
+      }),
+    );
+    expect(code).toBe(1);
+    const out = cap.read();
+    expect(out.stdout).toBe("");
+    expect(out.stderr).toContain("kill run-123: not settled within 30000ms; durable status is in-progress");
+    expect(out.stderr).toContain("pid 4242 (ppid 77)");
+    expect(out.stderr).not.toContain("killed run-123");
+  });
+
+  test("run kill --force prints killed and warns about surviving children", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000032";
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "--force", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: {
+                ok: true,
+                outcome: "force-settled",
+                runId: "run-123",
+                status: "killed",
+                survivors: [{ pid: 5151, ppid: null }],
+              },
+            },
+          ]),
+      }),
+    );
+    expect(code).toBe(0);
+    const out = cap.read();
+    expect(out.stdout).toBe("killed run-123\n");
+    expect(out.stderr).toContain(
+      "warning: run-123 force-settled killed while children may survive: pid 5151 (ppid unknown)",
+    );
+  });
+
+  test.each([
+    ["legacy acknowledgement", { ok: true }],
+    ["unknown outcome", { ok: true, outcome: "acked", runId: "run-123", status: "killed", survivors: [] }],
+    ["missing survivors", { ok: false, outcome: "unsettled", runId: "run-123", status: "in-progress", boundMs: 1 }],
+    ["other run id", { ok: true, outcome: "settled", runId: "run-999", status: "killed", survivors: [] }],
+  ])("run kill fails closed on a malformed outcome (%s)", async (_label, result) => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000033";
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "run-123"], cap.io, {
+        connectIpcClient: async () => makeIpcClient([{ kind: "response", id: requestId, result }]),
+      }),
+    );
+    expect(code).toBe(1);
+    const out = cap.read();
+    expect(out.stdout).toBe("");
+    expect(out.stderr).toContain("invalid daemon response");
+  });
+
+  test("run kill run-123 --force also sends force after the run id", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000014";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "run-123", "--force"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { ok: true, outcome: "settled", runId: "run-123", status: "killed", survivors: [] },
+              },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([
+      { kind: "request", id: requestId, method: "kill", params: { runId: "run-123", force: true } },
+    ]);
+    expect(cap.read()).toEqual({ stdout: "killed run-123\n", stderr: "" });
+  });
+
+  test("run kill --force with no run id is a usage error", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "kill", "--force"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("must not connect: usage error");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "usage: jarvis run kill <run-id> [--force]\n" });
+  });
+
+  test("run kill --force passes through run_not_active refusals", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000015";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "--force", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "error",
+                id: requestId,
+                code: "run_not_active",
+                message: "Run run-123 is not currently active",
+              },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([
+      { kind: "request", id: requestId, method: "kill", params: { runId: "run-123", force: true } },
+    ]);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "run_not_active: Run run-123 is not currently active\n",
+    });
+  });
+
+  test("resume rejects --force as a usage error", async () => {
+    for (const { argv, usage } of [
+      { argv: ["run", "resume", "--force", "run-123"], usage: RUN_RESUME_USAGE },
+      { argv: ["run", "resume", "--force"], usage: RUN_RESUME_USAGE },
+    ]) {
+      const cap = captureIo();
+
+      const code = await main(argv, cap.io, {
+        connectIpcClient: async () => {
+          throw new Error("must not connect: usage error");
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: usage });
+    }
+  });
+
+  test("run-control commands print terse connection errors when the socket is unavailable", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "list"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("connect ENOENT /tmp/jarvis.sock");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "connect ENOENT /tmp/jarvis.sock\n" });
+  });
+});
+
+describe("run list/log stable socket only", () => {
+  const INVOKING_SOCKET = "/jarvis/daemon-aaaa.sock";
+
+  function listRow(runId: string, status: string, isLive: boolean) {
+    return { runId, project: "demo", branch: "main", status, isLive };
+  }
+
+  async function runList(requestId: string, runs: unknown[], onConnect?: (socketPath: string) => void) {
+    const cap = captureIo();
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: INVOKING_SOCKET,
+        connectIpcClient: async (socketPath) => {
+          onConnect?.(socketPath);
+          return makeIpcClient([{ kind: "response", id: requestId, result: { runs } }]);
+        },
+      }),
+    );
+    return { code, cap, lines: () => cap.read().stdout.trimEnd().split("\n") };
+  }
+
+  test("run list reports only the stable daemon's run rows, with no cross-socket discovery or merge", async () => {
+    // Inversion target: queryDaemonListsFromSockets in run.ts — discovering and merging other
+    // sockets' rows turns this test RED (the discovery call above throws).
+    const connectAttempts: string[] = [];
+    const { code, lines } = await runList(
+      "00000000-0000-4000-8000-000000000020",
+      [listRow("invoking-run", "completed", false)],
+      (socketPath) => connectAttempts.push(socketPath),
+    );
+
+    expect(code).toBe(0);
+    expect(lines()).toHaveLength(1);
+    expect(lines()[0]).toContain("invoking-run");
+    expect(connectAttempts).toEqual([INVOKING_SOCKET]);
+  });
+
+  test("run list sorts by runId", async () => {
+    const { code, lines } = await runList("00000000-0000-4000-8000-000000000024", [
+      listRow("run-z", "completed", false),
+      listRow("run-a", "completed", false),
+      listRow("run-m", "completed", false),
+    ]);
+
+    expect(code).toBe(0);
+    expect(lines()).toHaveLength(3);
+    expect(lines()[0]).toContain("run-a");
+    expect(lines()[1]).toContain("run-m");
+    expect(lines()[2]).toContain("run-z");
+  });
+
+  test("run list exits with the stable daemon's connection error", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "list"], cap.io, {
+      socketPath: INVOKING_SOCKET,
+      connectIpcClient: async () => {
+        throw new Error("first error");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("first error");
+  });
+
+  const STREAM_REQUEST_ID = "00000000-0000-4000-8000-000000000032";
+
+  test("run log streams a draining-owned run's log by connecting only to the stable socket", async () => {
+    // Inversion target: resolveRunOwnerSocket in run.ts — an owner lookup or direct connect to
+    // another socket before streaming turns this test RED (the discovery call above throws).
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const connectSockets: string[] = [];
+    const record = logRecord(1, "iteration_started");
+    record.runId = "remote-run";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, STREAM_REQUEST_ID], () =>
+      main(["run", "log", "remote-run"], cap.io, {
+        socketPath: INVOKING_SOCKET,
+        connectIpcClient: async (socketPath) => {
+          connectSockets.push(socketPath);
+          return makeIpcClient(
+            [
+              { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
+              { kind: "stream-end", streamId: STREAM_REQUEST_ID },
+            ],
+            { sent },
+          );
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(connectSockets).toEqual([INVOKING_SOCKET]);
+    expect(sent).toEqual([
+      { kind: "stream-open", streamId: STREAM_REQUEST_ID, payload: { runId: "remote-run", afterSeq: 0 } },
+    ]);
+    expect(cap.read().stdout).toBe(`${JSON.stringify(record)}\n`);
+  });
+
+  test("run wait sends one request through the invoking stable address without owner discovery", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const connectSockets: string[] = [];
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, WAIT_REQUEST_ID], () =>
+      main(["run", "wait", "remote-run"], cap.io, {
+        socketPath: INVOKING_SOCKET,
+        connectIpcClient: async (socketPath) => {
+          connectSockets.push(socketPath);
+          return makeIpcClient(
+            [
+              waitResponse({
+                runStatus: "completed",
+                loopOutcomeKind: "complete",
+                iterationsConsumed: 1,
+                resumable: false,
+              }),
+            ],
+            { sent },
+          );
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(connectSockets).toEqual([INVOKING_SOCKET]);
+    expect(sent).toEqual([{ kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "remote-run" } }]);
+    expect(cap.read().stdout).toBe(
+      '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
+    );
+  });
+
+  const UNREACHABLE_DAEMON_ERROR = "connect ENOENT /tmp/jarvis.sock";
+
+  test("run log prints terse connection errors when no daemon is reachable", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "log", "run-123"], cap.io, {
+      socketPath: INVOKING_SOCKET,
+      connectIpcClient: async () => {
+        throw new Error(UNREACHABLE_DAEMON_ERROR);
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: `${UNREACHABLE_DAEMON_ERROR}\n` });
+  });
+
+  test("run wait prints terse connection errors when no daemon is reachable", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "wait", "run-123"], cap.io, {
+      socketPath: INVOKING_SOCKET,
+      connectIpcClient: async () => {
+        throw new Error(UNREACHABLE_DAEMON_ERROR);
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: `${UNREACHABLE_DAEMON_ERROR}\n` });
+  });
+});
+
+describe("run control", () => {
+  test("run list renders surviving-mutation columns independently and omits them when absent", async () => {
+    const { code, rows } = await runSoloList([
+      {
+        runId: "mutation",
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        error: {
+          reason: "surviving_mutation_failed",
+          retryable: true,
+          nextAction: "resume",
+          survivingMutation: "operator-flip",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+          survivingMutationKillingTests: ["src/guard.test.ts"],
+          survivingMutationKillingSetResult: "passed-confirmed",
+        },
+      },
+      { runId: "plain", project: "demo", branch: "main", status: "completed", isLive: false },
+    ]);
+
+    expect(code).toBe(0);
+    const [mutation, plain] = rows();
+    expect(mutation?.[10]).toBe("operator-flip");
+    expect(mutation?.[11]).toBe("src/guard.ts");
+    expect(mutation?.[12]).toBe("17");
+    expect(mutation?.[19]).toBe('["src/guard.test.ts"]');
+    expect(mutation?.[20]).toBe("passed-confirmed");
+    expect(plain?.[10]).toBe("-");
+    expect(plain?.[11]).toBe("-");
+    expect(plain?.[12]).toBe("-");
+    expect(plain?.[19]).toBe("-");
+    expect(plain?.[20]).toBe("-");
+  });
+
+  test("run list renders completionCommitError in trailing column after prUrl", async () => {
+    const { code, row } = await runSoloList([
+      {
+        runId: "shrink",
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        prNumber: 42,
+        prUrl: "https://github.com/demo/pull/42",
+        error: {
+          reason: "completion_commit_failed",
+          retryable: true,
+          nextAction: "resume",
+          completionCommitError: COMPLETION_COMMIT_ERROR_MSG,
+        },
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(row()[13]).toBe("42");
+    expect(row()[14]).toBe("https://github.com/demo/pull/42");
+    expect(row()[15]).toBe(JSON.stringify(COMPLETION_COMMIT_ERROR_MSG));
+  });
+
+  test("run list renders trailing completionCommitError column as - when absent", async () => {
+    const { code, row } = await runSoloList([
+      { runId: "plain", project: "demo", branch: "main", status: "completed", isLive: false },
+    ]);
+
+    expect(code).toBe(0);
+    expect(row()[15]).toBe("-");
+    expect(row()[16]).toBe("-");
+  });
+
+  test("run list confines tab and newline completionCommitError to trailing column", async () => {
+    const completionCommitError = "line1\nline2\tcol";
+    const { code, stdout, row } = await runSoloList([
+      {
+        runId: "shrink",
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        error: {
+          reason: "completion_commit_failed",
+          retryable: true,
+          nextAction: "resume",
+          completionCommitError,
+        },
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(stdout.trimEnd().split("\n")).toHaveLength(1);
+    expect(row()[15]).toBe(JSON.stringify(completionCommitError));
+  });
+
+  test("run list renders invocation stderr as JSON in a stable trailing message column", async () => {
+    const message = "final binding stderr\nsecond line\tcolumn";
+    const { code, stdout, row } = await runSoloList([
+      {
+        runId: "binding-error",
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        error: { reason: "invocation_error", retryable: false, nextAction: "stop", message },
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(stdout.trimEnd().split("\n")).toHaveLength(1);
+    expect(row()[15]).toBe("-");
+    expect(row()[16]).toBe(JSON.stringify(message));
+  });
+
+  test.each([
+    ["configured", "fix_config", "Ready gate command missing (configured): npm run gate"],
+    ["default", "stop", "Ready gate command missing (default): bun run ready"],
+  ] as const)("run list renders %s-source ready_gate_command_missing nextAction and message", async (readyGateCommandSource, nextAction, message) => {
+    const { code, row } = await runSoloList([
+      {
+        runId: `gate-${readyGateCommandSource}`,
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        error: { reason: "ready_gate_command_missing", retryable: false, nextAction, message },
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(row()[5]).toBe("ready_gate_command_missing");
+    expect(row()[7]).toBe(nextAction);
+    expect(row()[16]).toBe(JSON.stringify(message));
+  });
+
+  test("run list renders waiting for gate slot while finalization is queued on the slot", async () => {
+    const runId = "finalization-slot-wait";
+    const agentLease = acquireGateInvocationLease();
+    let releaseGate!: () => void;
+    const gateHeld = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        await gateHeld;
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const pending = finalizer({
+      worktreePath: "/tmp/worktree",
+      baseRef: "main",
+      branch: "feature",
+      prNumber: 1,
+      runId,
+    });
+    await Bun.sleep(5);
+    const error = composeRunOperatorError({ id: runId, status: "in-progress" });
+    expect(error?.message).toBe("waiting for gate slot");
+    const { code, row } = await runSoloList([
+      {
+        runId,
+        project: "demo",
+        branch: "main",
+        status: "in-progress",
+        isLive: true,
+        error,
+      },
+    ]);
+    expect(code).toBe(0);
+    expect(row()[16]).toBe(JSON.stringify("waiting for gate slot"));
+    releaseGate();
+    agentLease?.release();
+    await pending;
+  });
+
+  test("run list renders gate-refusal cause and slot retry cells after message, before the dismissal marker", async () => {
+    const refused = (runId: string, extra: Record<string, unknown>) => ({
+      runId,
+      project: "demo",
+      branch: "main",
+      status: "failed" as const,
+      isLive: false,
+      error: { reason: "gate_invocation_refused", retryable: true, nextAction: "resume", ...extra },
+    });
+    const { code, rows } = await runSoloList([
+      refused("slot", { gateRefusalCause: "slot_contention", slotRedriveCount: 2, slotRedriveBound: 3 }),
+      refused("ceiling", { gateRefusalCause: "ceiling_headroom" }),
+      refused("legacy", { gateRefusalCause: "legacy_unknown" }),
+      { runId: "plain", project: "demo", branch: "main", status: "completed", isLive: false },
+    ]);
+
+    expect(code).toBe(0);
+    const [ceiling, legacy, plain, slot] = rows();
+    expect(slot?.slice(17)).toEqual(["slot_contention", "2/3", "-", "-"]);
+    expect(ceiling?.slice(17)).toEqual(["ceiling_headroom", "-", "-", "-"]);
+    expect(legacy?.slice(17)).toEqual(["legacy_unknown", "-", "-", "-"]);
+    expect(plain?.slice(17)).toEqual(["-", "-", "-", "-"]);
+  });
+
+  test("run list appends review-feedback item id columns", async () => {
+    const { code, row } = await runSoloList([
+      {
+        runId: "review-feedback-run",
+        project: "demo",
+        branch: "lane-branch",
+        status: "completed",
+        isLive: false,
+        reviewFeedbackAddressedItemIds: ["thread-one"],
+        reviewFeedbackDeclinedItemIds: [],
+        reviewFeedbackUnaddressedItemIds: [],
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(row().slice(21)).toEqual([JSON.stringify(["thread-one"]), JSON.stringify([]), JSON.stringify([])]);
+  });
+
+  test("run list --all keeps the dismissal marker at column 22 before review-feedback item id columns", async () => {
+    const { code, row } = await runSoloList(
+      [
+        {
+          runId: "review-feedback-dismissed",
+          project: "demo",
+          branch: "lane-branch",
+          status: "completed",
+          isLive: false,
+          dismissedAt: 1,
+          reviewFeedbackAddressedItemIds: ["thread-one"],
+          reviewFeedbackDeclinedItemIds: [],
+          reviewFeedbackUnaddressedItemIds: [],
+        },
+      ],
+      ["--all"],
+    );
+
+    expect(code).toBe(0);
+    expect(row()[21]).toBe("dismissed");
+    expect(row().slice(22)).toEqual([JSON.stringify(["thread-one"]), JSON.stringify([]), JSON.stringify([])]);
+  });
+
+  test("run list --all keeps the dismissal marker after the refusal cause cells", async () => {
+    const { code, row } = await runSoloList(
+      [
+        {
+          runId: "dismissed-refused",
+          project: "demo",
+          branch: "main",
+          status: "failed",
+          isLive: false,
+          dismissedAt: 1,
+          error: {
+            reason: "gate_invocation_refused",
+            retryable: true,
+            nextAction: "resume",
+            gateRefusalCause: "slot_contention",
+            slotRedriveCount: 1,
+            slotRedriveBound: 3,
+          },
+        },
+      ],
+      ["--all"],
+    );
+
+    expect(code).toBe(0);
+    expect(row().slice(17)).toEqual(["slot_contention", "1/3", "-", "-", "dismissed"]);
+  });
+
+  // Pass-through pin only: `waitForRunCompletion` copies `result.error` verbatim and `parseWaitCompletion`
+  // does no field-level validation, so this asserts the CLI adds no filtering. End-to-end proof that the
+  // daemon populates these fields lives in daemon-wait-run-completion.test.ts.
+  test("run wait passes gateRefusalCause, slotRedriveCount, and slotRedriveBound through unfiltered", async () => {
+    const cap = captureIo();
+    const code = await runWait(cap, "run-refused", [
+      waitResponse({
+        runStatus: "failed",
+        loopOutcomeKind: "gate_invocation_refused",
+        resumable: true,
+        error: {
+          reason: "gate_invocation_refused",
+          retryable: true,
+          nextAction: "resume",
+          gateRefusalCause: "slot_contention",
+          slotRedriveCount: 2,
+          slotRedriveBound: 3,
+        },
+      }),
+    ]);
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(cap.read().stdout.trimEnd()) as {
+      error?: { gateRefusalCause?: string; slotRedriveCount?: number; slotRedriveBound?: number };
+    };
+    expect(parsed.error?.gateRefusalCause).toBe("slot_contention");
+    expect(parsed.error?.slotRedriveCount).toBe(2);
+    expect(parsed.error?.slotRedriveBound).toBe(3);
+  });
+
+  test("formatSlotRedriveCell renders - rather than a partial cell when the bound is absent", () => {
+    const slot = { reason: "gate_invocation_refused", retryable: true, nextAction: "resume" } as const;
+    expect(
+      formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention", slotRedriveCount: 2, slotRedriveBound: 3 }),
+    ).toBe("2/3");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention", slotRedriveCount: 2 })).toBe("-");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention", slotRedriveBound: 3 })).toBe("-");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "slot_contention" })).toBe("-");
+    expect(formatSlotRedriveCell({ ...slot, gateRefusalCause: "ceiling_headroom" })).toBe("-");
+    expect(formatSlotRedriveCell(undefined)).toBe("-");
+  });
+
+  test("run list --all requests dismissed runs", async () => {
+    const { code, sent } = await runSoloList([soloDaemonListRow("solo-run")], ["--all"]);
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([
+      { kind: "request", id: SOLO_LIST_ROW_REQUEST_ID, method: "list", params: { includeDismissed: true } },
+    ]);
+  });
+
+  test("run list without --all omits the includeDismissed opt-in", async () => {
+    const { code, sent } = await runSoloList([soloDaemonListRow("solo-run")]);
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: SOLO_LIST_ROW_REQUEST_ID, method: "list" }]);
+  });
+
+  test("run list --all marks dismissed rows", async () => {
+    const { code, rows } = await runSoloList(
+      [
+        { ...soloDaemonListRow("dismissed-run"), dismissedAt: 123 },
+        { ...soloDaemonListRow("live-run"), dismissedAt: null },
+      ],
+      ["--all"],
+    );
+
+    expect(code).toBe(0);
+    const [dismissed, notDismissed] = rows();
+    expect(dismissed?.[21]).toBe("dismissed");
+    expect(notDismissed?.[21]).toBe("-");
+  });
+
+  test("run list without --all renders no dismissal column", async () => {
+    const { code, row } = await runSoloList([{ ...soloDaemonListRow("dismissed-run"), dismissedAt: 123 }]);
+
+    expect(code).toBe(0);
+    expect(row()).toHaveLength(21);
+  });
+
+  test("run list --all --since <duration> --project <name> composes the opt-in with dimension filters", async () => {
+    const { code, sent } = await runSoloList(
+      [soloDaemonListRow("solo-run")],
+      ["--all", "--since", "1h", "--project", "demo"],
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toHaveLength(1);
+    const frame = sent[0] as { params?: { includeDismissed?: boolean; sinceMs?: number; project?: string } };
+    expect(frame.params?.includeDismissed).toBe(true);
+    expect(frame.params?.project).toBe("demo");
+    expect(typeof frame.params?.sinceMs).toBe("number");
+  });
+
+  test("run wait passes through error.completionCommitError for completion_commit_failed", async () => {
+    const cap = captureIo();
+    const code = await runWait(cap, "run-shrink", [
+      waitResponse({
+        runStatus: "failed",
+        loopOutcomeKind: "completion_commit_failed",
+        resumable: true,
+        error: {
+          reason: "completion_commit_failed",
+          retryable: true,
+          nextAction: "resume",
+          completionCommitError: COMPLETION_COMMIT_ERROR_MSG,
+        },
+      }),
+    ]);
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(cap.read().stdout.trimEnd()) as {
+      error?: { completionCommitError?: string };
+    };
+    expect(parsed.error?.completionCommitError).toBe(COMPLETION_COMMIT_ERROR_MSG);
+  });
+
+  test.each([
+    ["configured", "fix_config", "Ready gate command missing (configured): npm run gate"],
+    ["default", "stop", "Ready gate command missing (default): bun run ready"],
+  ] as const)("run wait passes through %s-source ready_gate_command_missing nextAction and message", async (_readyGateCommandSource, nextAction, message) => {
+    const cap = captureIo();
+    const code = await runWait(cap, "run-shrink", [
+      waitResponse({
+        runStatus: "failed",
+        loopOutcomeKind: "ready_gate_command_missing",
+        resumable: false,
+        error: { reason: "ready_gate_command_missing", retryable: false, nextAction, message },
+      }),
+    ]);
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(cap.read().stdout.trimEnd()) as {
+      error?: { nextAction?: string; message?: string };
+    };
+    expect(parsed.error?.nextAction).toBe(nextAction);
+    expect(parsed.error?.message).toBe(message);
+  });
+
+  test("run wait missing run ID prints run-control usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "wait"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toContain("usage: jarvis run");
+    expect(cap.read().stderr).toContain("wait");
+  });
+
+  test("run wait sends one IPC wait request and prints minified JSON", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await runWait(
+      cap,
+      "run-123",
+      [
+        waitResponse({
+          runStatus: "completed",
+          loopOutcomeKind: "complete",
+          iterationsConsumed: 2,
+          resumable: false,
+        }),
+      ],
+      sent,
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([
+      {
+        kind: "request",
+        id: WAIT_REQUEST_ID,
+        method: "wait",
+        params: { runId: "run-123" },
+      },
+    ]);
+    expect(cap.read()).toEqual({
+      stdout: '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":2,"resumable":false}\n',
+      stderr: "",
+    });
+    expect(cap.read().stdout).not.toContain('"error"');
+  });
+
+  test.each([
+    [{ runStatus: "completed", loopOutcomeKind: "complete" }, 0],
+    [{ runStatus: "failed", loopOutcomeKind: "complete" }, 0],
+    [{ runStatus: "blocked", loopOutcomeKind: "blocked" }, 1],
+    [{ runStatus: "blocked", loopOutcomeKind: "contract_miss" }, 1],
+    [{ runStatus: "paused", loopOutcomeKind: "paused" }, 1],
+    [{ runStatus: "in-progress", loopOutcomeKind: "progress" }, 1],
+    [{ runStatus: "failed", loopOutcomeKind: "invocation_failure" }, 2],
+    [{ runStatus: "failed", loopOutcomeKind: "iteration_timeout" }, 1],
+    [{ runStatus: "completed", loopOutcomeKind: "ready_gate_failed" }, 1],
+    [{ runStatus: "completed", loopOutcomeKind: "ready_gate_out_of_scope" }, 1],
+    [{ runStatus: "completed", loopOutcomeKind: "ready_flip_failed" }, 1],
+    [{ runStatus: "budget-soft-stopped", loopOutcomeKind: "budget-exhausted" }, 5],
+    [{ runStatus: "failed" }, 3],
+    [{ runStatus: "killed" }, 4],
+    [{ runStatus: "budget-soft-stopped" }, 5],
+    [{ runStatus: "completed" }, 1],
+    [{ runStatus: "blocked" }, 1],
+  ] as const)("run wait maps %p to exit %i", async (result, expectedExit) => {
+    const cap = captureIo();
+
+    const code = await runWait(cap, "run-123", [waitResponse(result)]);
+
+    expect(code).toBe(expectedExit);
+    if (!("loopOutcomeKind" in result)) {
+      expect(cap.read().stdout).toBe(`${JSON.stringify({ runStatus: result.runStatus })}\n`);
+    }
+  });
+
+  test("run wait passes through unknown_run errors", async () => {
+    const cap = captureIo();
+
+    const code = await runWait(cap, "run-404", [waitError("unknown_run", "Run run-404 not found")]);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
+  });
+});
+
+describe("run dismiss", () => {
+  function dismissalResponse(requestId: string, result: unknown) {
+    return { kind: "response" as const, id: requestId, result };
+  }
+
+  test("dismiss issues the dismiss request and confirms the run", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000040";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "dismiss", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status: "completed" })], {
+            sent,
+          }),
+      }),
+    );
+    // Keystone checkpoint: rewriting the RPC call to always send "undismiss" turns this test
+    // red while the undismiss test below stays green.
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method: "dismiss", params: { runId: "run-123" } }]);
+    expect(cap.read()).toEqual({ stdout: "dismissed run-123\n", stderr: "" });
+  });
+
+  test("undismiss issues the undismiss request and confirms the run", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000041";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "undismiss", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status: "completed" })], {
+            sent,
+          }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method: "undismiss", params: { runId: "run-123" } }]);
+    expect(cap.read()).toEqual({ stdout: "undismissed run-123\n", stderr: "" });
+  });
+
+  test("dismissing a live run warns naming its status", async () => {
+    async function expectWarning(status: string, requestId: string): Promise<void> {
+      const cap = captureIo();
+      const code = await withFixedUuid(requestId, () =>
+        main(["run", "dismiss", "run-123"], cap.io, {
+          connectIpcClient: async () =>
+            makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status })]),
+        }),
+      );
+      expect(code).toBe(0);
+      const output = cap.read();
+      expect(output.stdout).toBe("dismissed run-123\n");
+      expect(output.stderr).toBe(`run dismiss: run-123 is ${status} and now hidden from listings\n`);
+    }
+
+    await expectWarning("in-progress", "00000000-0000-4000-8000-000000000042");
+    await expectWarning("paused", "00000000-0000-4000-8000-000000000043");
+    await expectWarning("queued", "00000000-0000-4000-8000-000000000044");
+    await expectWarning("budget-soft-stopped", "00000000-0000-4000-8000-000000000045");
+    // Mutation checkpoint: neutering the live-status warning guard to `if (false)` drops the
+    // warning, turning this test red.
+  });
+
+  test("dismissing a terminal run prints no warning", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000046";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "dismiss", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status: "completed" })]),
+      }),
+    );
+    // Mutation checkpoint: dropping the terminal-status term from the same guard makes a
+    // terminal dismissal emit the live warning, turning this test red — proves the guard
+    // suppresses the warning rather than the warning never firing.
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "dismissed run-123\n", stderr: "" });
+  });
+
+  test("undismiss never warns on a non-terminal status", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000047";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "undismiss", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status: "in-progress" })]),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "undismissed run-123\n", stderr: "" });
+  });
+
+  test("dismiss and undismiss refuse an unknown run id", async () => {
+    async function expectRefusal(argv: readonly string[], requestId: string): Promise<void> {
+      const cap = captureIo();
+      const code = await withFixedUuid(requestId, () =>
+        main([...argv], cap.io, {
+          connectIpcClient: async () =>
+            makeIpcClient([
+              dismissalResponse(requestId, { kind: "refused", runId: "run-404", reason: "run_not_found" }),
+            ]),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "run_not_found\n" });
+    }
+
+    await expectRefusal(["run", "dismiss", "run-404"], "00000000-0000-4000-8000-000000000048");
+    await expectRefusal(["run", "undismiss", "run-404"], "00000000-0000-4000-8000-000000000049");
+    // Mutation checkpoint: neutering the refusal branch to `if (false)` makes a refusal print
+    // the success confirmation on stdout and exit 0, turning this test red.
+  });
+
+  test("dismiss and undismiss reject bad arity before contacting the daemon", async () => {
+    async function expectUsage(argv: readonly string[], usage: string): Promise<void> {
+      const cap = captureIo();
+      const code = await main([...argv], cap.io, {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      });
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: usage });
+    }
+
+    await expectUsage(["run", "dismiss"], RUN_DISMISS_USAGE);
+    await expectUsage(["run", "dismiss", "   "], RUN_DISMISS_USAGE);
+    await expectUsage(["run", "dismiss", "run-123", "extra"], RUN_DISMISS_USAGE);
+    await expectUsage(["run", "undismiss"], RUN_UNDISMISS_USAGE);
+    await expectUsage(["run", "undismiss", "   "], RUN_UNDISMISS_USAGE);
+    await expectUsage(["run", "undismiss", "run-123", "extra"], RUN_UNDISMISS_USAGE);
+    // Mutation checkpoint: neutering the argument-count check in parseRunDismissalArgs to
+    // `if (false)` makes an extra positional connect and issue an RPC instead of printing
+    // usage, turning this test red.
+  });
+
+  test("dismiss and undismiss print invalid daemon response for an unparsable envelope", async () => {
+    async function expectInvalid(argv: readonly string[], requestId: string, result: unknown): Promise<void> {
+      const cap = captureIo();
+      const code = await withFixedUuid(requestId, () =>
+        main([...argv], cap.io, {
+          connectIpcClient: async () => makeIpcClient([dismissalResponse(requestId, result)]),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+    }
+
+    await expectInvalid(["run", "dismiss", "run-123"], "00000000-0000-4000-8000-000000000050", { ok: true });
+    await expectInvalid(["run", "undismiss", "run-123"], "00000000-0000-4000-8000-000000000051", {
+      kind: "applied",
+      runId: "run-123",
+      status: "not-a-status",
+    });
+  });
+
+  test("run dismiss does not report a non-RpcError as an RPC failure", async () => {
+    // requestDismissal formats RpcError to stderr and swallows it; anything else must propagate.
+    // Flipping that guard makes a transport/programming error read to the operator as a daemon refusal.
+    const cap = captureIo();
+    const boom = new Error("socket exploded");
+    const code = await main(["run", "dismiss", "--project", "alpha"], cap.io, {
+      connectIpcClient: async () => ({
+        send: () => {
+          throw boom;
+        },
+        nextFrame: async () => {
+          throw boom;
+        },
+        close: () => {},
+      }),
+    });
+
+    expect(code).not.toBe(0);
+    expect(cap.read().stderr).toBe("IPC connection lost\n");
+  });
+
+  test("run dismiss --project issues one bulk request without runId and prints the count", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000060";
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "dismiss", "--project", "alpha"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", dismissedCount: 7 })], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method: "dismiss", params: { project: "alpha" } }]);
+    expect(Object.keys((sent[0] as { params: object }).params)).toEqual(["project"]);
+    expect(cap.read()).toEqual({ stdout: "dismissed 7\n", stderr: "" });
+  });
+
+  test("run dismiss --project with a positional run id is refused before any daemon client opens", async () => {
+    for (const argv of [
+      ["run", "dismiss", "run-123", "--project", "alpha"],
+      ["run", "dismiss", "--project", "alpha", "run-123"],
+    ]) {
+      const cap = captureIo();
+      const code = await main(argv, cap.io, {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      });
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({
+        stdout: "",
+        stderr: "run dismiss: a run ID and --project are mutually exclusive\n",
+      });
+    }
+  });
+
+  test("run dismiss --project rejects an empty or missing value with usage", async () => {
+    for (const argv of [
+      ["run", "dismiss", "--project", "  "],
+      ["run", "dismiss", "--project"],
+    ]) {
+      const cap = captureIo();
+      const code = await main(argv, cap.io, {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      });
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: RUN_DISMISS_USAGE });
+    }
+  });
+
+  test("run dismiss --project rejects an unparsable bulk response", async () => {
+    const results = [
+      { kind: "applied" },
+      { kind: "applied", dismissedCount: -1 },
+      { kind: "applied", dismissedCount: 1.5 },
+      { kind: "refused", dismissedCount: 1 },
+      null,
+    ];
+    for (const [index, result] of results.entries()) {
+      const cap = captureIo();
+      const requestId = `00000000-0000-4000-8000-0000000001${String(index).padStart(2, "0")}`;
+      const code = await withFixedUuid(requestId, () =>
+        main(["run", "dismiss", "--project", "alpha"], cap.io, {
+          connectIpcClient: async () => makeIpcClient([dismissalResponse(requestId, result)]),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+    }
+  });
+
+  test("run dismiss usage documents the positional and --project forms", () => {
+    expect(RUN_DISMISS_USAGE).toBe("usage: jarvis run dismiss <run-id> | --project <name>\n");
+  });
+
+  test("run undismiss keeps its single-id grammar and rejects --project", async () => {
+    const cap = captureIo();
+    const code = await main(["run", "undismiss", "--project", "alpha"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("should not contact daemon");
+      },
+    });
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: RUN_UNDISMISS_USAGE });
+  });
+});
+
+describe("operator failure presentation on run commands", () => {
+  const failureRecord = {
+    expectation: "plan artifact",
+    observation: "line one\nline two",
+    retryable: false,
+    referencedPaths: [{ path: "spec/x.md", origin: "operator-repository" }],
+  };
+  const block = [
+    "failure:",
+    "  expectation: plan artifact",
+    "  observation: line one\\nline two",
+    "  reissue can help: no",
+    "  path (operator-repository): spec/x.md",
+  ];
+
+  test("run wait stdout carries the unchanged failure beside once-encoded failureText; human block goes to stderr", async () => {
+    const cap = captureIo();
+    const code = await runWait(cap, "run-f", [waitResponse({ runStatus: "failed", failure: failureRecord })]);
+    expect(code).toBe(3);
+    const { stdout, stderr } = cap.read();
+    const parsed = JSON.parse(stdout.trimEnd()) as { failure?: unknown; failureText?: string };
+    expect(parsed.failure).toEqual(failureRecord);
+    expect(parsed.failureText?.split("\n")).toEqual(block);
+    expect(stdout.split("\n")).toHaveLength(2);
+    expect(stderr).toBe(`${block.join("\n")}\n`);
+  });
+
+  test("run wait omits failureText (not null) and prints no block without a canonical record", async () => {
+    const cap = captureIo();
+    await runWait(cap, "run-f", [waitResponse({ runStatus: "failed" })]);
+    const { stdout, stderr } = cap.read();
+    const parsed = JSON.parse(stdout.trimEnd()) as Record<string, unknown>;
+    expect("failureText" in parsed).toBe(false);
+    expect("failure" in parsed).toBe(false);
+    expect(stderr).toBe("");
+  });
+
+  test("run list appends an identity-labeled failure section per failing run after the rows", async () => {
+    const { code, stdout } = await runSoloList([
+      { ...soloDaemonListRow("run-b"), status: "failed", failure: failureRecord },
+      soloDaemonListRow("run-a"),
+      { ...soloDaemonListRow("run-c"), status: "failed", failure: { ...failureRecord, retryable: true } },
+    ]);
+    expect(code).toBe(0);
+    const lines = stdout.trimEnd().split("\n");
+    expect(lines.slice(0, 3).map((line) => line.split("\t")[0])).toEqual(["run-a", "run-b", "run-c"]);
+    expect(lines.slice(3)).toEqual([
+      "run run-b\tdemo\tmain",
+      ...block,
+      "run run-c\tdemo\tmain",
+      ...block.map((line) => (line === "  reissue can help: no" ? "  reissue can help: yes" : line)),
+    ]);
+  });
+});

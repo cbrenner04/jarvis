@@ -15,8 +15,8 @@
       "!**/coverage",
       "!**/.git",
       "!**/v1",
-      "!**/v2/test/fixtures",
-      "!**/v2/src/shared/fixtures"
+      "!**/src/test/fixtures",
+      "!**/src/shared/fixtures"
     ]
   },
   "formatter": {
@@ -52,7 +52,7 @@
   },
   "overrides": [
     {
-      "includes": ["v2/src/**/*.ts", "!v2/src/**/*.test.ts"],
+      "includes": ["src/**/*.ts", "!src/**/*.test.ts"],
       "linter": {
         "rules": {
           "complexity": {

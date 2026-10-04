@@ -19,16 +19,16 @@ describe("production test-support import guard", () => {
     ["require", 'const mod = require("./workflow-runner.test-support.ts");'],
     ["re-export", 'export { fixture } from "./workflow-runner.test-support.ts";'],
   ])("rejects a production %s of test support", (_reach, source) => {
-    expect(findTestSupportImportViolations([{ file: "v2/src/execution/example.ts", source }])).toMatchObject([
-      { file: "v2/src/execution/example.ts", line: 1, specifier: "./workflow-runner.test-support.ts" },
+    expect(findTestSupportImportViolations([{ file: "src/execution/example.ts", source }])).toMatchObject([
+      { file: "src/execution/example.ts", line: 1, specifier: "./workflow-runner.test-support.ts" },
     ]);
   });
 
   test("allows test files, test support, and the testing harness to import test support", () => {
     for (const file of [
-      "v2/src/execution/example.test.ts",
-      "v2/src/execution/other.test-support.ts",
-      "v2/src/testing/fixture.ts",
+      "src/execution/example.test.ts",
+      "src/execution/other.test-support.ts",
+      "src/testing/fixture.ts",
     ]) {
       expect(findTestSupportImportViolations([{ file, source: supportImport }])).toEqual([]);
     }
@@ -36,16 +36,16 @@ describe("production test-support import guard", () => {
 
   test("allows production imports of production modules", () => {
     const source = 'import { runWorkflow } from "./workflow-runner.ts";';
-    expect(findTestSupportImportViolations([{ file: "v2/src/execution/example.ts", source }])).toEqual([]);
+    expect(findTestSupportImportViolations([{ file: "src/execution/example.ts", source }])).toEqual([]);
   });
 
   test("production predicate excludes tests, test support, and the testing harness", () => {
-    expect(isProductionSourceFile("v2/src/execution/workflow-runner.ts")).toBe(true);
-    expect(isProductionSourceFile("v2/src/shared/git.ts")).toBe(true);
-    expect(isProductionSourceFile("v2/src/tui/app.tsx")).toBe(true);
-    expect(isProductionSourceFile("v2/src/execution/workflow-runner.test.ts")).toBe(false);
-    expect(isProductionSourceFile("v2/src/execution/workflow-runner.test-support.ts")).toBe(false);
-    expect(isProductionSourceFile("v2/src/testing/process.ts")).toBe(false);
+    expect(isProductionSourceFile("src/execution/workflow-runner.ts")).toBe(true);
+    expect(isProductionSourceFile("src/shared/git.ts")).toBe(true);
+    expect(isProductionSourceFile("src/tui/app.tsx")).toBe(true);
+    expect(isProductionSourceFile("src/execution/workflow-runner.test.ts")).toBe(false);
+    expect(isProductionSourceFile("src/execution/workflow-runner.test-support.ts")).toBe(false);
+    expect(isProductionSourceFile("src/testing/process.ts")).toBe(false);
     expect(isProductionSourceFile("scripts/ready.ts")).toBe(false);
   });
 

@@ -1,0 +1,2792 @@
+import { afterEach, beforeEach, describe, expect, it, mock, setSystemTime, spyOn } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute, join } from "node:path";
+import {
+  READY_STEP_COMPLETION_MARKER,
+  READY_STEP_START_MARKER,
+  readyStepCompletionRecord,
+  readyStepStartRecord,
+} from "../../scripts/ready.ts";
+import { FAILING_TEST_FILE_MARKER, failingTestFileRecord, READY_ATTEMPT_ENV } from "../../scripts/run-slice-tests.ts";
+import type { PersistedRecord } from "../persistence/log-stream.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
+import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
+import {
+  acquireGateInvocationLease,
+  leasedHarnessFullSuiteGateSpawnCount,
+  liveGateInvocationLeaseCount,
+  runHarnessFullSuiteGateWithSlot,
+} from "./gate-invocation-lease.ts";
+import {
+  gateFailureOutput,
+  gateOutput,
+  lintMdOnlyGateFailureOutput,
+  PLACEHOLDER_BASE_REF_PROBE_FAIL,
+} from "./ready-finalize.test-support.ts";
+import {
+  classifyReadyGateError,
+  classifyReadyGateFailure,
+  createReadyFinalizer,
+  deriveGateAllowedPaths,
+  findMissingReadyGateCommandEvidence,
+  formatReadyGateOutOfScopeDetail,
+  type GateAllowedPathsFailureReason,
+  hasFailingTestEvidence,
+  NonTerminatingMutationError,
+  nonTerminatingMutationLogFields,
+  outOfScopeSettlementResumable,
+  parseGitNameStatusZ,
+  ReadyGateError,
+  type ReadyGateScopeInput,
+  type ReadyGateScopeSeams,
+  readyGateFailureLogFields,
+  readyGateOutOfScopeLogFields,
+  readyGateSubprocessTimeoutMs,
+  resolveAttributableRepairAllowset,
+  resolveSpecScopeRoot,
+  SurvivingMutationError,
+  selectAttributablePathsWhollyOutsideGateRepairAllowset,
+  selectFailedReadyStepOutput,
+  selectTerminalFailedReadyStep,
+  selectTerminalFailedReadyTestStep,
+  selectTerminalFailingPaths,
+  survivingMutationLogFields,
+  validateRepoRelativePath,
+} from "./ready-finalize.ts";
+import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
+import type { VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
+
+const MOCK_MERGE_BASE_OID = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+const MOCK_MISMATCH_HEAD_OID = "cafebabecafebabecafebabecafebabecafebabe";
+
+// Finalizer calls here await the shared gate slot: if the slot stops admitting a free acquire (or a release stops
+// freeing it), every finalizer await would hang to the slot-wait timeout. Assert the free slot admits and frees
+// first so such a lease-module regression fails each test fast instead of stalling the file.
+beforeEach(async () => {
+  expect(liveGateInvocationLeaseCount()).toBe(0);
+  const probe = acquireGateInvocationLease();
+  expect(probe).toBeDefined();
+  probe?.release();
+  expect(liveGateInvocationLeaseCount()).toBe(0);
+  let freeSlotGateRan = false;
+  void runHarnessFullSuiteGateWithSlot({ gate: "probe", slotWaitTimeoutMs: 1 }, async () => {
+    freeSlotGateRan = true;
+  }).catch(() => {});
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  expect(freeSlotGateRan).toBe(true);
+  expect(liveGateInvocationLeaseCount()).toBe(0);
+});
+
+/** Records spawn ids then `null` on settle, mirroring the retired single-callback sequence. */
+function pushRecorder(recorded: Array<number | null>): VerifierProcessGroupRecorder {
+  return { record: (pgid) => recorded.push(pgid), clear: () => recorded.push(null) };
+}
+
+const PROBE_FIXTURE_TEST_PATH = "probe-target.test.ts";
+
+const PROBE_FIXTURE_TEST_PASSING = `import { expect, test } from "bun:test";
+import dep from "probe-fixture-dep";
+test("uses fixture dependency", () => {
+  expect(dep.ok).toBe(true);
+});
+`;
+
+const PROBE_FIXTURE_TEST_FAILING = `import { expect, test } from "bun:test";
+import dep from "probe-fixture-dep";
+test("uses fixture dependency", () => {
+  expect(dep.ok).toBe(false);
+});
+`;
+
+const PROBE_FIXTURE_TEST_MIXED = `import { expect, test } from "bun:test";
+import dep from "probe-fixture-dep";
+test("pass one", () => expect(dep.ok).toBe(true));
+test("pass two", () => expect(dep.ok).toBe(true));
+test("pass three", () => expect(dep.ok).toBe(true));
+test("fail one", () => expect(dep.ok).toBe(false));
+test("fail two", () => expect(dep.ok).toBe(false));
+`;
+
+/**
+ * A real git repo for driving `createDefaultReproduceReadyGateAtBaseRef` end to end: a base
+ * commit with `baseTestBody`, then an iteration commit with `branchTestBody`. Its imported
+ * dependency lives only on disk (gitignored, never committed) at `node_modules/probe-fixture-dep`
+ * — present only when `dependencyPresent`, so a probe tree materialized without the harness's
+ * `node_modules` symlink crashes on import (`Cannot find package`) rather than running the test.
+ */
+function initBaseRefProbeFixture(
+  jarvisRoot: string,
+  branchName: string,
+  options: { baseTestBody: string; branchTestBody: string; dependencyPresent: boolean },
+): { worktreePath: string; baseRef: string; testPath: string } {
+  const worktreePath = join(jarvisRoot, "worktrees", "probe", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(worktreePath, ".gitignore"), "node_modules/\n", "utf8");
+  writeFileSync(join(worktreePath, PROBE_FIXTURE_TEST_PATH), options.baseTestBody, "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+  const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+  writeFileSync(join(worktreePath, PROBE_FIXTURE_TEST_PATH), options.branchTestBody, "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "--allow-empty", "-m", "iteration"], { stdio: "pipe" });
+  if (options.dependencyPresent) {
+    const depDir = join(worktreePath, "node_modules", "probe-fixture-dep");
+    mkdirSync(depDir, { recursive: true });
+    writeFileSync(join(depDir, "package.json"), `{"name":"probe-fixture-dep","main":"index.js"}\n`, "utf8");
+    writeFileSync(join(depDir, "index.js"), "module.exports = { ok: true };\n", "utf8");
+  }
+  return { worktreePath, baseRef, testPath: PROBE_FIXTURE_TEST_PATH };
+}
+
+/** Materializes {@link initBaseRefProbeFixture}, hands `run` the resulting scope and test path, and
+ *  always cleans up the temp root — the setup/teardown shared by every conclusive-reproduction test. */
+async function withBaseRefProbeFixture(
+  branchName: string,
+  options: { baseTestBody: string; branchTestBody: string; dependencyPresent: boolean },
+  run: (ctx: { scope: ReadyGateScopeInput; testPath: string }) => Promise<void>,
+): Promise<void> {
+  const jarvisRoot = trackedMkdtempSync(join(tmpdir(), "base-ref-probe-"));
+  try {
+    const { worktreePath, baseRef, testPath } = initBaseRefProbeFixture(jarvisRoot, branchName, options);
+    await run({ scope: { worktreePath, baseRef, specPath: "spec.md" }, testPath });
+  } finally {
+    rmSync(jarvisRoot, { recursive: true, force: true });
+  }
+}
+
+/** The `ReadyGateError` every conclusive-reproduction test drives: `testPath` as the sole
+ *  attributed failing file under a terminal `bun run test:shared` step. */
+function probeFixtureGateFailure(testPath: string, command: string): ReadyGateError {
+  return new ReadyGateError(
+    "bun run ready",
+    1,
+    gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command, status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: testPath }],
+    }),
+  );
+}
+
+/** Probe fixtures cover both the direct `bun test` path and the v2-mode `runSliceTestFiles` path. */
+const PROBE_FIXTURE_TERMINAL_COMMANDS: string[] = ["bun run test:shared", "bun run test:agent"];
+
+const scope = {
+  worktreePath: "/tmp/worktree",
+  baseRef: "main",
+  specPath: "spec/demo/index.md",
+};
+
+const allowedSeams: ReadyGateScopeSeams = {
+  gitDiffNameStatus: async () => `M\0src/changed.ts\0`,
+  gitUntracked: async () => "",
+  listSpecTreePaths: async () => ["spec/demo/index.md", "spec/demo/01-task.md"],
+  reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
+};
+
+function initRepoWithChange(): { root: string; baseRef: string } {
+  const root = trackedMkdtempSync(join(tmpdir(), "gate-scope-"));
+  writeFileSync(join(root, "proof.txt"), "ok\n");
+  execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
+  execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", root, "config", "user.name", "Test User"], { stdio: "pipe" });
+  execFileSync("git", ["-C", root, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", root, "commit", "-m", "seed"], { stdio: "pipe" });
+  const baseRef = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8", stdio: "pipe" }).trim();
+  writeFileSync(join(root, "changed.ts"), "export {}\n");
+  execFileSync("git", ["-C", root, "add", "changed.ts"], { stdio: "pipe" });
+  execFileSync("git", ["-C", root, "commit", "-m", "iteration"], { stdio: "pipe" });
+  return { root, baseRef };
+}
+
+async function deriveAllowedOrUndefined(
+  ...args: Parameters<typeof deriveGateAllowedPaths>
+): Promise<Set<string> | undefined> {
+  const derived = await deriveGateAllowedPaths(...args);
+  return "allowed" in derived ? derived.allowed : undefined;
+}
+
+describe("gate allowset derivation failure reasons", () => {
+  const scope = { worktreePath: "/unused", baseRef: "base", specPath: "spec/demo/index.md" };
+  const ok: ReadyGateScopeSeams = {
+    gitDiffNameStatus: async () => `M\0src/changed.ts\0`,
+    gitUntracked: async () => "",
+    listSpecTreePaths: async () => [],
+  };
+
+  it("names each seam-reachable failure", async () => {
+    const cases: Array<[GateAllowedPathsFailureReason, ReadyGateScopeSeams]> = [
+      ["diff_unavailable", { ...ok, gitDiffNameStatus: async () => null }],
+      [
+        "diff_unavailable",
+        {
+          ...ok,
+          gitDiffNameStatus: async () => {
+            throw new Error("boom");
+          },
+        },
+      ],
+      ["untracked_inventory_unavailable", { ...ok, gitUntracked: async () => null }],
+      [
+        "untracked_inventory_unavailable",
+        {
+          ...ok,
+          gitUntracked: async () => {
+            throw new Error("boom");
+          },
+        },
+      ],
+      ["spec_scope_unresolvable", { ...ok, listSpecTreePaths: async () => null }],
+      ["diff_output_unparseable", { ...ok, gitDiffNameStatus: async () => "M\0no-trailing-nul" }],
+      ["untracked_output_unparseable", { ...ok, gitUntracked: async () => "no-trailing-nul" }],
+      ["collected_path_invalid", { ...ok, gitDiffNameStatus: async () => `M\0../escape.ts\0` }],
+    ];
+    for (const [reason, seams] of cases) {
+      expect(await deriveGateAllowedPaths(scope, seams)).toEqual({ reason });
+    }
+    expect(await deriveGateAllowedPaths(scope, ok)).toEqual({ allowed: new Set(["src/changed.ts"]) });
+  });
+
+  it("names filesystem-only spec scope failures separately", async () => {
+    const { root, baseRef } = initRepoWithChange();
+    const seams: ReadyGateScopeSeams = { gitUntracked: async () => "" };
+    const derive = (specPath: string) => deriveGateAllowedPaths({ worktreePath: root, baseRef, specPath }, seams);
+
+    expect(await derive("../not-a-spec")).toEqual({ reason: "spec_scope_unresolvable" });
+    expect(await derive("spec/missing/index.md")).toEqual({ reason: "spec_scope_unresolvable" });
+
+    mkdirSync(join(root, " spec"), { recursive: true });
+    writeFileSync(join(root, " spec", "index.md"), "# index\n");
+    expect(await derive(join(root, " spec"))).toEqual({ reason: "spec_tree_path_invalid" });
+  });
+});
+
+describe("gate allowset spec scope roots", () => {
+  const withUntracked: ReadyGateScopeSeams = { gitUntracked: async () => "untracked.txt\0" };
+
+  it("derives an allowset without spec paths for an existing external spec dir", async () => {
+    const { root, baseRef } = initRepoWithChange();
+    const external = trackedMkdtempSync(join(tmpdir(), "gate-external-spec-"));
+    writeFileSync(join(external, "index.md"), "# index\n");
+    writeFileSync(join(external, "01-task.md"), "# task\n");
+
+    expect(resolveSpecScopeRoot(root, external)?.insideWorktree).toBe(false);
+    expect(resolveSpecScopeRoot(root, join(external, "01-task.md"))?.insideWorktree).toBe(false);
+    expect(resolveSpecScopeRoot(root, "spec/demo/index.md")?.insideWorktree).toBe(true);
+    const allowed = await deriveAllowedOrUndefined({ worktreePath: root, baseRef, specPath: external }, withUntracked);
+    expect(allowed).toBeDefined();
+    expect(allowed?.has("changed.ts")).toBe(true);
+    expect(allowed?.has("untracked.txt")).toBe(true);
+    for (const path of allowed ?? []) {
+      expect(isAbsolute(path)).toBe(false);
+      expect(path.startsWith("..")).toBe(false);
+    }
+  });
+
+  it("derives an allowset for an existing in-worktree spec dir with no Markdown", async () => {
+    const { root, baseRef } = initRepoWithChange();
+    mkdirSync(join(root, "spec", "empty"), { recursive: true });
+
+    const allowed = await deriveAllowedOrUndefined(
+      { worktreePath: root, baseRef, specPath: "spec/empty" },
+      withUntracked,
+    );
+    expect(allowed?.has("changed.ts")).toBe(true);
+    expect([...(allowed ?? [])].some((path) => path.startsWith("spec/"))).toBe(false);
+  });
+
+  it("stays undefined when the resolved scope root does not exist", async () => {
+    const { root, baseRef } = initRepoWithChange();
+    const externalParent = trackedMkdtempSync(join(tmpdir(), "gate-external-missing-"));
+    const specPaths = [
+      "spec/missing/index.md",
+      join(externalParent, "missing"),
+      join(externalParent, "missing", "index.md"),
+    ];
+    for (const specPath of specPaths) {
+      expect(await deriveGateAllowedPaths({ worktreePath: root, baseRef, specPath }, withUntracked)).toEqual({
+        reason: "spec_scope_unresolvable",
+      });
+    }
+  });
+});
+
+describe("ready gate untouched-path classification", () => {
+  it("includes sibling spec-tree markdown when specPath routes a direct subspec file", async () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "gate-allowed-"));
+    const specDir = join(root, "spec", "demo");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# index\n");
+    writeFileSync(join(specDir, "01-task.md"), "# task\n");
+    writeFileSync(join(specDir, "02-sibling.md"), "# sibling\n");
+    writeFileSync(join(root, "proof.txt"), "ok\n");
+    execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
+    execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "config", "user.name", "Test User"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "add", "-A"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "commit", "-m", "seed"], { stdio: "pipe" });
+    const baseRef = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    writeFileSync(join(root, "changed.ts"), "export {}\n");
+    execFileSync("git", ["-C", root, "add", "changed.ts"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "commit", "-m", "iteration"], { stdio: "pipe" });
+
+    const directSubspecScope = {
+      worktreePath: root,
+      baseRef,
+      specPath: "spec/demo/01-task.md",
+    };
+    const allowed = await deriveAllowedOrUndefined(directSubspecScope, {
+      gitUntracked: async () => "",
+    });
+    expect(allowed?.has("spec/demo/01-task.md")).toBe(true);
+    expect(allowed?.has("spec/demo/02-sibling.md")).toBe(true);
+    expect(allowed?.has("spec/demo/index.md")).toBe(true);
+
+    const siblingSpecPath = "spec/demo/02-sibling.md";
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: siblingSpecPath }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateError(error, directSubspecScope, {
+      gitDiffNameStatus: async () => `M\0src/changed.ts\0`,
+      gitUntracked: async () => "",
+      reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
+    });
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+
+    const singleFileEnumeration = await classifyReadyGateError(error, directSubspecScope, {
+      gitDiffNameStatus: async () => `M\0src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["spec/demo/01-task.md"],
+      reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
+    });
+    expect(singleFileEnumeration.gateFailureKind).toBe("ready_gate_out_of_scope");
+  });
+
+  it("classifies fully attributed terminal failures outside the allowed set as out of scope", async () => {
+    const output = gateOutput({
+      completions: [
+        { stepId: "1", attemptId: "1.1", command: "bun run typecheck", status: 0 },
+        { stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 },
+        { stepId: "2", attemptId: "2.2", command: "bun run test:agent", status: 1 },
+      ],
+      failingFiles: [{ attemptId: "2.2", path: "src/untouched.test.ts" }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateError(error, scope, allowedSeams);
+    expect(classified.gateFailureKind).toBe("ready_gate_out_of_scope");
+    expect(classified.outsidePaths).toEqual(["src/untouched.test.ts"]);
+  });
+
+  it("carries each confirmed out-of-scope path's probe pass/fail counts and verified base commit", async () => {
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+      failingFiles: [
+        { attemptId: "2.1", path: "src/untouched-a.test.ts" },
+        { attemptId: "2.1", path: "src/untouched-b.test.ts" },
+      ],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const allowed = new Set(["src/changed.ts"]);
+    const observations: Record<string, { pass: number; fail: number; baseCommit: string }> = {
+      "src/untouched-a.test.ts": { pass: 3, fail: 2, baseCommit: "aaa1111" },
+      "src/untouched-b.test.ts": { pass: 0, fail: 5, baseCommit: "bbb2222" },
+    };
+    const classified = await classifyReadyGateFailure(
+      error,
+      ["src/untouched-a.test.ts", "src/untouched-b.test.ts"],
+      allowed,
+      scope,
+      {
+        reproduceReadyGateAtBaseRef: async (_scope, _terminalCommand, path) => ({
+          kind: "fail",
+          ...observations[path]!,
+        }),
+      },
+    );
+    expect(classified.kind).toBe("ready_gate_out_of_scope");
+    expect(classified.outsidePathObservations).toEqual(observations);
+  });
+
+  it("classifies missing-command gate output as ready_gate_command_missing and keeps ordinary red output on ready_gate_failed", async () => {
+    for (const output of ['Script not found "ready"', "command not found: bun"]) {
+      const classified = await classifyReadyGateError(
+        new ReadyGateError("bun run ready", 1, output),
+        scope,
+        allowedSeams,
+      );
+      expect(classified.gateFailureKind).toBe("ready_gate_command_missing");
+    }
+
+    const ordinaryRed = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+          failingFiles: [{ attemptId: "2.1", path: "src/changed.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(ordinaryRed.gateFailureKind).toBe("ready_gate_failed");
+  });
+
+  it("does not classify ENOENT embedded in failing-test output as ready_gate_command_missing", async () => {
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: "src/changed.ts" }],
+      extra: "ENOENT: no such file or directory, open '/tmp/foo'",
+    });
+    const classified = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 1, output),
+      scope,
+      allowedSeams,
+    );
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+  });
+
+  it("classifies spawn ENOENT and anchored Script not found as ready_gate_command_missing", async () => {
+    const spawnClassified = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", undefined, "", false, undefined, undefined, "ENOENT"),
+      scope,
+      allowedSeams,
+    );
+    expect(spawnClassified.gateFailureKind).toBe("ready_gate_command_missing");
+    expect(spawnClassified.commandMissingEvidence).toBe("ENOENT");
+
+    const anchored = 'error: Script not found "ready"';
+    const scriptNotFound = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 1, anchored),
+      scope,
+      allowedSeams,
+    );
+    expect(scriptNotFound.gateFailureKind).toBe("ready_gate_command_missing");
+    expect(scriptNotFound.commandMissingEvidence).toBe(anchored);
+    const prebuilt = new ReadyGateError("bun run ready", 1, anchored, false, {
+      kind: "ready_gate_command_missing",
+      commandMissingEvidence: anchored,
+      readyCommandSource: "default",
+    });
+    expect(await classifyReadyGateError(prebuilt, scope, allowedSeams)).toBe(prebuilt);
+  });
+
+  it("projects readyGateCommandMissingEvidence on ready_gate_command_missing settlement", async () => {
+    const evidence = 'error: Script not found "ready"';
+    const classified = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 1, evidence),
+      scope,
+      allowedSeams,
+    );
+    expect(readyGateFailureLogFields("ready_gate_command_missing", classified)).toEqual({
+      readyGateCommand: "bun run ready",
+      readyGateOutput: evidence,
+      readyGateCommandMissingEvidence: evidence,
+      readyGateCommandSource: "default",
+    });
+
+    const longLine = `error: Script not found "${"x".repeat(600)}"`;
+    const longClassified = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 1, longLine),
+      scope,
+      allowedSeams,
+    );
+    const cappedEvidence = longClassified.commandMissingEvidence;
+    expect(cappedEvidence).toBeDefined();
+    expect([...cappedEvidence!]).toHaveLength(512);
+    expect(readyGateFailureLogFields("ready_gate_command_missing", longClassified)).toEqual(
+      expect.objectContaining({ readyGateCommandMissingEvidence: cappedEvidence }),
+    );
+    expect(readyGateFailureLogFields("ready_gate_failed", longClassified)).toEqual({});
+  });
+
+  it("keeps mixed, absent, malformed, stale-retry, later-non-test, and partial attribution on ready_gate_failed", async () => {
+    const mixed = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+          failingFiles: [
+            { attemptId: "2.1", path: "src/changed.ts" },
+            { attemptId: "2.1", path: "src/untouched.test.ts" },
+          ],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(mixed.gateFailureKind).toBe("ready_gate_failed");
+
+    const absent = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(absent.gateFailureKind).toBe("ready_gate_failed");
+
+    const malformed = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        `${READY_STEP_COMPLETION_MARKER}{not-json}\n${failingTestFileRecord("src/untouched.test.ts", "2.1")}`,
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(malformed.gateFailureKind).toBe("ready_gate_failed");
+
+    const staleRetry = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [
+            { stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 },
+            { stepId: "2", attemptId: "2.2", command: "bun run test:agent", status: 1 },
+          ],
+          failingFiles: [{ attemptId: "2.1", path: "src/untouched.test.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(staleRetry.gateFailureKind).toBe("ready_gate_failed");
+
+    const laterNonTest = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        3,
+        gateOutput({
+          completions: [
+            { stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 0 },
+            { stepId: "3", attemptId: "3.1", command: "bun run lint:md", status: 3 },
+          ],
+          failingFiles: [{ attemptId: "2.1", path: "src/untouched.test.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(laterNonTest.gateFailureKind).toBe("ready_gate_failed");
+
+    const partial = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+          failingFiles: [
+            { attemptId: "2.1", path: "src/untouched.test.ts" },
+            { attemptId: "2.1", path: "/absolute/path.test.ts" },
+          ],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(partial.gateFailureKind).toBe("ready_gate_failed");
+  });
+
+  it("fails closed for absolute, escaping, colliding, unusual-name, and unavailable scope inputs", async () => {
+    expect(validateRepoRelativePath("/absolute.test.ts")).toBeUndefined();
+    expect(validateRepoRelativePath("../escape.test.ts")).toBeUndefined();
+    expect(
+      selectTerminalFailingPaths(
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+          failingFiles: [
+            { attemptId: "2.1", path: "./same.test.ts" },
+            { attemptId: "2.1", path: "same.test.ts" },
+          ],
+        }),
+      ),
+    ).toBeUndefined();
+
+    const unusualName = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+          failingFiles: [{ attemptId: "2.1", path: "src/file with space.test.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(unusualName.gateFailureKind).toBe("ready_gate_out_of_scope");
+    expect(unusualName.outsidePaths).toEqual(["src/file with space.test.ts"]);
+
+    const renameSeams = {
+      ...allowedSeams,
+      gitDiffNameStatus: async () => `R100\0src/old.ts\0src/new.ts\0`,
+    };
+    const renameAllowed = await deriveAllowedOrUndefined(scope, renameSeams);
+    expect(renameAllowed?.has("src/old.ts")).toBe(true);
+    expect(renameAllowed?.has("src/new.ts")).toBe(true);
+
+    const deleteSeams = {
+      ...allowedSeams,
+      gitDiffNameStatus: async () => `D\0src/removed.ts\0`,
+    };
+    const deleteAllowed = await deriveAllowedOrUndefined(scope, deleteSeams);
+    expect(deleteAllowed?.has("src/removed.ts")).toBe(true);
+
+    const untrackedSeams = {
+      ...allowedSeams,
+      gitUntracked: async () => `src/new-file.ts\0`,
+    };
+    const untrackedAllowed = await deriveAllowedOrUndefined(scope, untrackedSeams);
+    expect(untrackedAllowed?.has("src/new-file.ts")).toBe(true);
+
+    const unavailableDiff = await deriveGateAllowedPaths(scope, {
+      ...allowedSeams,
+      gitDiffNameStatus: async () => null,
+    });
+    expect(unavailableDiff).toEqual({ reason: "diff_unavailable" });
+
+    const unavailableInventory = await deriveGateAllowedPaths(scope, {
+      ...allowedSeams,
+      gitUntracked: async () => null,
+    });
+    expect(unavailableInventory).toEqual({ reason: "untracked_inventory_unavailable" });
+
+    const malformedDiff = await deriveGateAllowedPaths(scope, {
+      ...allowedSeams,
+      gitDiffNameStatus: async () => "M\0missing-trailing-nul",
+    });
+    expect(malformedDiff).toEqual({ reason: "diff_output_unparseable" });
+  });
+
+  it("does not misclassify deadline-killed or requiredIntegrationScope failures", async () => {
+    const timedOut = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 124, "timeout\n", true),
+      scope,
+      allowedSeams,
+    );
+    expect(timedOut.gateFailureKind).toBe("ready_gate_failed");
+
+    const integration = await classifyReadyGateError(
+      new ReadyGateError(
+        "test:integration",
+        1,
+        gateOutput({
+          completions: [{ stepId: "1", attemptId: "1.1", command: "bun run test:integration", status: 1 }],
+          failingFiles: [{ attemptId: "1.1", path: "src/untouched.test.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(integration.gateFailureKind).toBe("ready_gate_failed");
+  });
+
+  it("classifies a configured-command failure as out of scope", async () => {
+    const configuredScope = { ...scope, readyCommand: "bun run ready:ci" };
+    const output = gateOutput({
+      completions: [
+        { stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 },
+        { stepId: "2", attemptId: "2.2", command: "bun run test:agent", status: 1 },
+      ],
+      failingFiles: [{ attemptId: "2.2", path: "src/untouched.test.ts" }],
+    });
+    const error = new ReadyGateError("bun run ready:ci", 1, output);
+    const classified = await classifyReadyGateError(error, configuredScope, allowedSeams);
+    expect(classified.gateFailureKind).toBe("ready_gate_out_of_scope");
+    expect(classified.outsidePaths).toEqual(["src/untouched.test.ts"]);
+  });
+
+  it("keeps a required-integration failure unclassified", async () => {
+    const configuredScope = { ...scope, readyCommand: "bun run ready:ci" };
+    const error = new ReadyGateError(
+      "bun run test:integration",
+      1,
+      gateOutput({
+        completions: [{ stepId: "1", attemptId: "1.1", command: "bun run test:integration", status: 1 }],
+        failingFiles: [{ attemptId: "1.1", path: "src/untouched.test.ts" }],
+      }),
+    );
+    const classified = await classifyReadyGateError(error, configuredScope, allowedSeams);
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+  });
+
+  it("formats out-of-scope detail from base-ref reproduction semantics", () => {
+    expect(formatReadyGateOutOfScopeDetail(["src/untouched.test.ts"], "main")).toBe(
+      "ready gate failing paths also reproduce on main: src/untouched.test.ts",
+    );
+  });
+
+  it("appends a per-path pass/fail/base-commit parenthetical when an observation is recorded", () => {
+    const observed = "src/untouched-a.test.ts";
+    const unobserved = "src/untouched-b.test.ts";
+    expect(
+      formatReadyGateOutOfScopeDetail([observed, unobserved], "main", {
+        [observed]: { pass: 3, fail: 2, baseCommit: "aaa1111" },
+      }),
+    ).toBe(
+      "ready gate failing paths also reproduce on main: " +
+        "src/untouched-a.test.ts (base aaa1111: 3 pass / 2 fail), src/untouched-b.test.ts",
+    );
+  });
+
+  it("readyGateOutOfScopeLogFields includes observations only when the classification recorded them", () => {
+    const withObservations = new ReadyGateError("bun run ready", 1, "output", false, {
+      kind: "ready_gate_out_of_scope",
+      outsidePaths: ["src/untouched.test.ts"],
+      outsidePathObservations: { "src/untouched.test.ts": { pass: 0, fail: 1, baseCommit: "abc1234" } },
+    });
+    expect(readyGateOutOfScopeLogFields(withObservations).readyGateOutOfScopeObservations).toEqual({
+      "src/untouched.test.ts": { pass: 0, fail: 1, baseCommit: "abc1234" },
+    });
+
+    const withoutObservations = new ReadyGateError("bun run ready", 1, "output", false, {
+      kind: "ready_gate_out_of_scope",
+      outsidePaths: ["src/untouched.test.ts"],
+    });
+    expect(readyGateOutOfScopeLogFields(withoutObservations)).not.toHaveProperty("readyGateOutOfScopeObservations");
+  });
+
+  it("readyGateOutOfScopeLogFields round-trips observations from a plain log-fields source", () => {
+    const observations = { "src/untouched.test.ts": { pass: 3, fail: 2, baseCommit: "abc1234" } };
+    expect(
+      readyGateOutOfScopeLogFields({
+        readyGateOutsidePaths: ["src/untouched.test.ts"],
+        readyGateOutOfScopeObservations: observations,
+      }).readyGateOutOfScopeObservations,
+    ).toEqual(observations);
+
+    expect(readyGateOutOfScopeLogFields({ readyGateOutsidePaths: ["src/untouched.test.ts"] })).not.toHaveProperty(
+      "readyGateOutOfScopeObservations",
+    );
+  });
+
+  it("base-ref probe's v2-mode spawn passes the derived probe env through to the runner", async () => {
+    const failingPath = "src/untouched.test.ts";
+    const probeScope = {
+      worktreePath: "/tmp/run-worktree",
+      baseRef: "main",
+      specPath: "spec/demo/index.md",
+    };
+    const allowed = new Set(["src/changed.ts"]);
+    const probeSeams: ReadyGateScopeSeams = {
+      gitDiffNameStatus: async () => `M\0src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["spec/demo/index.md"],
+    };
+    const testCallEnvs: Array<NodeJS.ProcessEnv | undefined> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "git") {
+          if (args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
+          if (args?.[0] === "worktree") return "";
+          if (args?.[0] === "rev-parse") return `${MOCK_MERGE_BASE_OID}\n`;
+          if (args?.[0] === "diff" && args?.[1] === "--name-only") return "src/changed.ts\n";
+          if (args?.[0] === "ls-files") return "";
+        }
+        if (cmd === "bun" && args?.[0] === "test") {
+          testCallEnvs.push(options?.env);
+        }
+        return "";
+      },
+    };
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: failingPath }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    await classifyReadyGateFailure(error, [failingPath], allowed, probeScope, probeSeams, mockRunner);
+    expect(testCallEnvs).toHaveLength(1);
+    expect(testCallEnvs[0]?.JARVIS_READY_TIER).toBe("full");
+    expect(testCallEnvs[0]?.JARVIS_READY_TEST_SCOPE).toBe("test:agent test:integration");
+  });
+
+  it("base-ref probe invokes the terminal ready-step scoped command", async () => {
+    // Snapshot the real exports: the namespace is a live binding that `mock.module` rewrites, so
+    // restoring from it would re-install the mock and leak into later tests.
+    const realRunV2Tests = { ...(await import("../../scripts/run-slice-tests.ts")) };
+    const runV2Calls: Array<{ mode: string; files: string[] }> = [];
+    const subprocessCalls: Array<{ cmd: string; args: string[]; env?: NodeJS.ProcessEnv }> = [];
+    const failingPath = "src/untouched.test.ts";
+    const probeScope = {
+      worktreePath: "/tmp/run-worktree",
+      baseRef: "main",
+      specPath: "spec/demo/index.md",
+    };
+    const allowed = new Set(["src/changed.ts"]);
+    const probeSeams: ReadyGateScopeSeams = {
+      gitDiffNameStatus: async () => `M\0src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["spec/demo/index.md"],
+    };
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "git") {
+          if (args?.[0] === "merge-base") {
+            return `${MOCK_MERGE_BASE_OID}\n`;
+          }
+          if (args?.[0] === "worktree") {
+            return "";
+          }
+          if (args?.[0] === "rev-parse") {
+            return `${MOCK_MERGE_BASE_OID}\n`;
+          }
+          if (args?.[0] === "diff" && args?.[1] === "--name-only") {
+            return "src/changed.ts\n";
+          }
+          if (args?.[0] === "ls-files") {
+            return "";
+          }
+        }
+        if (cmd === "bun") {
+          subprocessCalls.push({
+            cmd,
+            args: [...args],
+            ...(options?.env !== undefined ? { env: options.env } : {}),
+          });
+        }
+        return "";
+      },
+    };
+
+    mock.module("../../scripts/run-slice-tests.ts", () => ({
+      ...realRunV2Tests,
+      async runSliceTestFiles(mode: string, files: string[]) {
+        runV2Calls.push({ mode, files });
+        return files.map((file) => ({ file, timedOut: false, status: 0 }));
+      },
+    }));
+
+    try {
+      for (const terminalCommand of ["bun run test:agent", "bun run test:integration"] as const) {
+        runV2Calls.length = 0;
+        subprocessCalls.length = 0;
+        const output = gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: terminalCommand, status: 1 }],
+          failingFiles: [{ attemptId: "2.1", path: failingPath }],
+        });
+        const error = new ReadyGateError("bun run ready", 1, output);
+        await classifyReadyGateFailure(error, [failingPath], allowed, probeScope, probeSeams, mockRunner);
+        expect(runV2Calls).toEqual([
+          {
+            mode: terminalCommand === "bun run test:integration" ? "integration" : "agent",
+            files: [failingPath],
+          },
+        ]);
+        expect(subprocessCalls.some((call) => call.args[0] === "test")).toBe(false);
+        expect(subprocessCalls.some((call) => call.args[0] === "run" && call.args[1] === "test:agent")).toBe(false);
+        expect(subprocessCalls.some((call) => call.args[0] === "run" && call.args[1] === "test:integration")).toBe(
+          false,
+        );
+      }
+
+      subprocessCalls.length = 0;
+      const v1Output = gateOutput({
+        completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v1", status: 1 }],
+        failingFiles: [{ attemptId: "2.1", path: failingPath }],
+      });
+      const v1Error = new ReadyGateError("bun run ready", 1, v1Output);
+      await classifyReadyGateFailure(v1Error, [failingPath], allowed, probeScope, probeSeams, mockRunner);
+      const bunProbe = subprocessCalls.find((call) => call.cmd === "bun");
+      expect(bunProbe?.args).toEqual(["test", failingPath]);
+      expect(bunProbe?.env?.JARVIS_READY_TIER).toBe("full");
+      expect(bunProbe?.env?.JARVIS_READY_TEST_SCOPE).toBe("test:agent test:integration");
+    } finally {
+      mock.module("../../scripts/run-slice-tests.ts", () => realRunV2Tests);
+    }
+  });
+
+  it("base-ref reproduction probe records its process group on the owning run row", async () => {
+    const failingPath = "src/untouched.test.ts";
+    const recorded: number[] = [];
+    const cleared: number[] = [];
+    const probeSeams: ReadyGateScopeSeams = {
+      gitDiffNameStatus: async () => `M\0src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["spec/demo/index.md"],
+    };
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "git" && args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "git" && args?.[0] === "rev-parse") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "bun") {
+          // The probe spawn must be detached and bound: without a processGroup option this never fires.
+          options?.processGroup?.onGroupId?.(777);
+        }
+        return "";
+      },
+    };
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: failingPath }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const scopeWithRecorder = {
+      worktreePath: "/tmp/run-worktree",
+      baseRef: "main",
+      specPath: "spec/demo/index.md",
+      verifierProcessGroups: {
+        record: (pgid: number) => recorded.push(pgid),
+        clear: (pgid: number) => cleared.push(pgid),
+      },
+    };
+    await classifyReadyGateFailure(
+      error,
+      [failingPath],
+      new Set(["src/changed.ts"]),
+      scopeWithRecorder,
+      probeSeams,
+      mockRunner,
+    );
+    expect(recorded).toEqual([777]);
+    expect(cleared).toEqual([777]);
+  });
+
+  it("base-ref reproduction classifies a base-passing worktree-failing path as in scope", async () => {
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: "src/untouched.test.ts" }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateError(error, scope, {
+      ...allowedSeams,
+      reproduceReadyGateAtBaseRef: async () => "pass",
+    });
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+    expect(classified.gateRepairAllowsetPaths).toEqual(["src/untouched.test.ts"]);
+  });
+
+  it("base-ref probe failure classifies in scope", async () => {
+    const probeMessage = "exit 1: probe stderr tail";
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: "src/untouched.test.ts" }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateError(error, scope, {
+      ...allowedSeams,
+      reproduceReadyGateAtBaseRef: async () => ({ kind: "error", message: probeMessage }),
+    });
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+    expect(classified.gateRepairAllowsetPaths).toEqual(["src/untouched.test.ts"]);
+    expect(classified.baseRefProbeError).toBe(probeMessage);
+  });
+
+  it("turns guard inversions red for parsing, validation, scope resolution, and classification", async () => {
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: "src/untouched.test.ts" }],
+    });
+    const allowed = new Set(["src/changed.ts", "spec/demo/index.md"]);
+    const error = new ReadyGateError("bun run ready", 1, output);
+
+    expect(selectTerminalFailingPaths(output)).toEqual(["src/untouched.test.ts"]);
+    expect(selectTerminalFailingPaths(output.replace(FAILING_TEST_FILE_MARKER, "INVERTED "))).toBeUndefined();
+
+    expect(validateRepoRelativePath("src/ok.test.ts")).toBe("src/ok.test.ts");
+    expect(validateRepoRelativePath("../bad.test.ts")).toBeUndefined();
+
+    expect(parseGitNameStatusZ("M\0src/changed.ts\0")).toEqual(["src/changed.ts"]);
+    expect(parseGitNameStatusZ("M\0broken")).toBeUndefined();
+
+    expect(
+      await classifyReadyGateFailure(error, ["src/untouched.test.ts"], allowed, scope, {
+        reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
+      }),
+    ).toEqual({
+      kind: "ready_gate_out_of_scope",
+      outsidePaths: ["src/untouched.test.ts"],
+      outsidePathObservations: { "src/untouched.test.ts": { pass: 0, fail: 1, baseCommit: "abc1234" } },
+    });
+    expect(
+      (
+        await classifyReadyGateFailure(error, ["src/untouched.test.ts"], allowed, scope, {
+          reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
+        })
+      ).kind,
+    ).not.toBe("ready_gate_failed");
+    expect(
+      (
+        await classifyReadyGateFailure(error, undefined, allowed, scope, {
+          reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
+        })
+      ).kind,
+    ).toBe("ready_gate_failed");
+    expect(
+      (
+        await classifyReadyGateFailure(error, ["src/changed.ts"], allowed, scope, {
+          reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL,
+        })
+      ).kind,
+    ).toBe("ready_gate_failed");
+
+    expect(findMissingReadyGateCommandEvidence("", "ENOENT")).toBe("ENOENT");
+    expect(findMissingReadyGateCommandEvidence("", "EEXIST")).toBeUndefined();
+    expect(findMissingReadyGateCommandEvidence("internal ENOENT error", undefined)).toBeUndefined();
+  });
+});
+
+describe("hasFailingTestEvidence", () => {
+  it("requires bun's own per-test failure line, not just a non-zero-exit summary", () => {
+    expect(hasFailingTestEvidence("(fail) a genuine failing assertion [0.11ms]\n\n 1 pass\n 1 fail\n")).toBe(true);
+    expect(hasFailingTestEvidence("  (fail) nested describe > test\n")).toBe(true);
+    expect(
+      hasFailingTestEvidence(
+        "# Unhandled error between tests\n-------\nerror: Cannot find package 'x'\n-------\n\n 0 pass\n 1 fail\n 1 error\n",
+      ),
+    ).toBe(false);
+    expect(hasFailingTestEvidence(" 12 pass\n 0 fail\n")).toBe(false);
+  });
+});
+
+describe("base-ref probe conclusive reproduction", () => {
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("does not emit ready gate failing-file markers while reproducing at base ref", async (terminalCommand) => {
+    const previousAttempt = process.env[READY_ATTEMPT_ENV];
+    process.env[READY_ATTEMPT_ENV] = "3.1";
+    const stderrChunks: string[] = [];
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    const stderrSpy = (chunk: string | Uint8Array, ...args: unknown[]) => {
+      stderrChunks.push(String(chunk));
+      return stderrWrite(chunk, ...(args as []));
+    };
+    process.stderr.write = stderrSpy as typeof process.stderr.write;
+    try {
+      await withBaseRefProbeFixture(
+        "no-marker-leak",
+        {
+          baseTestBody: PROBE_FIXTURE_TEST_PASSING,
+          branchTestBody: PROBE_FIXTURE_TEST_FAILING,
+          dependencyPresent: true,
+        },
+        async ({ scope: probeScope, testPath }) => {
+          await classifyReadyGateFailure(
+            probeFixtureGateFailure(testPath, terminalCommand),
+            [testPath],
+            new Set<string>(),
+            probeScope,
+            {},
+          );
+        },
+      );
+    } finally {
+      process.stderr.write = stderrWrite;
+      if (previousAttempt === undefined) {
+        delete process.env[READY_ATTEMPT_ENV];
+      } else {
+        process.env[READY_ATTEMPT_ENV] = previousAttempt;
+      }
+    }
+    expect(stderrChunks.some((chunk) => chunk.startsWith(FAILING_TEST_FILE_MARKER))).toBe(false);
+  });
+
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("reproduces the run 75ca2a7a case: a path passing at a verified base tree and failing on the branch settles ready_gate_failed", async (terminalCommand) => {
+    await withBaseRefProbeFixture(
+      "regression-75ca2a7a",
+      { baseTestBody: PROBE_FIXTURE_TEST_PASSING, branchTestBody: PROBE_FIXTURE_TEST_FAILING, dependencyPresent: true },
+      async ({ scope: probeScope, testPath }) => {
+        const classified = await classifyReadyGateFailure(
+          probeFixtureGateFailure(testPath, terminalCommand),
+          [testPath],
+          new Set<string>(),
+          probeScope,
+          {},
+        );
+        expect(classified.kind).toBe("ready_gate_failed");
+        expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
+        // No baseRefProbeError: the base tree must have conclusively *passed*, not merely probed
+        // inconclusively (e.g. a crash from a missing `node_modules` symlink) — otherwise this test
+        // would also pass with only the failing-test-evidence fix and none of the root-cause fix.
+        expect(classified.baseRefProbeError).toBeUndefined();
+      },
+    );
+  });
+
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("settles ready_gate_out_of_scope when a path fails with test-failure evidence on both a verified base tree and the branch", async (terminalCommand) => {
+    await withBaseRefProbeFixture(
+      "deterministic-both-red",
+      { baseTestBody: PROBE_FIXTURE_TEST_FAILING, branchTestBody: PROBE_FIXTURE_TEST_FAILING, dependencyPresent: true },
+      async ({ scope: probeScope, testPath }) => {
+        const classified = await classifyReadyGateFailure(
+          probeFixtureGateFailure(testPath, terminalCommand),
+          [testPath],
+          new Set<string>(),
+          probeScope,
+          {},
+        );
+        expect(classified.kind).toBe("ready_gate_out_of_scope");
+        expect(classified.outsidePaths).toEqual([testPath]);
+        // Pins the observation's baseCommit to the verified merge-base, not the raw "fail"
+        // classification with the field silently dropped.
+        expect(classified.outsidePathObservations).toEqual({
+          [testPath]: { pass: 0, fail: 1, baseCommit: probeScope.baseRef },
+        });
+      },
+    );
+  });
+
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("records the base tree's per-test pass and fail counts from mixed reporter output", async (terminalCommand) => {
+    await withBaseRefProbeFixture(
+      "mixed-counts",
+      { baseTestBody: PROBE_FIXTURE_TEST_MIXED, branchTestBody: PROBE_FIXTURE_TEST_MIXED, dependencyPresent: true },
+      async ({ scope: probeScope, testPath }) => {
+        const classified = await classifyReadyGateFailure(
+          probeFixtureGateFailure(testPath, terminalCommand),
+          [testPath],
+          new Set<string>(),
+          probeScope,
+          {},
+        );
+        expect(classified.kind).toBe("ready_gate_out_of_scope");
+        expect(classified.outsidePathObservations).toEqual({
+          [testPath]: { pass: 3, fail: 2, baseCommit: probeScope.baseRef },
+        });
+      },
+    );
+  });
+
+  it.each(
+    PROBE_FIXTURE_TERMINAL_COMMANDS,
+  )("keeps a crash with no failing-test evidence inconclusive, not a conclusive fail", async (terminalCommand) => {
+    await withBaseRefProbeFixture(
+      "missing-dependency",
+      {
+        baseTestBody: PROBE_FIXTURE_TEST_PASSING,
+        branchTestBody: PROBE_FIXTURE_TEST_PASSING,
+        dependencyPresent: false,
+      },
+      async ({ scope: probeScope, testPath }) => {
+        const classified = await classifyReadyGateFailure(
+          probeFixtureGateFailure(testPath, terminalCommand),
+          [testPath],
+          new Set<string>(),
+          probeScope,
+          {},
+        );
+        expect(classified.kind).toBe("ready_gate_failed");
+        expect(classified.gateRepairAllowsetPaths).toEqual([testPath]);
+        expect(classified.baseRefProbeError).toContain("no failing-test evidence");
+      },
+    );
+  });
+
+  it("settles ready_gate_failed, not ready_gate_out_of_scope, when the terminal step or scope is missing even though every failing path is outside the allowset", async () => {
+    const allowed = new Set<string>(["src/changed.ts"]);
+    const nonTestTerminalOutput = gateOutput({
+      completions: [{ stepId: "3", attemptId: "3.1", command: "bun run lint:md", status: 1 }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, nonTestTerminalOutput);
+    // The seam below would confirm "fail" if the probe ever ran; the assertions prove it never does.
+    const trapSeams: ReadyGateScopeSeams = { reproduceReadyGateAtBaseRef: async () => PLACEHOLDER_BASE_REF_PROBE_FAIL };
+
+    const noTerminalStep = await classifyReadyGateFailure(error, ["src/untouched.test.ts"], allowed, scope, trapSeams);
+    expect(noTerminalStep.kind).toBe("ready_gate_failed");
+
+    const noScope = await classifyReadyGateFailure(error, ["src/untouched.test.ts"], allowed, undefined, trapSeams);
+    expect(noScope.kind).toBe("ready_gate_failed");
+  });
+
+  it("resolveAttributableRepairAllowset intersects lint attribution with the frozen gate repair allowset", () => {
+    const frozen = new Set(["proof.txt", "spec.md"]);
+    const outsidePath = "src/untouched.test.ts";
+    const error = new ReadyGateError("bun run ready", 1, lintMdOnlyGateFailureOutput(outsidePath));
+    expect(resolveAttributableRepairAllowset(frozen, error).has(outsidePath)).toBe(false);
+    expect(resolveAttributableRepairAllowset(frozen, error).size).toBe(0);
+  });
+
+  it("resolveAttributableRepairAllowset admits in-envelope lint attribution only", () => {
+    const frozen = new Set(["spec.md", "proof.txt"]);
+    const error = new ReadyGateError("bun run ready", 1, lintMdOnlyGateFailureOutput("spec.md"));
+    expect([...resolveAttributableRepairAllowset(frozen, error)]).toEqual(["spec.md"]);
+  });
+
+  it("selectAttributablePathsWhollyOutsideGateRepairAllowset names lint paths outside the frozen envelope", () => {
+    const frozen = new Set(["proof.txt", "spec.md"]);
+    const outsidePath = "src/untouched.test.ts";
+    const error = new ReadyGateError("bun run ready", 1, lintMdOnlyGateFailureOutput(outsidePath));
+    expect(selectAttributablePathsWhollyOutsideGateRepairAllowset(frozen, error)).toEqual([outsidePath]);
+  });
+
+  it("resolveAttributableRepairAllowset keeps the frozen allowset for test terminal failures", () => {
+    const frozen = new Set(["proof.txt"]);
+    const error = new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
+    expect(resolveAttributableRepairAllowset(frozen, error)).toEqual(frozen);
+  });
+
+  const BASE_REF_PROBE_UNTOUCHED_PATH = "src/untouched.test.ts";
+
+  async function classifyWithBaseRefProbeRunner(mockRunner: AsyncSubprocessRunner) {
+    const probeSeams: ReadyGateScopeSeams = {
+      gitDiffNameStatus: async () => `M\0src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["spec/demo/index.md"],
+    };
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: BASE_REF_PROBE_UNTOUCHED_PATH }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    return classifyReadyGateFailure(
+      error,
+      [BASE_REF_PROBE_UNTOUCHED_PATH],
+      new Set(["src/changed.ts"]),
+      scope,
+      probeSeams,
+      mockRunner,
+    );
+  }
+
+  it("treats a base-ref probe timeout as inconclusive, not a conclusive fail", async () => {
+    const classified = await classifyWithBaseRefProbeRunner({
+      async runAsync(cmd, args) {
+        if (cmd === "git" && args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "git" && args?.[0] === "rev-parse") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "git" && args?.[0] === "worktree") return "";
+        if (cmd === "bun") {
+          throw new AsyncSubprocessError("Command timed out", undefined, "", "", "ETIMEDOUT");
+        }
+        return "";
+      },
+    });
+    expect(classified.kind).toBe("ready_gate_failed");
+    // Empty stdout/stderr: no trailing ": " separator should be appended for an empty tail.
+    expect(classified.baseRefProbeError).toBe("base-ref probe timed out");
+  });
+
+  it("appends the probe output's tail to the no-failing-test-evidence reason when output is present", async () => {
+    const classified = await classifyWithBaseRefProbeRunner({
+      async runAsync(cmd, args) {
+        if (cmd === "git" && args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "git" && args?.[0] === "rev-parse") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "git" && args?.[0] === "worktree") return "";
+        if (cmd === "bun") {
+          throw new AsyncSubprocessError("Command failed", 1, "crash-marker-output", "", undefined);
+        }
+        return "";
+      },
+    });
+    expect(classified.kind).toBe("ready_gate_failed");
+    expect(classified.baseRefProbeError).toBe("base-ref probe produced no failing-test evidence: crash-marker-output");
+  });
+
+  it("treats a probe tree that failed to verify against the merge-base as inconclusive", async () => {
+    const classified = await classifyWithBaseRefProbeRunner({
+      async runAsync(cmd, args) {
+        if (cmd === "git" && args?.[0] === "merge-base") return `${MOCK_MERGE_BASE_OID}\n`;
+        if (cmd === "git" && args?.[0] === "worktree") return "";
+        if (cmd === "git" && args?.[0] === "rev-parse") return `${MOCK_MISMATCH_HEAD_OID}\n`;
+        return "";
+      },
+    });
+    expect(classified.kind).toBe("ready_gate_failed");
+    expect(classified.baseRefProbeError).toContain(MOCK_MISMATCH_HEAD_OID);
+  });
+});
+
+describe("createReadyFinalizer", () => {
+  const input = { worktreePath: "/tmp/worktree", branch: "feature-branch", baseRef: "main", prNumber: 42 };
+  const noopDelay = async () => {};
+
+  it("skips the ready gate but completes remaining finalization when admitted", async () => {
+    const calls: string[] = [];
+    const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
+      runReadyGate: async () => {
+        throw new ReadyGateError("missing-ready", undefined, "ENOENT");
+      },
+      runRequiredIntegration: async () => {
+        calls.push("integration");
+      },
+      runMutationVerification: async () => {
+        calls.push("mutation");
+      },
+      runRuntimeSmokeVerification: async () => {
+        calls.push("smoke");
+        return { kind: "observed-clean" };
+      },
+      ghReadyFlip: async () => {
+        calls.push("flip");
+      },
+    });
+
+    await expect(
+      finalizer({ ...input, requiredIntegrationScope: "test:integration", skipReadyGate: true }),
+    ).resolves.toEqual({ runtimeSmokeOutcome: { kind: "observed-clean" } });
+    expect(calls).toEqual(["integration", "mutation", "smoke", "flip"]);
+  });
+
+  it("runs the ready gate then flips the resolved PR number, never the branch, on green", async () => {
+    // The branch's PR history may carry closed PRs behind the current open draft (subspec 00);
+    // publication resolves that draft's number and threads it here as `prNumber`.
+    const calls: string[] = [];
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async (worktreePath, baseRef) => {
+        calls.push(`gate:${worktreePath}@${baseRef}`);
+      },
+      ghReadyFlip: async (prNumber, worktreePath) => {
+        calls.push(`flip:${prNumber}@${worktreePath}`);
+      },
+    });
+
+    await finalizer(input);
+
+    expect(calls).toEqual(["gate:/tmp/worktree@main", "flip:42@/tmp/worktree"]);
+  });
+
+  it("returns a successful runtime smoke outcome", async () => {
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      runRuntimeSmokeVerification: async () => ({
+        kind: "not-runnable",
+        inspectedPaths: ["src/execution/write-loop.ts", "src/shared/subprocess.ts"],
+        discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
+      }),
+      ghReadyFlip: async () => {},
+    });
+
+    await expect(finalizer(input)).resolves.toEqual({
+      runtimeSmokeOutcome: {
+        kind: "not-runnable",
+        inspectedPaths: ["src/execution/write-loop.ts", "src/shared/subprocess.ts"],
+        discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
+      },
+    });
+  });
+
+  it("carries a successful runtime smoke outcome when the ready flip fails", async () => {
+    const outcome = { kind: "observed-clean" } as const;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      runRuntimeSmokeVerification: async () => outcome,
+      ghReadyFlip: async () => {
+        throw new Error("gh pr ready failed");
+      },
+      delay: noopDelay,
+    });
+
+    await expect(finalizer(input)).rejects.toEqual(
+      expect.objectContaining({
+        name: "ReadyFlipError",
+        runtimeSmokeOutcome: outcome,
+      }),
+    );
+  });
+
+  it("does not return a runtime smoke outcome when no verifier is configured", async () => {
+    const finalizer = createReadyFinalizer({ runReadyGate: async () => {}, ghReadyFlip: async () => {} });
+
+    await expect(finalizer(input)).resolves.toEqual({});
+  });
+
+  it("leaves the PR draft and does not flip when the ready gate fails", async () => {
+    let flipCalls = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {
+        throw new Error("ready gate failed (exit 1): tests failed");
+      },
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    await expect(finalizer(input)).rejects.toThrow("ready gate failed");
+    expect(flipCalls).toBe(0);
+  });
+
+  it("stops ready finalization for missing prompt render coverage", async () => {
+    let flipCalls = 0;
+    let prompt = `---
+id: patch.review.critic
+behavior: review
+kind: step
+revision: 1
+placeholders: []
+---
+new output
+`;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      runMutationVerification: async () => {
+        const result = await verifyDiffDerivedMutations(
+          { worktreePath: "/tmp/worktree", runBase: "main" },
+          {
+            gitDiff: async () => `diff --git a/prompts/patch/review-critic.md b/prompts/patch/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/patch/review-critic.md
++++ b/prompts/patch/review-critic.md
+@@ -1 +1 @@
+-old output
++new output
+diff --git a/shared/prompts/review-implement.test.ts b/shared/prompts/review-implement.test.ts
+index 1234567..abcdefg 100644
+--- a/shared/prompts/review-implement.test.ts
++++ b/shared/prompts/review-implement.test.ts
+@@ -1 +1 @@
++const output = renderPatchReviewCriticPrompt();
+`,
+            untrackedFiles: async () => [],
+            registeredPromptPaths: async () => ["prompts/patch/review-critic.md"],
+            readFile: async () => prompt,
+            writeFile: async (_path, content) => {
+              prompt = content;
+            },
+            runScopedTests: async () => true,
+          },
+        );
+        if (result.kind === "surviving-mutation") {
+          throw new SurvivingMutationError(
+            result.mutation,
+            result.sourceSite.file,
+            result.sourceSite.line,
+            result.killingTests,
+            result.killingSetObservedResult,
+          );
+        }
+      },
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    await expect(finalizer(input)).rejects.toThrow(
+      "Surviving mutation in prompts/patch/review-critic.md:1: missing-render-coverage",
+    );
+    expect(flipCalls).toBe(0);
+  });
+
+  it("settles finalization after diff-derived verification on a shared multi-candidate diff", async () => {
+    const dir = trackedMkdtempSync(join(tmpdir(), "mutation-finalize-fixture-"));
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+      execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+      mkdirSync(join(dir, "shared", "fixture"), { recursive: true });
+      writeFileSync(
+        join(dir, "shared", "fixture", "a.ts"),
+        "export function a(x: unknown): string {\n  return String(x);\n}\n",
+      );
+      writeFileSync(
+        join(dir, "shared", "fixture", "a.test.ts"),
+        'import { expect, test } from "bun:test";\nimport { a } from "./a.ts";\ntest("a", () => { expect(a(0)).toBe("null"); expect(a(1)).toBe("1"); });\n',
+      );
+      writeFileSync(
+        join(dir, "shared", "fixture", "b.ts"),
+        "export function b(x: unknown): string {\n  return String(x);\n}\n",
+      );
+      writeFileSync(
+        join(dir, "shared", "fixture", "b.test.ts"),
+        'import { expect, test } from "bun:test";\nimport { b } from "./b.ts";\ntest("b", () => { expect(b(0)).toBe("null"); expect(b(1)).toBe("1"); });\n',
+      );
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+      const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+      writeFileSync(
+        join(dir, "shared", "fixture", "a.ts"),
+        'export function a(x: unknown): string {\n  if (!x) return "null";\n  return String(x);\n}\n',
+      );
+      writeFileSync(
+        join(dir, "shared", "fixture", "b.ts"),
+        'export function b(x: unknown): string {\n  if (!x) return "null";\n  return String(x);\n}\n',
+      );
+      execFileSync("git", ["commit", "-aq", "-m", "guards"], { cwd: dir });
+
+      let flipCalls = 0;
+      const finalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        runMutationVerification: async (worktreePath, runBase) => {
+          const result = await verifyDiffDerivedMutations({ worktreePath, runBase });
+          if (result.kind === "surviving-mutation") {
+            throw new SurvivingMutationError(
+              result.mutation,
+              result.sourceSite.file,
+              result.sourceSite.line,
+              result.killingTests,
+              result.killingSetObservedResult,
+            );
+          }
+        },
+        ghReadyFlip: async () => {
+          flipCalls += 1;
+        },
+      });
+
+      await expect(finalizer({ worktreePath: dir, branch: "feature", baseRef: baseSha, prNumber: 7 })).resolves.toEqual(
+        {},
+      );
+      expect(flipCalls).toBe(1);
+      expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("carries the ready gate command, exit code, and combined output", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync() {
+          throw new AsyncSubprocessError("ready failed", 1, "stdout failure\n", "stderr failure\n", undefined);
+        },
+      },
+    });
+
+    await expect(finalizer(input)).rejects.toEqual(
+      new ReadyGateError("bun run ready", 1, "stdout failure\nstderr failure\n"),
+    );
+  });
+
+  it("retries transient gh pr ready errors up to 3 attempts", async () => {
+    let attempts = 0;
+    const delays: number[] = [];
+    const notices: string[] = [];
+
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw new Error("Connection reset by peer");
+        }
+      },
+      delay: async (ms) => {
+        delays.push(ms);
+      },
+      retryNotice: (message) => {
+        notices.push(message);
+      },
+    });
+
+    await finalizer(input);
+
+    expect(attempts).toBe(3);
+    expect(delays).toEqual([1000, 1000]);
+    expect(notices).toEqual([
+      "gh pr ready: Connection reset by peer; exit=unknown; retrying (attempt 2/3)",
+      "gh pr ready: Connection reset by peer; exit=unknown; retrying (attempt 3/3)",
+    ]);
+  });
+
+  it("treats already ready stderr as success without retry", async () => {
+    let attempts = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        attempts += 1;
+        throw new Error("error: pull request is already ready for review");
+      },
+      delay: noopDelay,
+      retryNotice: () => {
+        throw new Error("should not retry");
+      },
+    });
+
+    await finalizer(input);
+
+    expect(attempts).toBe(1);
+  });
+
+  it("treats not a draft stderr as success without retry", async () => {
+    let attempts = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        attempts += 1;
+        throw new Error("error: this pull request is not a draft");
+      },
+      delay: noopDelay,
+      retryNotice: () => {
+        throw new Error("should not retry");
+      },
+    });
+
+    await finalizer(input);
+
+    expect(attempts).toBe(1);
+  });
+
+  it("treats an empty exit-0 gh pr ready response as success", async () => {
+    let attempts = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        attempts += 1;
+      },
+    });
+
+    await finalizer(input);
+
+    expect(attempts).toBe(1);
+  });
+
+  it("throws after 3 failed gh pr ready attempts", async () => {
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        throw new Error("Connection timeout");
+      },
+      delay: noopDelay,
+    });
+
+    await expect(finalizer(input)).rejects.toThrow("Connection timeout");
+  });
+
+  it("overrides inherited JARVIS_READY_TIER=fast with full in the gate's child env", async () => {
+    const originalEnv = process.env.JARVIS_READY_TIER;
+    try {
+      process.env.JARVIS_READY_TIER = "fast";
+
+      const calls: Array<{ env: NodeJS.ProcessEnv | undefined }> = [];
+      const mockRunner: AsyncSubprocessRunner = {
+        async runAsync(cmd, _args, _cwd, options) {
+          if (cmd === "bun") {
+            calls.push({ env: options?.env });
+          }
+          return "";
+        },
+      };
+
+      const finalizer = createReadyFinalizer({
+        asyncSubprocessRunner: mockRunner,
+        ghReadyFlip: async () => {},
+      });
+
+      await finalizer(input);
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.env?.JARVIS_READY_TIER).toBe("full");
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.JARVIS_READY_TIER;
+      } else {
+        process.env.JARVIS_READY_TIER = originalEnv;
+      }
+    }
+  });
+
+  it("scopes JARVIS_READY_TEST_SCOPE to v2 test scripts when only v2/** changed", async () => {
+    const calls: Array<{ env: NodeJS.ProcessEnv | undefined }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "git") {
+          if (args?.[0] === "diff") return "src/execution/ready-finalize.ts\nsrc/execution/write-loop.ts";
+          if (args?.[0] === "ls-files") return "";
+        }
+        calls.push({ env: options?.env });
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {},
+    });
+
+    await finalizer(input);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.env?.JARVIS_READY_TIER).toBe("full");
+    expect(calls[0]?.env?.JARVIS_READY_TEST_SCOPE).toBe("test:agent test:integration");
+  });
+
+  it("classifies gate failure with exit 124 as timed out", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync() {
+          throw new AsyncSubprocessError("ready failed", 124, "", "", undefined);
+        },
+      },
+    });
+
+    try {
+      await finalizer(input);
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(true);
+      expect(gateError.exitCode).toBe(124);
+    }
+  });
+
+  it("bounds a custom readyCommand gate and classifies its harness-side timeout as timed out", async () => {
+    const seen: Array<{ cmd: string; timeoutMs: number | undefined; grouped: boolean }> = [];
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync(cmd, _args, _cwd, options) {
+          if (cmd === "git") return "";
+          seen.push({ cmd, timeoutMs: options?.timeoutMs, grouped: options?.processGroup !== undefined });
+          throw new AsyncSubprocessError("Command timed out after 1860000ms: make ci", undefined, "", "", "ETIMEDOUT");
+        },
+      },
+    });
+
+    try {
+      await finalizer({ ...input, readyCommand: "make ci" });
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(true);
+    }
+    expect(seen).toEqual([{ cmd: "make", timeoutMs: readyGateSubprocessTimeoutMs(), grouped: true }]);
+  });
+
+  it("derives the ready-gate subprocess bound from JARVIS_READY_TIMEOUT_MS plus grace", () => {
+    expect(readyGateSubprocessTimeoutMs({ JARVIS_READY_TIMEOUT_MS: "1000" })).toBe(61_000);
+    expect(readyGateSubprocessTimeoutMs({ JARVIS_READY_TIMEOUT_MS: "junk" })).toBe(30 * 60_000 + 60_000);
+  });
+
+  it("classifies gate failure with deadline marker in output as timed out", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync() {
+          throw new AsyncSubprocessError(
+            "ready failed",
+            1,
+            "ready: deadline exceeded after 600000ms; killing child tree\n",
+            "",
+            undefined,
+          );
+        },
+      },
+    });
+
+    try {
+      await finalizer(input);
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(true);
+      expect(gateError.exitCode).toBe(1);
+    }
+  });
+
+  it("classifies non-timeout gate failure (exit 1, no marker) as not timed out", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync() {
+          throw new AsyncSubprocessError("ready failed", 1, "test failure\n", "stderr\n", undefined);
+        },
+      },
+    });
+
+    try {
+      await finalizer(input);
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(false);
+      expect(gateError.exitCode).toBe(1);
+    }
+  });
+
+  it("classifies required-integration failure with exit 124 as timed out", async () => {
+    const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {},
+      asyncSubprocessRunner: {
+        async runAsync(cmd, args) {
+          if (cmd === "bun" && args?.[0] === "run" && args?.[1] === "test:integration") {
+            throw new AsyncSubprocessError("integration test failed", 124, "", "", undefined);
+          }
+          return "";
+        },
+      },
+    });
+
+    try {
+      await finalizer({ ...input, requiredIntegrationScope: "test:integration" });
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(true);
+      expect(gateError.command).toBe("test:integration");
+    }
+  });
+
+  it("falls back to JARVIS_READY_TEST_SCOPE=full when diff fails", async () => {
+    const calls: Array<{ env: NodeJS.ProcessEnv | undefined }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, _args, _cwd, options) {
+        if (cmd === "git") {
+          throw new Error("unable to resolve base ref");
+        }
+        calls.push({ env: options?.env });
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {},
+    });
+
+    await finalizer(input);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.env?.JARVIS_READY_TIER).toBe("full");
+    expect(calls[0]?.env?.JARVIS_READY_TEST_SCOPE).toBe("full");
+  });
+
+  it("runs the configured ready command as the ready gate", async () => {
+    const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args) {
+        if (cmd !== "git") {
+          calls.push({ cmd, args: args ?? [] });
+        }
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+
+    await finalizer({ ...input, readyCommand: "npm run verify" });
+
+    expect(calls).toEqual([{ cmd: "npm", args: ["run", "verify"] }]);
+  });
+
+  it("falls back to bun run ready without a configured readyCommand", async () => {
+    const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args) {
+        if (cmd !== "git") {
+          calls.push({ cmd, args: args ?? [] });
+        }
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+
+    await finalizer(input);
+
+    expect(calls).toEqual([{ cmd: "bun", args: ["run", "ready"] }]);
+  });
+
+  it("stamps a gate failure's command as the configured ready command", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync(cmd) {
+          if (cmd !== "git") {
+            throw new AsyncSubprocessError("ready failed", 1, "tests failed\n", "", undefined);
+          }
+          return "";
+        },
+      },
+      ghReadyFlip: async () => {},
+    });
+
+    try {
+      await finalizer({ ...input, readyCommand: "npm run verify" });
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.command).toBe("npm run verify");
+    }
+  });
+
+  it("rejects required v2 integration scope failure before publisher finalization", async () => {
+    let flipCalls = 0;
+    const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
+      runReadyGate: async () => {},
+      runRequiredIntegration: async () => {
+        throw new ReadyGateError("bun run test:integration", 1, "integration test failed\n");
+      },
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    const inputWithIntegration = { ...input, requiredIntegrationScope: "test:integration" };
+    await expect(finalizer(inputWithIntegration)).rejects.toThrow("ready gate failed");
+    expect(flipCalls).toBe(0);
+  });
+
+  it("runs required integration scope after ready gate and before flip", async () => {
+    const calls: string[] = [];
+    const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
+      runReadyGate: async () => {
+        calls.push("gate");
+      },
+      runRequiredIntegration: async () => {
+        calls.push("integration");
+      },
+      ghReadyFlip: async () => {
+        calls.push("flip");
+      },
+    });
+
+    const inputWithIntegration = { ...input, requiredIntegrationScope: "test:integration" };
+    await finalizer(inputWithIntegration);
+
+    expect(calls).toEqual(["gate", "integration", "flip"]);
+  });
+
+  it("spawns the ready gate in group mode bound to the run signal", async () => {
+    const signal = new AbortController().signal;
+    const calls: Array<{ args: readonly string[]; signal?: AbortSignal | undefined; processGroup?: unknown }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun") {
+          calls.push({ args: args ?? [], signal: options?.signal, processGroup: options?.processGroup });
+        }
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+
+    await finalizer({ ...input, signal });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.args).toEqual(["run", "ready"]);
+    expect(calls[0]?.signal).toBe(signal);
+    expect(calls[0]?.processGroup).toBeDefined();
+  });
+
+  it("spawns required integration in group mode bound to the run signal", async () => {
+    const signal = new AbortController().signal;
+    const calls: Array<{ args: readonly string[]; signal?: AbortSignal | undefined; processGroup?: unknown }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "test:integration") {
+          calls.push({ args: args ?? [], signal: options?.signal, processGroup: options?.processGroup });
+        }
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
+      runReadyGate: async () => {},
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {},
+    });
+
+    await finalizer({ ...input, requiredIntegrationScope: "test:integration", signal });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.signal).toBe(signal);
+    expect(calls[0]?.processGroup).toBeDefined();
+  });
+
+  it("runs required integration only when the script exists and the default ready gate scope does not cover it", async () => {
+    const cases: Array<{
+      readyCommand?: string;
+      skipReadyGate?: boolean;
+      gateScope: "full" | string[];
+      hasScript: boolean;
+      runs: boolean;
+    }> = [
+      { gateScope: ["test:agent", "test:integration"], hasScript: true, runs: false },
+      { gateScope: "full", hasScript: true, runs: false },
+      { gateScope: ["test:agent"], hasScript: true, runs: true },
+      { gateScope: [], hasScript: false, runs: false },
+      { readyCommand: "npm run verify", gateScope: "full", hasScript: false, runs: false },
+      { readyCommand: "npm run verify", gateScope: "full", hasScript: true, runs: true },
+      { skipReadyGate: true, gateScope: "full", hasScript: true, runs: true },
+    ];
+    for (const testCase of cases) {
+      let integrationCalls = 0;
+      const finalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        runRequiredIntegration: async () => {
+          integrationCalls += 1;
+        },
+        hasPackageScript: (_worktreePath, script) => testCase.hasScript && script === "test:integration",
+        resolveReadyTestScope: async () => testCase.gateScope,
+        ghReadyFlip: async () => {},
+      });
+      await finalizer({
+        ...input,
+        requiredIntegrationScope: "test:integration",
+        ...(testCase.readyCommand !== undefined ? { readyCommand: testCase.readyCommand } : {}),
+        ...(testCase.skipReadyGate !== undefined ? { skipReadyGate: testCase.skipReadyGate } : {}),
+      });
+      expect({ ...testCase, runs: integrationCalls === 1 }).toEqual(testCase);
+    }
+  });
+
+  it("default gate-scope resolution skips required integration when the v2 diff already scopes it into ready", async () => {
+    for (const [changed, runs] of [
+      ["src/a.ts\n", false],
+      ["docs/a.md\n", true],
+    ] as const) {
+      const integration: string[] = [];
+      const finalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        hasPackageScript: () => true,
+        asyncSubprocessRunner: {
+          async runAsync(cmd, args) {
+            if (cmd === "git" && args?.[0] === "diff") return changed;
+            if (cmd === "bun" && args?.[1] === "test:integration") integration.push("run");
+            return "";
+          },
+        },
+        ghReadyFlip: async () => {},
+      });
+      await finalizer({ ...input, requiredIntegrationScope: "test:integration" });
+      expect({ changed, runs: integration.length === 1 }).toEqual({ changed, runs });
+    }
+  });
+
+  it("detects the required integration script from the worktree package.json", async () => {
+    const worktreePath = trackedMkdtempSync(join(tmpdir(), "ready-finalize-pkg-"));
+    try {
+      let integrationCalls = 0;
+      const finalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        runRequiredIntegration: async () => {
+          integrationCalls += 1;
+        },
+        resolveReadyTestScope: async () => [],
+        ghReadyFlip: async () => {},
+      });
+      const run = () => finalizer({ ...input, worktreePath, requiredIntegrationScope: "test:integration" });
+      await run();
+      writeFileSync(join(worktreePath, "package.json"), JSON.stringify({ scripts: { "test:agent": "x" } }));
+      await run();
+      expect(integrationCalls).toBe(0);
+      writeFileSync(join(worktreePath, "package.json"), JSON.stringify({ scripts: { "test:integration": "x" } }));
+      await run();
+      expect(integrationCalls).toBe(1);
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  it("skips required integration scope when not specified", async () => {
+    let integrationCalls = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      runRequiredIntegration: async () => {
+        integrationCalls += 1;
+      },
+      ghReadyFlip: async () => {},
+    });
+
+    await finalizer(input);
+
+    expect(integrationCalls).toBe(0);
+  });
+
+  it("records the ready-gate group id at spawn and clears it when the gate succeeds", async () => {
+    const recorded: Array<number | null> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(4242);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+
+    await finalizer({ ...input, verifierProcessGroups: pushRecorder(recorded) });
+
+    expect(recorded).toEqual([4242, null]);
+  });
+
+  it("clears the recorded ready-gate group id when the gate fails", async () => {
+    // Mutation checkpoint: dropping the gate's finally clear leaves its pgid recorded after
+    // failure; the assertion below only passes when the clear actually runs.
+    const recorded: Array<number | null> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(4242);
+          throw new AsyncSubprocessError("ready failed", 1, "stdout failure\n", "stderr failure\n", undefined);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner });
+
+    await expect(finalizer({ ...input, verifierProcessGroups: pushRecorder(recorded) })).rejects.toThrow(
+      "ready gate failed",
+    );
+
+    expect(recorded).toEqual([4242, null]);
+  });
+
+  it("records the required-integration group id independently after the gate clears", async () => {
+    const recorded: Array<number | null> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(1111);
+        } else if (cmd === "bun" && args?.[1] === "test:integration") {
+          options?.processGroup?.onGroupId?.(2222);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {},
+    });
+
+    await finalizer({
+      ...input,
+      requiredIntegrationScope: "test:integration",
+      verifierProcessGroups: pushRecorder(recorded),
+    });
+
+    expect(recorded).toEqual([1111, null, 2222, null]);
+  });
+
+  it("clears the recorded group id when required integration fails", async () => {
+    // Mutation checkpoint: dropping required integration's finally clear leaves its pgid
+    // recorded after failure, independent of the gate's own checkpoint above.
+    const recorded: Array<number | null> = [];
+    let flipCalls = 0;
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(1111);
+          return "";
+        }
+        if (cmd === "bun" && args?.[1] === "test:integration") {
+          options?.processGroup?.onGroupId?.(2222);
+          throw new AsyncSubprocessError("integration failed", 1, "stdout failure\n", "stderr failure\n", undefined);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => [],
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    await expect(
+      finalizer({
+        ...input,
+        requiredIntegrationScope: "test:integration",
+        verifierProcessGroups: pushRecorder(recorded),
+      }),
+    ).rejects.toThrow("stdout failure");
+
+    expect(recorded).toEqual([1111, null, 2222, null]);
+    expect(flipCalls).toBe(0);
+  });
+
+  it("a throwing group-id recorder does not stop the gate from spawning or settling", async () => {
+    let calls = 0;
+    const throwingRecorder = (): void => {
+      calls += 1;
+      throw new Error("store closed");
+    };
+    let flipCalls = 0;
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(4242);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    await finalizer({ ...input, verifierProcessGroups: { record: throwingRecorder, clear: throwingRecorder } });
+
+    expect(calls).toBe(2);
+    expect(flipCalls).toBe(1);
+  });
+
+  it("a throwing settlement-clear recorder does not replace an in-flight gate failure", async () => {
+    const throwingRecorder = (): void => {
+      throw new Error("store closed");
+    };
+    let flipCalls = 0;
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(4242);
+          throw new AsyncSubprocessError("ready failed", 1, "stdout failure\n", "stderr failure\n", undefined);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    await expect(
+      finalizer({ ...input, verifierProcessGroups: { record: throwingRecorder, clear: throwingRecorder } }),
+    ).rejects.toThrow(ReadyGateError);
+    expect(flipCalls).toBe(0);
+  });
+
+  it("appends dual-constraint clause only when both timer callback and guarded root apply", () => {
+    const dual = new SurvivingMutationError(
+      "guard-flip: !x → x",
+      "src/execution/test.ts",
+      3,
+      ["src/execution/test.test.ts"],
+      "passed-confirmed",
+      true,
+    );
+    expect(dual.message).toContain("Surviving mutation in src/execution/test.ts:3: guard-flip: !x → x");
+    expect(dual.message).toContain("setTimeout/setInterval callback");
+    expect(dual.message).toContain("determinism-guarded");
+    expect(dual.message).toContain("pure exported predicate");
+    expect(dual.message).toContain("both truth directions");
+
+    const single = new SurvivingMutationError("guard-flip: !x → x", "src/execution/test.ts", 3, [], "not-run");
+    expect(single.message).toBe("Surviving mutation in src/execution/test.ts:3: guard-flip: !x → x");
+  });
+});
+
+describe("createReadyFinalizer harness ready-flip evidence", () => {
+  const finalizeInput = {
+    worktreePath: "/tmp/worktree",
+    branch: "feature-branch",
+    baseRef: "main",
+    prNumber: 42,
+  };
+  const noopDelay = async () => {};
+  let stateDbPath: string;
+  let store: StateStore;
+
+  beforeEach(() => {
+    stateDbPath = join(trackedMkdtempSync(join(tmpdir(), "ready-finalize-evidence-")), "state.db");
+    store = openStateStore(stateDbPath);
+  });
+
+  afterEach(() => {
+    setSystemTime();
+    store.close();
+    removeOrchestrationStore(stateDbPath);
+  });
+
+  function seedRun(): string {
+    return store.createRun({
+      project: "test-project",
+      specRef: finalizeInput.baseRef,
+      worktreePath: finalizeInput.worktreePath,
+      branch: finalizeInput.branch,
+      specPath: "spec/implement.md",
+    });
+  }
+
+  it("persists ready-flip evidence on the run row after a successful flip", async () => {
+    const runId = seedRun();
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {},
+    });
+
+    setSystemTime(new Date(12_000));
+    await finalizer({
+      ...finalizeInput,
+      recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+    });
+
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+      prNumber: 42,
+      branch: finalizeInput.branch,
+      baseRef: finalizeInput.baseRef,
+      flippedAt: 12_000,
+    });
+  });
+
+  it("leaves prior ready-flip evidence unchanged when ghReadyFlip rejects non-transiently", async () => {
+    const runId = seedRun();
+    setSystemTime(new Date(9_000));
+    store.recordHarnessReadyFlipEvidence({
+      runId,
+      prNumber: 1,
+      branch: finalizeInput.branch,
+      baseRef: finalizeInput.baseRef,
+    });
+
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        throw new Error("Resource not accessible by integration");
+      },
+      delay: noopDelay,
+    });
+
+    setSystemTime(new Date(15_000));
+    await expect(
+      finalizer({
+        ...finalizeInput,
+        recordHarnessReadyFlipEvidence: (args) => store.recordHarnessReadyFlipEvidence({ runId, ...args }),
+      }),
+    ).rejects.toThrow("Resource not accessible by integration");
+
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toEqual({
+      prNumber: 1,
+      branch: finalizeInput.branch,
+      baseRef: finalizeInput.baseRef,
+      flippedAt: 9_000,
+    });
+  });
+
+  it("writes no evidence when the ready gate fails before the flip", async () => {
+    const runId = seedRun();
+    let evidenceWrites = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {
+        throw new Error("ready gate failed (exit 1): tests failed");
+      },
+      ghReadyFlip: async () => {},
+    });
+
+    await expect(
+      finalizer({
+        ...finalizeInput,
+        recordHarnessReadyFlipEvidence: () => {
+          evidenceWrites += 1;
+        },
+      }),
+    ).rejects.toThrow("ready gate failed");
+
+    expect(evidenceWrites).toBe(0);
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence ?? null).toBeNull();
+  });
+
+  it("records exactly one write when ghReadyFlip fails transiently then succeeds", async () => {
+    const runId = seedRun();
+    let attempts = 0;
+    let evidenceWrites = 0;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {
+        attempts += 1;
+        if (attempts < 2) {
+          throw new Error("Connection reset by peer");
+        }
+      },
+      delay: noopDelay,
+    });
+
+    setSystemTime(new Date(16_000));
+    await finalizer({
+      ...finalizeInput,
+      recordHarnessReadyFlipEvidence: (args) => {
+        evidenceWrites += 1;
+        store.recordHarnessReadyFlipEvidence({ runId, ...args });
+      },
+    });
+
+    expect(attempts).toBe(2);
+    expect(evidenceWrites).toBe(1);
+    expect(store.loadRun(runId)?.harnessReadyFlipEvidence).toMatchObject({ prNumber: 42, flippedAt: 16_000 });
+  });
+});
+
+describe("survivingMutationLogFields", () => {
+  it("projects killing-set evidence and preserves legacy omission", () => {
+    const error = new SurvivingMutationError(
+      "operator-flip: === → !==",
+      "src/execution/ready-finalize.ts",
+      1035,
+      ["src/execution/ready-finalize.test.ts"],
+      "passed-confirmed",
+    );
+    expect(survivingMutationLogFields(error)).toEqual({
+      survivingMutation: "operator-flip: === → !==",
+      survivingMutationSourceFile: "src/execution/ready-finalize.ts",
+      survivingMutationSourceLine: 1035,
+      survivingMutationKillingTests: ["src/execution/ready-finalize.test.ts"],
+      survivingMutationKillingSetResult: "passed-confirmed",
+    });
+    expect(
+      survivingMutationLogFields({
+        survivingMutationKillingTests: ["src/guard.test.ts"],
+        survivingMutationKillingSetResult: "passed-unconfirmed",
+      }),
+    ).toEqual({
+      survivingMutationKillingTests: ["src/guard.test.ts"],
+      survivingMutationKillingSetResult: "passed-unconfirmed",
+    });
+    expect(
+      survivingMutationLogFields({
+        survivingMutation: "legacy",
+        survivingMutationSourceFile: "src/legacy.ts",
+        survivingMutationSourceLine: 1,
+      }),
+    ).toEqual({
+      survivingMutation: "legacy",
+      survivingMutationSourceFile: "src/legacy.ts",
+      survivingMutationSourceLine: 1,
+    });
+  });
+});
+
+describe("nonTerminatingMutationLogFields", () => {
+  it("projects NonTerminatingMutationError fields", () => {
+    const error = new NonTerminatingMutationError("operator-flip: === → !==", "src/execution/ready-finalize.ts", 934);
+    expect(nonTerminatingMutationLogFields(error)).toEqual({
+      nonTerminatingMutation: "operator-flip: === → !==",
+      nonTerminatingMutationSourceFile: "src/execution/ready-finalize.ts",
+      nonTerminatingMutationSourceLine: 934,
+    });
+    expect(nonTerminatingMutationLogFields(undefined)).toEqual({});
+    expect(nonTerminatingMutationLogFields(new Error("other"))).toEqual({});
+  });
+});
+
+describe("outOfScopeSettlementResumable", () => {
+  const outOfScopeRecord = (paths: string[], resumable = false): PersistedRecord => ({
+    runId: "run-1",
+    seq: 1,
+    ts: "",
+    event: {
+      kind: "loop_finished",
+      loopOutcomeKind: "ready_gate_out_of_scope",
+      iterationsConsumed: 1,
+      resumable,
+      readyGateOutsidePaths: paths,
+    },
+  });
+
+  it("returns false for first settlement with no prior out-of-scope record", () => {
+    expect(outOfScopeSettlementResumable(["src/a.test.ts"], [])).toBe(false);
+  });
+
+  it("returns false when outside paths match the first settlement", () => {
+    const path = "src/untouched.test.ts";
+    expect(outOfScopeSettlementResumable([path], [outOfScopeRecord([path])])).toBe(false);
+  });
+
+  it("returns true when outside paths differ from the first settlement", () => {
+    const prior = [outOfScopeRecord(["src/a.test.ts"])];
+    expect(outOfScopeSettlementResumable(["src/b.test.ts"], prior)).toBe(true);
+    expect(outOfScopeSettlementResumable(["src/a.test.ts", "src/b.test.ts"], prior)).toBe(true);
+  });
+
+  it("returns false for missing or empty outside-path evidence", () => {
+    expect(outOfScopeSettlementResumable(undefined, [outOfScopeRecord(["src/a.test.ts"])])).toBe(false);
+    expect(outOfScopeSettlementResumable([], [outOfScopeRecord(["src/a.test.ts"])])).toBe(false);
+  });
+});
+
+describe("selectFailedReadyStepOutput", () => {
+  const start = (stepId: string, attemptId: string, command: string) =>
+    readyStepStartRecord({ stepId, attemptId, command });
+  const done = (stepId: string, attemptId: string, command: string, status: number) =>
+    readyStepCompletionRecord({ stepId, attemptId, command, status });
+  // Child output is inherited on stdout; the gate log is `${stdout}${stderr}`.
+  const gateLog = (stdout: string, stderr: string) => `${stdout}${stderr}`;
+
+  it("returns the failing step's command and only its own output", () => {
+    const stdout = `${start("1", "1.1", "bun install")}${start("2", "2.1", "bun run check")}warning: unrelated\n${start("3", "3.1", "bun run typecheck")}error TS1: boom\n`;
+    const stderr = `${start("1", "1.1", "bun install")}${done("1", "1.1", "bun install", 0)}${start("2", "2.1", "bun run check")}ready: …still running (15s)\n${done("2", "2.1", "bun run check", 0)}${start("3", "3.1", "bun run typecheck")}${done("3", "3.1", "bun run typecheck", 2)}`;
+
+    const selected = selectFailedReadyStepOutput("bun run ready", gateLog(stdout, stderr));
+
+    expect(selected.step).toBe("bun run typecheck");
+    expect(selected.output).toContain("error TS1: boom");
+    expect(selected.output).not.toContain("warning: unrelated");
+    expect(selected.output).not.toContain(READY_STEP_START_MARKER);
+  });
+
+  it("scopes to the failing step when it is the first step", () => {
+    const stdout = `${start("1", "1.1", "bun run check")}lint: red\n`;
+    const stderr = `${start("1", "1.1", "bun run check")}${done("1", "1.1", "bun run check", 1)}`;
+
+    const selected = selectFailedReadyStepOutput("bun run ready", gateLog(stdout, stderr));
+
+    expect(selected.step).toBe("bun run check");
+    expect(selected.output).toContain("lint: red");
+    expect(selected.output).toContain("JARVIS_READY_STEP_COMPLETED");
+  });
+
+  it("returns both attempts' output for a retried failing test step", () => {
+    const stdout = `${start("2", "2.1", "bun run test:agent")}first attempt fail\n${start("2", "2.2", "bun run test:agent")}second attempt fail\n`;
+    const stderr = `${start("2", "2.1", "bun run test:agent")}${done("2", "2.1", "bun run test:agent", 1)}${start("2", "2.2", "bun run test:agent")}${done("2", "2.2", "bun run test:agent", 1)}`;
+
+    const selected = selectFailedReadyStepOutput("bun run ready", gateLog(stdout, stderr));
+
+    expect(selected.step).toBe("bun run test:agent");
+    expect(selected.output).toContain("first attempt fail");
+    expect(selected.output).toContain("second attempt fail");
+  });
+
+  it("falls back to the gate command and whole log without a non-zero completion", () => {
+    const passing = gateLog(
+      `${start("1", "1.1", "bun run check")}noise\n`,
+      `${start("1", "1.1", "bun run check")}${done("1", "1.1", "bun run check", 0)}`,
+    );
+    expect(selectFailedReadyStepOutput("bun run ready", passing)).toEqual({ step: "bun run ready", output: passing });
+    expect(selectFailedReadyStepOutput("custom gate", "plain failure\n")).toEqual({
+      step: "custom gate",
+      output: "plain failure\n",
+    });
+  });
+
+  it("falls back when the failing step has no start record", () => {
+    const log = `some output\n${done("2", "2.1", "bun run check", 1)}`;
+    expect(selectFailedReadyStepOutput("bun run ready", log)).toEqual({ step: "bun run ready", output: log });
+  });
+
+  it("ignores malformed start records", () => {
+    const log = `${READY_STEP_START_MARKER}{not-json}\n${start("1", "1.1", "bun run check")}red\n${done("1", "1.1", "bun run check", 1)}`;
+    const selected = selectFailedReadyStepOutput("bun run ready", log);
+    expect(selected.step).toBe("bun run check");
+    expect(selected.output).toContain("red");
+  });
+});
+
+describe("terminal failed ready step selectors", () => {
+  const log = [
+    readyStepCompletionRecord({ stepId: "2", attemptId: "2.1", command: "bun run test:agent", status: 1 }),
+    readyStepCompletionRecord({ stepId: "3", attemptId: "3.1", command: "bun run lint:md", status: 1 }),
+  ].join("");
+
+  it("select the same terminal record, filtered by command", () => {
+    expect(selectTerminalFailedReadyStep(log)?.command).toBe("bun run lint:md");
+    expect(selectTerminalFailedReadyTestStep(log)).toBeUndefined();
+    const testLast = `${log}${readyStepCompletionRecord({ stepId: "4", attemptId: "4.1", command: "bun run test:agent", status: 1 })}`;
+    expect(selectTerminalFailedReadyTestStep(testLast)?.stepId).toBe("4");
+  });
+});
+
+describe("harness finalization gate slot", () => {
+  // Every await on a finalizer here is bounded by a microtask flush: a lease-module mutant that never grants
+  // the slot must fail the assertion, not hang until the per-test timeout (`non_terminating_mutation_failed`).
+  const baseInput = {
+    worktreePath: "/tmp/worktree",
+    baseRef: "main",
+    branch: "feature",
+    prNumber: 1,
+  };
+
+  async function flushMicrotasks(): Promise<void> {
+    for (let i = 0; i < 100; i += 1) await Promise.resolve();
+  }
+
+  /** Track settlement so a test can assert on it after a bounded flush instead of awaiting forever. */
+  function track(promise: Promise<unknown>): { settled: () => boolean; outcome: () => unknown } {
+    let settled = false;
+    let outcome: unknown;
+    promise.then(
+      (value) => {
+        settled = true;
+        outcome = value;
+      },
+      (error: unknown) => {
+        settled = true;
+        outcome = error;
+      },
+    );
+    return { settled: () => settled, outcome: () => outcome };
+  }
+
+  async function settledAfterFlush(promise: Promise<unknown>): Promise<unknown> {
+    const tracked = track(promise);
+    await flushMicrotasks();
+    if (!tracked.settled()) throw new Error("finalizer did not settle after a microtask flush");
+    return promise;
+  }
+
+  afterEach(() => {
+    expect(liveGateInvocationLeaseCount()).toBe(0);
+    expect(leasedHarnessFullSuiteGateSpawnCount()).toBe(0);
+  });
+
+  it("serializes concurrent default finalizer gate spawns", async () => {
+    let releaseHeld!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseHeld = resolve;
+    });
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await held;
+        inFlight -= 1;
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const pending = Promise.all([finalizer(baseInput), finalizer(baseInput)]);
+    await flushMicrotasks();
+    expect(maxInFlight).toBe(1);
+    releaseHeld();
+    await settledAfterFlush(pending);
+    expect(maxInFlight).toBe(1);
+  });
+
+  it("holds the slot lease through required integration", async () => {
+    let leaseCountDuringIntegration = -1;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (_cmd, args) => {
+        if (args[0] === "run" && args[1] === "test:integration") {
+          leaseCountDuringIntegration = liveGateInvocationLeaseCount();
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: runner,
+      ghReadyFlip: async () => {},
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => ["test:agent"],
+    });
+    await settledAfterFlush(finalizer({ ...baseInput, requiredIntegrationScope: "test:integration" }));
+    expect(leaseCountDuringIntegration).toBe(1);
+  });
+
+  it("waits for a held agent lease before spawning the ready gate", async () => {
+    const agentLease = acquireGateInvocationLease();
+    expect(agentLease).toBeDefined();
+    let gateSpawned = false;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        gateSpawned = true;
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const pending = finalizer(baseInput);
+    await flushMicrotasks();
+    expect(gateSpawned).toBe(false);
+    agentLease?.release();
+    await settledAfterFlush(pending);
+    expect(gateSpawned).toBe(true);
+  });
+
+  it("re-acquires the slot for each harness gate spawn in one finalizer call", async () => {
+    let leasedGateSessions = 0;
+    let maxLeasedSpawns = 0;
+    const trackLeasedGateSession = () => {
+      leasedGateSessions += 1;
+      maxLeasedSpawns = Math.max(maxLeasedSpawns, leasedHarnessFullSuiteGateSpawnCount());
+    };
+    const finalizer = createReadyFinalizer({
+      ghReadyFlip: async () => {},
+      hasPackageScript: () => true,
+      resolveReadyTestScope: async () => ["test:agent"],
+      runReadyGate: async () => {
+        trackLeasedGateSession();
+      },
+      runRequiredIntegration: async () => {
+        trackLeasedGateSession();
+      },
+    });
+    await settledAfterFlush(finalizer({ ...baseInput, requiredIntegrationScope: "test:integration" }));
+    expect(leasedGateSessions).toBe(2);
+    expect(maxLeasedSpawns).toBe(1);
+  });
+
+  it("logs ready_gate_slot_wait after a non-immediate slot acquire", async () => {
+    const agentLease = acquireGateInvocationLease();
+    expect(agentLease).toBeDefined();
+    const slotWaits: Array<{ gate: string; waitedMs: number }> = [];
+    const runner: AsyncSubprocessRunner = { runAsync: async () => "" };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const pending = finalizer({
+      ...baseInput,
+      onReadyGateSlotWait: (fields) => slotWaits.push(fields),
+    });
+    await flushMicrotasks();
+    agentLease?.release();
+    await settledAfterFlush(pending);
+    expect(slotWaits).toEqual([expect.objectContaining({ gate: "bun run ready", waitedMs: expect.any(Number) })]);
+  });
+
+  it("aborts a queued slot wait through the finalizer's signal without spawning the gate", async () => {
+    const agentLease = acquireGateInvocationLease();
+    expect(agentLease).toBeDefined();
+    let gateSpawned = false;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        gateSpawned = true;
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const abort = new AbortController();
+    const pending = finalizer({ ...baseInput, signal: abort.signal, slotWaitTimeoutMs: 60_000 });
+    const tracked = track(pending);
+    try {
+      await flushMicrotasks();
+      abort.abort();
+      // An unforwarded signal leaves the wait queued: assert after a flush rather than awaiting it.
+      await flushMicrotasks();
+      expect(tracked.settled()).toBe(true);
+      expect(tracked.outcome()).toBeInstanceOf(Error);
+      expect((tracked.outcome() as Error).message).toContain("gate invocation lease wait aborted");
+      expect(gateSpawned).toBe(false);
+    } finally {
+      agentLease?.release();
+      await flushMicrotasks();
+    }
+  });
+
+  it("maps slot-wait expiry to ReadyGateError with timedOut", async () => {
+    const agentLease = acquireGateInvocationLease();
+    expect(agentLease).toBeDefined();
+    const runner: AsyncSubprocessRunner = { runAsync: async () => "" };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: runner, ghReadyFlip: async () => {} });
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    try {
+      const pending = finalizer({ ...baseInput, slotWaitTimeoutMs: 5 });
+      await flushMicrotasks();
+      // Assert the expiry timer is armed before awaiting: an unarmed wait never settles and would hang the test.
+      expect(setTimeoutSpy.mock.calls.some((call) => call[1] === 5)).toBe(true);
+      await expect(pending).rejects.toMatchObject({
+        timedOut: true,
+        output: expect.stringContaining("gate invocation lease wait timed out"),
+      });
+    } finally {
+      setTimeoutSpy.mockRestore();
+      agentLease?.release();
+      await flushMicrotasks();
+    }
+  });
+});

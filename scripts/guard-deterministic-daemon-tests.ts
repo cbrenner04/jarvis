@@ -10,7 +10,7 @@ function lineAt(source: string, index: number): number {
 
 export function guarded(file: string): boolean {
   return (
-    (file.startsWith("v2/src/daemon/") || file.startsWith("v2/src/execution/")) &&
+    (file.startsWith("src/daemon/") || file.startsWith("src/execution/")) &&
     file.endsWith(".test.ts") &&
     !file.endsWith(".sandbox-unrunnable.test.ts")
   );
@@ -101,7 +101,7 @@ function collectFiles(root: string, cwd: string): GuardFile[] {
 }
 
 export function runDeterminismGuard(cwd: string): GuardViolation[] {
-  const files = [...collectFiles(join(cwd, "v2/src/daemon"), cwd), ...collectFiles(join(cwd, "v2/src/execution"), cwd)];
+  const files = [...collectFiles(join(cwd, "src/daemon"), cwd), ...collectFiles(join(cwd, "src/execution"), cwd)];
   return findDeterminismViolations(files);
 }
 

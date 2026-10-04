@@ -7,7 +7,7 @@ import {
   runLosslessGitStatusInventoryGuard,
 } from "./guard-lossless-git-status-inventory.ts";
 
-const CLEANUP_FILE = "v2/src/commands/cleanup.ts";
+const CLEANUP_FILE = "src/commands/cleanup.ts";
 const STATUS_COMMAND =
   'const output = await runner.runAsync("git", ["status", "--porcelain", "--untracked-files=all"], cwd);';
 
@@ -74,8 +74,8 @@ const paths = inventory.map((entry) => entry.currentPath);`;
 
   test("scans only the four inventoried consumers", () => {
     const parser = `${STATUS_COMMAND}\nconst paths = output.split("\\n");`;
-    expect(violations(parser, "v2/src/commands/other.ts")).toEqual([]);
-    expect(violations(parser, "v2/src/shared/git.ts")).toEqual([]);
+    expect(violations(parser, "src/commands/other.ts")).toEqual([]);
+    expect(violations(parser, "src/shared/git.ts")).toEqual([]);
   });
 
   test("recognizes reordered porcelain options", () => {

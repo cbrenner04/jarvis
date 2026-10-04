@@ -1,0 +1,8849 @@
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
+import { formatTerminalSupersedeSettlementComment } from "../execution/terminal-supersede-settlement.ts";
+import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
+import { probeSocketLiveness, type SocketLiveness, startIpcServer } from "../ipc/server.ts";
+import type { IpcFrame } from "../ipc/types.ts";
+import type { Run, StateStore } from "../persistence/state-store.ts";
+import * as sharedGit from "../shared/git.ts";
+import { originTrackingRefResolvesAsync } from "../shared/git.ts";
+import type { ProjectRegistryEntry } from "../shared/project-registry.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
+import { makeIpcClient, makeStaleResetIpcClient } from "../testing/cli-test-helpers.ts";
+import { ghRefusingRealRunner as realAsyncSubprocessRunner } from "../testing/gh-refusing-runner.ts";
+import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import {
+  checkEligibility,
+  classifyNeverLandedLane,
+  createAbsentDaemonClient,
+  createBulkCleanupDaemonClient,
+  createStaleResetDaemonClient,
+  DAEMON_UNREACHABLE_REASON,
+  type DaemonClient,
+  type DiscoveredWorktree,
+  discoverMaterializedWorktrees,
+  discoverMergedBranchRefCandidates,
+  discoverStrandedArtifacts,
+  evaluateImplementLandedElsewhereReport,
+  exactOriginTrackingRefOid,
+  gateOnOpenPrs,
+  handLandedArtifactArchivability,
+  hasBranchKeyedArtifactOwner,
+  inspectStrandedArtifacts,
+  isContinuationReadableSpecPath,
+  isStaleResetLandedCriteriaSpecPath,
+  listDirtyWorktreePathsForStaleReset,
+  mergedPrHeadAuthorityMatches,
+  OPEN_PR_PROBE_UNREACHABLE_REASON,
+  parseCheckedOutBranchesFromWorktreePorcelain,
+  performWorktreeRemovals,
+  planSubsumedPrGateAllows,
+  pruneVerifiedMergedBranchRef,
+  type ResetStaleWorkspaceOptions,
+  resetStaleWorkspace,
+  resolveExactRefOid,
+  revalidateMergedBranchRefCandidate,
+  runCleanupCommand,
+  STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG,
+  STALE_RESET_OVERRIDE_CLI_FLAG,
+  staleResetDirtyWorktreeGateReason,
+  staleResetUnlandedCommitsGateReason,
+  staleResetUnreachableWorktreeHeadGateReason,
+  supersededPipelinePrHeadAuthorityMatches,
+} from "./cleanup.ts";
+import { type ArtifactSpec, archiveCompletedSpec } from "./cleanup-artifacts.ts";
+import type { LegacyDaemonArtifactDeps } from "./daemon.ts";
+import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
+
+const GH_PR_LIST_PROBE_ERROR = new AsyncSubprocessError("gh unreachable", 1, "", "network error", undefined);
+type OpenPr = { number: number; isDraft: boolean };
+
+function ghPrListJsonRows(
+  rows: Array<{
+    number: number;
+    baseRefName?: string;
+    state?: string;
+    isDraft?: boolean;
+    mergedAt?: string | null;
+    headRefOid?: string;
+  }>,
+): string {
+  return JSON.stringify(
+    rows.map((row) => ({
+      baseRefName: "main",
+      state: row.state ?? "OPEN",
+      ...row,
+    })),
+  );
+}
+
+function ghPrViewStateJson(state: string, mergedAt: string | null): string {
+  return JSON.stringify({ state, mergedAt, isCrossRepository: false });
+}
+
+function ghPrListRunner(projectRoot: string, prs: OpenPr[]): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+        return ghPrListJsonRows(prs.map((pr) => ({ number: pr.number, isDraft: pr.isDraft, state: "OPEN" })));
+      }
+      if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "close") return "";
+      return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+    },
+  };
+}
+
+function cleanupFunctionBody(functionHead: string): string {
+  const src = readFileSync(join(import.meta.dir, "cleanup.ts"), "utf8");
+  const start = src.indexOf(functionHead);
+  if (start < 0) throw new Error(`missing ${functionHead}`);
+  const open = src.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unclosed ${functionHead}`);
+}
+
+function expectCleanupFunctionNoSpawn(functionHead: string, pattern: RegExp): void {
+  expect(cleanupFunctionBody(functionHead)).not.toMatch(pattern);
+}
+
+function ghPrListProbeFailureRunner(projectRoot: string, teardownCalls: string[]): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "list") throw GH_PR_LIST_PROBE_ERROR;
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("close-pr");
+      if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("remove-worktree");
+      if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("delete-local-branch");
+      if (cmd === "git" && args[0] === "push" && args[1] === "origin") teardownCalls.push("delete-remote-branch");
+      return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+    },
+  };
+}
+
+function daemonClientWithFreeClaimProbe(
+  listRuns: (project: string, branch: string) => Promise<{ isLive: boolean }[]> = async () => [],
+  claimProbe?: DaemonClient["checkWorkflowStartClaim"],
+): DaemonClient {
+  const daemonClient = listRuns as DaemonClient;
+  daemonClient.checkWorkflowStartClaim = claimProbe ?? (async () => ({ status: "free" }));
+  return daemonClient;
+}
+
+function liveRunListIpcClient(branch: string) {
+  return makeIpcClient([], {
+    staleResetPreflight: {
+      listRuns: [{ runId: "live-run", project: "project", branch, status: "in-progress", isLive: true }],
+    },
+  });
+}
+
+function connectWithDeadSocket(
+  deadSocket: string,
+  deadCode: string,
+  branch: string,
+): (socketPath: string) => Promise<IpcClient> {
+  return async (socketPath) => {
+    if (socketPath === deadSocket) {
+      throw Object.assign(new Error(`connect ${deadCode}`), { code: deadCode });
+    }
+    return liveRunListIpcClient(branch);
+  };
+}
+
+/** A cleanup archive branch never has a PR in these fixtures: `gh` reports it open / unlisted, as production would before the operator pushes it. */
+function isCleanupArchiveBranchProbe(cmd: string, args: readonly string[]): boolean {
+  if (cmd !== "gh" || args[0] !== "pr" || args[1] !== "view") return false;
+  const branch = args[2];
+  return typeof branch === "string" && branch.startsWith("cleanup/archive-");
+}
+
+function cleanupArchiveBranchProbeResponse(args: readonly string[]): string {
+  if (args[1] === "view") {
+    const jsonIndex = args.indexOf("--json");
+    if (jsonIndex >= 0) {
+      return JSON.stringify({
+        number: 42,
+        url: "https://github.com/example/test/pull/42",
+        baseRefName: "main",
+      });
+    }
+    return ghPrViewStateJson("OPEN", null);
+  }
+  return "[]";
+}
+
+function mergeArchivePublicationRunner(base: AsyncSubprocessRunner, projectRoot: string): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd === "gh" && args[0] === "repo") {
+        return "main";
+      }
+      if (cmd === "git" && args[0] === "push") return "";
+      if (cmd === "git" && args[0] === "ls-remote") return "";
+      if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
+      if (
+        cmd === "gh" &&
+        args[0] === "pr" &&
+        args[1] === "list" &&
+        args[args.indexOf("--head") + 1]?.startsWith("cleanup/archive-")
+      ) {
+        return "[]";
+      }
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "create") {
+        return "https://github.com/example/test/pull/42";
+      }
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json")) {
+        const jsonFields = args[args.indexOf("--json") + 1];
+        const selector = args[2];
+        if (jsonFields === "number,url,baseRefName" && typeof selector === "string" && /^\d+$/.test(selector)) {
+          return JSON.stringify({
+            number: 42,
+            url: "https://github.com/example/test/pull/42",
+            baseRefName: "main",
+          });
+        }
+      }
+      return base.runAsync(cmd, args, cwd ?? projectRoot);
+    },
+  };
+}
+
+/** Archive publication moves committed specs on a cleanup branch, so fixtures must be committed first. */
+async function commitFixtures(root: string): Promise<void> {
+  await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], root);
+  try {
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-q", "-m", "fixtures"], root);
+  } catch {
+    // nothing new to commit
+  }
+}
+
+/** Every path committed on any `cleanup/archive-*` branch of `root`. */
+async function cleanupArchiveTree(root: string): Promise<string[]> {
+  const branches = (
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["for-each-ref", "--format=%(refname:short)", "refs/heads/cleanup/archive-*"],
+      root,
+    )
+  )
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const paths: string[] = [];
+  for (const branch of branches) {
+    const tree = await realAsyncSubprocessRunner.runAsync("git", ["ls-tree", "-r", "--name-only", branch], root);
+    paths.push(...tree.split("\n").filter((line) => line.length > 0));
+  }
+  return paths;
+}
+
+describe("cleanup: GitHub operations boundary", () => {
+  const projectRoot = "/repo";
+
+  test("isMerged requires MERGED state and mergedAt", async () => {
+    const branch = "implement/merged-without-timestamp";
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[1] === "view") {
+          return JSON.stringify({ state: "MERGED", mergedAt: null, isCrossRepository: false });
+        }
+        if (cmd === "gh" && args[1] === "list") return "[]";
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    const worktree: DiscoveredWorktree = { path: "/wt", branch };
+    const result = await checkEligibility(worktree, "project", runner, async () => [], {
+      listRuns: () => [],
+    } as unknown as StateStore);
+    expect(result.status).toBe("ineligible");
+    if (result.status === "ineligible") expect(result.reason).toContain("PR not merged");
+  });
+
+  test("planSubsumedPrGateAllows delegates listPrs for head state", async () => {
+    const calls: Array<{ branch: string; state: string }> = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[1] === "list") {
+          calls.push({
+            branch: args[args.indexOf("--head") + 1] ?? "",
+            state: args[args.indexOf("--state") + 1] ?? "",
+          });
+          return ghPrListJsonRows([{ number: 1, baseRefName: "main", state: "CLOSED" }]);
+        }
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    expect(await planSubsumedPrGateAllows("plan/x", projectRoot, runner)).toBe(true);
+    expect(calls).toEqual([{ branch: "plan/x", state: "all" }]);
+    expectCleanupFunctionNoSpawn("export async function planSubsumedPrGateAllows", /runAsync\(\s*["']gh["']/);
+  });
+
+  test("listOpenPrsForBranch delegates listPrs", async () => {
+    const calls: Array<{ branch: string; state: string }> = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[1] === "list") {
+          calls.push({
+            branch: args[args.indexOf("--head") + 1] ?? "",
+            state: args[args.indexOf("--state") + 1] ?? "",
+          });
+          return ghPrListJsonRows([{ number: 2, baseRefName: "main", state: "OPEN", isDraft: true }]);
+        }
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    const gate = await gateOnOpenPrs("feat/x", runner, projectRoot);
+    expect(calls).toEqual([{ branch: "feat/x", state: "open" }]);
+    expect(gate.status).toBe("ok");
+    expectCleanupFunctionNoSpawn("async function listOpenPrsForBranch", /runAsync\(\s*["']gh["']/);
+  });
+
+  test("delegates spec-at-ref and stale-reset git reads to shared boundary", () => {
+    expectCleanupFunctionNoSpawn(
+      "async function openInRepoSpecDirNamesOnRef",
+      /runAsync\(\s*["']git["'],\s*\[["']ls-tree["']/,
+    );
+    expectCleanupFunctionNoSpawn("async function specTreeFsAtRef", /runAsync\(\s*["']git["'],\s*\[["']ls-tree["']/);
+    expectCleanupFunctionNoSpawn("async function specTreeFsAtRef", /runAsync\(\s*["']git["'],\s*\[["']show["']/);
+    expectCleanupFunctionNoSpawn(
+      "async function checkedCriterionBackedByCommit",
+      /runAsync\(\s*["']git["'],\s*\[["']log["']/,
+    );
+    expectCleanupFunctionNoSpawn(
+      "export async function isDescendantOfBase",
+      /runAsync\(\s*["']git["'],\s*\[["']merge-base["'],\s*\[["']--is-ancestor["']/,
+    );
+    expectCleanupFunctionNoSpawn(
+      "async function evaluateCommittedLaneContinuation",
+      /runAsync\(\s*["']git["'],\s*\[["']rebase["']/,
+    );
+    expectCleanupFunctionNoSpawn(
+      "async function evaluateCommittedLaneContinuation",
+      /runAsync\(\s*["']git["'],\s*\[["']merge["'],\s*\[["']--no-edit["']/,
+    );
+    expectCleanupFunctionNoSpawn(
+      "async function carriesNoUnlandedCommits",
+      /runAsync\(\s*["']git["'],\s*\[["']merge-tree["']/,
+    );
+  });
+
+  test("mergedPrHeadAuthorityMatches delegates listPrs for head authority", async () => {
+    const oid = "deadbeef";
+    const calls: Array<{ branch: string; state: string }> = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[1] === "list") {
+          calls.push({
+            branch: args[args.indexOf("--head") + 1] ?? "",
+            state: args[args.indexOf("--state") + 1] ?? "",
+          });
+          return JSON.stringify([
+            { number: 1, baseRefName: "main", state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+          ]);
+        }
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    expect(await mergedPrHeadAuthorityMatches("branch", oid, projectRoot, runner)).toBe(true);
+    expect(calls).toEqual([{ branch: "branch", state: "all" }]);
+    expectCleanupFunctionNoSpawn("async function ghPrHeadRecordsForBranch", /runAsync\(\s*["']gh["']/);
+  });
+});
+
+describe("cleanup: end-to-end via runCleanupCommand", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  async function cleanupStdout(
+    options: { dryRun?: boolean; promptConfirm?: () => Promise<boolean> } = {},
+  ): Promise<{ code: number; stdout: string }> {
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      options,
+      registry,
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    return { code, stdout };
+  }
+
+  function createSpec(name: string, criterion: string, intent?: string): { source: string; readyIntent?: string } {
+    const source = join(projectRoot, "spec", name);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- ${criterion}\n`);
+    if (intent === undefined) return { source };
+
+    writeFileSync(join(source, "intent.md"), intent);
+    const readyIntent = join(projectRoot, "spec", "ready-intents", `${name}.md`);
+    mkdirSync(dirname(readyIntent), { recursive: true });
+    writeFileSync(readyIntent, intent);
+    return { source, readyIntent };
+  }
+
+  async function createWorktree(branch: string): Promise<string> {
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    return worktreePath;
+  }
+
+  async function materializeWorktree(branch: string, message: string): Promise<string> {
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", message], projectRoot);
+    return createWorktree(branch);
+  }
+
+  function ghRunnerForPr(state: "MERGED" | "OPEN"): AsyncSubprocessRunner {
+    return mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+            const jsonIndex = args.indexOf("--json");
+            const fields = jsonIndex >= 0 ? (args[jsonIndex + 1] ?? "") : "";
+            if (fields.includes("state,mergedAt")) {
+              return state === "MERGED"
+                ? ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z")
+                : ghPrViewStateJson("OPEN", null);
+            }
+          }
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            if (state !== "MERGED" || (args.includes("--state") && args[args.indexOf("--state") + 1] === "open")) {
+              return "[]";
+            }
+            const headIndex = args.indexOf("--head");
+            const branch = headIndex >= 0 ? args[headIndex + 1] : undefined;
+            if (branch === undefined) return "[]";
+            try {
+              const oid = (
+                await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+              ).trim();
+              return ghPrListJsonRows([
+                { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+              ]);
+            } catch {
+              return "[]";
+            }
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      projectRoot,
+    );
+  }
+
+  function storeForStrandedSpec(specName: string, branch: string): StateStore {
+    const home = join(projectRoot, "spec");
+    return {
+      listRuns: () => [
+        {
+          project: "project",
+          branch,
+          worktreePath: projectRoot,
+          specPath: join(home, specName, "index.md"),
+          status: "completed",
+        },
+      ],
+    } as unknown as StateStore;
+  }
+
+  function writeMachineConfig(projectConfig: Record<string, unknown> = { specs: "external" }): void {
+    mkdirSync(jarvisRoot, { recursive: true });
+    writeFileSync(
+      join(jarvisRoot, "config.json"),
+      JSON.stringify({ projects: { project: { root: projectRoot, ...projectConfig } } }),
+    );
+  }
+
+  function createExternalPlan(
+    planName: string,
+    criterion: string,
+  ): { specReadRoot: string; indexPath: string; plansHome: string } {
+    const plansHome = join(jarvisRoot, "specs", projectSafeId("project"), "plans");
+    const specReadRoot = join(plansHome, planName);
+    mkdirSync(specReadRoot, { recursive: true });
+    writeFileSync(join(specReadRoot, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- ${criterion}\n`);
+    return { specReadRoot, indexPath: join(specReadRoot, "index.md"), plansHome };
+  }
+
+  function storeForExternalStrandedPlan(_planName: string, branch: string, indexPath: string): StateStore {
+    return {
+      listRuns: () => [
+        { project: "project", branch, worktreePath: projectRoot, specPath: indexPath, status: "completed" },
+      ],
+    } as unknown as StateStore;
+  }
+
+  function prepareExternalStrandedPlan(planName: string, branch: string) {
+    writeMachineConfig({ specs: "external" });
+    const created = createExternalPlan(planName, "[x] Done");
+    const specsReady = join(jarvisRoot, "specs", projectSafeId("project"), "ready-intents", `${planName}.md`);
+    mkdirSync(dirname(specsReady), { recursive: true });
+    writeFileSync(specsReady, "# ready\n");
+    writeFileSync(join(created.specReadRoot, "intent.md"), "# ready\n");
+    return {
+      ...created,
+      branch,
+      specsReady,
+      store: storeForExternalStrandedPlan(planName, branch, created.indexPath),
+    };
+  }
+
+  function withJarvisHome<T>(fn: () => Promise<T>): Promise<T> {
+    const previousJarvisHome = process.env.JARVIS_HOME;
+    process.env.JARVIS_HOME = jarvisRoot;
+    return fn().finally(() => {
+      if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+      else process.env.JARVIS_HOME = previousJarvisHome;
+    });
+  }
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-e2e-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+
+    mkdirSync(projectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], projectRoot);
+    writeFileSync(join(projectRoot, "README.md"), "# Test\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("runCleanupCommand with --dry-run previews eligible worktree without removal", async () => {
+    // Create a merged worktree
+    const branch = "merged-branch";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const io = {
+      stdout: (s: string) => {
+        stdout += s;
+      },
+      stderr: () => {},
+    };
+
+    // Mock runner that reports PR as merged
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+      },
+    };
+
+    const code = await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, daemonClient, store, io);
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("dry-run");
+    expect(stdout).toContain(worktreePath);
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("runCleanupCommand confirms and removes eligible worktree via git worktree remove + prune + branch -D", async () => {
+    const branch = "eligible-merge";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const io = {
+      stdout: (s: string) => {
+        stdout += s;
+      },
+      stderr: () => {},
+    };
+
+    const mockRunner = ghRunnerForPr("MERGED");
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      store,
+      io,
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Retired");
+
+    // Verify worktree is gone
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("retires before archiving a complete durable spec and prunes only its consumed intent", async () => {
+    const branch = "plan/archive-me";
+    const specName = "20260717T000000Z-archive-me";
+    const intent = "---\nname: archive-me\n---\n";
+    const { source } = createSpec(specName, "[x] Done", intent);
+    const worktreePath = await materializeWorktree(branch, "spec");
+    const run = {
+      status: "completed",
+      specPath: join(worktreePath, "spec", specName, "index.md"),
+      project: "project",
+      branch,
+      stepId: "implement",
+      worktreePath,
+    };
+    const store: StateStore = { findRunByProjectBranch: () => null, listRuns: () => [run] } as unknown as StateStore;
+    const order: string[] = [];
+    let retired = false;
+    const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
+            return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
+              const headIndex = args.indexOf("--head");
+              const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+              if (branchName === branch) {
+                const oid = (
+                  await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+                ).trim();
+                return ghPrListJsonRows([
+                  { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+                ]);
+              }
+              return "[]";
+            }
+            order.push(retired ? "post-retire pr list" : "pre-retire pr list");
+            return "[]";
+          }
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+            order.push("retire");
+            retired = true;
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      projectRoot,
+    );
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    await commitFixtures(projectRoot);
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(order.indexOf("retire")).toBeLessThan(order.indexOf("post-retire pr list"));
+    expect(existsSync(source)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${specName}/index.md`);
+    expect(existsSync(join(projectRoot, "spec", "ready-intents", `${specName}.md`))).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain(`spec/ready-intents/${specName}.md`);
+    expect(stdout).toContain("pruned consumed ready-intent");
+    stdout = "";
+    await commitFixtures(projectRoot);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(stdout).toContain(`ready-intents/${specName}.md — consuming spec already staged on cleanup branch`);
+    expect(stdout).not.toContain("Pruned consumed ready-intent");
+  });
+
+  function ghRunnerForCleanupPrProbe(
+    prState: "CLOSED" | "absent" | "OPEN" | "probe-failure",
+    laneKind: "plan" | "implement",
+  ): AsyncSubprocessRunner {
+    return mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+            const jsonIndex = args.indexOf("--json");
+            const fields = jsonIndex >= 0 ? (args[jsonIndex + 1] ?? "") : "";
+            if (fields.includes("state,mergedAt")) {
+              if (prState === "CLOSED") return ghPrViewStateJson("CLOSED", null);
+              if (prState === "OPEN") return ghPrViewStateJson("OPEN", null);
+              throw new AsyncSubprocessError("not found", 1, "", "", undefined);
+            }
+          }
+          if (cmd === "gh" && args[1] === "list") {
+            const stateIndex = args.indexOf("--state");
+            const stateArg = stateIndex >= 0 ? args[stateIndex + 1] : undefined;
+            if (stateArg === "open") return "[]";
+            if (stateArg === "all") {
+              if (prState === "probe-failure") throw GH_PR_LIST_PROBE_ERROR;
+              const headIndex = args.indexOf("--head");
+              const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+              if (branchName === undefined) return "[]";
+              const planLane = branchName.startsWith("plan/");
+              if (laneKind === "plan" ? !planLane : planLane) return "[]";
+              if (prState === "CLOSED") return ghPrListJsonRows([{ number: 1, state: "CLOSED", mergedAt: null }]);
+              if (prState === "OPEN") return ghPrListJsonRows([{ number: 1, state: "OPEN", mergedAt: null }]);
+              return "[]";
+            }
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      projectRoot,
+    );
+  }
+
+  async function setupSubsumedPlanLane(
+    specName: string,
+    branch: string,
+    specOnMain: "open" | "completed",
+  ): Promise<{ worktreePath: string; source: string; configPath: string }> {
+    writeMachineConfig({ plan: { targetDir: "spec" } });
+    const configPath = join(jarvisRoot, "config.json");
+    const intent = "---\nname: subsumed-plan\n---\n";
+    const { source } = createSpec(specName, "[x] Done", intent);
+    await commitFixtures(projectRoot);
+    if (specOnMain === "completed") {
+      const completed = join(projectRoot, "spec", "completed", specName);
+      mkdirSync(dirname(completed), { recursive: true });
+      await realAsyncSubprocessRunner.runAsync("git", ["mv", source, completed], projectRoot);
+      const mainReadyIntent = join(projectRoot, "spec", "ready-intents", `${specName}.md`);
+      mkdirSync(dirname(mainReadyIntent), { recursive: true });
+      writeFileSync(mainReadyIntent, intent);
+      await commitFixtures(projectRoot);
+    }
+    const worktreePath = await createWorktree(branch);
+    if (specOnMain === "completed") {
+      const laneSource = join(worktreePath, "spec", specName);
+      mkdirSync(laneSource, { recursive: true });
+      writeFileSync(join(laneSource, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- [x] Done\n`);
+      writeFileSync(join(laneSource, "intent.md"), intent);
+      const readyIntent = join(worktreePath, "spec", "ready-intents", `${specName}.md`);
+      mkdirSync(dirname(readyIntent), { recursive: true });
+      writeFileSync(readyIntent, intent);
+      await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], worktreePath);
+      await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane spec"], worktreePath);
+    }
+    return {
+      worktreePath,
+      source: specOnMain === "open" ? source : join(worktreePath, "spec", specName),
+      configPath,
+    };
+  }
+
+  function storeForLaneRun(
+    specName: string,
+    branch: string,
+    worktreePath: string,
+    status: Run["status"] = "completed",
+  ): StateStore {
+    return {
+      listRuns: () => [
+        {
+          status,
+          specPath: join(worktreePath, "spec", specName, "index.md"),
+          project: "project",
+          branch,
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+  }
+
+  test.each([
+    { prState: "CLOSED" as const, specOnMain: "open" as const },
+    { prState: "absent" as const, specOnMain: "open" as const },
+    { prState: "CLOSED" as const, specOnMain: "completed" as const },
+  ])("subsumed plan lane ($prState PR, spec $specOnMain on main) dry-run and apply", async ({
+    prState,
+    specOnMain,
+  }) => {
+    const specName = `20260930T120000Z-subsumed-${prState}-${specOnMain}`;
+    const branch = `plan/subsumed-${prState}-${specOnMain}`;
+    const { worktreePath, source, configPath } = await setupSubsumedPlanLane(specName, branch, specOnMain);
+    const readyIntent = join(projectRoot, "spec", "ready-intents", `${specName}.md`);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const runner = ghRunnerForCleanupPrProbe(prState, "plan");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand({ dryRun: true, configPath }, registry, jarvisRoot, runner, async () => [], store, io),
+    ).toBe(0);
+    expect(stdout).toContain(worktreePath);
+    expect(stdout).toContain("dry-run");
+
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true, configPath },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("Retired");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+    expect(existsSync(source)).toBe(specOnMain === "open");
+    expect(stdout).not.toContain("Archived:");
+    expect(stdout).toContain(`Pruned consumed ready-intent: ${readyIntent}`);
+    expect(existsSync(readyIntent)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain(`spec/ready-intents/${specName}.md`);
+  });
+
+  test.each([
+    { case: "OPEN PR", prState: "OPEN" as const },
+    { case: "PR probe failure", prState: "probe-failure" as const },
+  ])("subsumed plan lane ineligible: $case", async ({ prState }) => {
+    const specName = "20260930T120001Z-subsumed-ineligible-pr";
+    const branch = "plan/subsumed-ineligible-pr";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe(prState, "plan"),
+      async () => [],
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+    expect(stdout).not.toContain(worktreePath);
+    expect(stdout).toContain(`prune: ready-intents/${specName}.md`);
+    expect(stdout).not.toContain("Retired:");
+  });
+
+  test("subsumed plan lane ineligible: commit outside spec scope", async () => {
+    const specName = "20260930T120002Z-subsumed-outside-path";
+    const branch = "plan/subsumed-outside";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    writeFileSync(join(worktreePath, "outside-scope.txt"), "nope\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "outside-scope.txt"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "outside"], worktreePath);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
+      async () => [],
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+    expect(stdout).not.toContain(worktreePath);
+  });
+
+  test("subsumed plan lane retires after the default branch advances past the lane cut", async () => {
+    const specName = "20260930T120006Z-subsumed-main-advanced";
+    const branch = "plan/subsumed-main-advanced";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    writeFileSync(join(worktreePath, "spec", specName, "notes.md"), "lane refinement\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane spec edit"], worktreePath);
+    writeFileSync(join(projectRoot, "landed-after-cut.txt"), "main moved\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "landed-after-cut.txt"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "main advances"], projectRoot);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const runner = ghRunnerForCleanupPrProbe("CLOSED", "plan");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    await runCleanupCommand({ dryRun: true, configPath }, registry, jarvisRoot, runner, async () => [], store, io);
+    expect(stdout).toContain(worktreePath);
+
+    stdout = "";
+    await runCleanupCommand(
+      { promptConfirm: async () => true, configPath },
+      registry,
+      jarvisRoot,
+      runner,
+      async () => [],
+      store,
+      io,
+    );
+    expect(stdout).toContain("Retired");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("subsumed plan lane ineligible: spec absent from default branch", async () => {
+    const specName = "20260930T120003Z-subsumed-no-main-spec";
+    const branch = "plan/subsumed-no-main";
+    writeMachineConfig({ plan: { targetDir: "spec" } });
+    const configPath = join(jarvisRoot, "config.json");
+    createSpec(specName, "[x] Done");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-b", branch], projectRoot);
+    await commitFixtures(projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "main"], projectRoot).catch(async () => {
+      await realAsyncSubprocessRunner.runAsync("git", ["checkout", "master"], projectRoot);
+    });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
+      async () => [],
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+    expect(stdout).not.toContain(worktreePath);
+  });
+
+  test("subsumed plan lane ineligible: non-terminal durable run", async () => {
+    const specName = "20260930T120004Z-subsumed-active-run";
+    const branch = "plan/subsumed-active-run";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    const store = storeForLaneRun(specName, branch, worktreePath, "in-progress");
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
+      async () => [],
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+    expect(stdout).not.toContain(worktreePath);
+  });
+
+  test("subsumed plan lane ineligible: daemon-live run", async () => {
+    const specName = "20260930T120005Z-subsumed-live-daemon";
+    const branch = "plan/subsumed-live-daemon";
+    const { worktreePath, configPath } = await setupSubsumedPlanLane(specName, branch, "open");
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe("CLOSED", "plan"),
+      async () => [{ isLive: true }],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    expect(stdout).not.toContain(worktreePath);
+    expect(stdout).not.toContain("Retired");
+  });
+
+  async function setupImplementLandedElsewhereLane(
+    specName: string,
+    branch: string,
+  ): Promise<{ worktreePath: string; configPath: string }> {
+    writeMachineConfig({ plan: { targetDir: "spec" } });
+    const configPath = join(jarvisRoot, "config.json");
+    createSpec(specName, "[x] Done");
+    await commitFixtures(projectRoot);
+    const completed = join(projectRoot, "spec", "completed", specName);
+    mkdirSync(dirname(completed), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["mv", join(projectRoot, "spec", specName), completed],
+      projectRoot,
+    );
+    await commitFixtures(projectRoot);
+    const worktreePath = await createWorktree(branch);
+    const laneSource = join(worktreePath, "spec", specName);
+    mkdirSync(laneSource, { recursive: true });
+    writeFileSync(join(laneSource, "index.md"), `# Implement\n\n## Acceptance criteria\n\n- [x] Done\n`);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane spec"], worktreePath);
+    return { worktreePath, configPath };
+  }
+
+  test("implement lane with CLOSED PR and spec on completed/ prints Landed elsewhere and is not retired", async () => {
+    const specName = "20260930T130000Z-landed-elsewhere";
+    const branch = "20260930T130000Z-landed-elsewhere";
+    const { worktreePath, configPath } = await setupImplementLandedElsewhereLane(specName, branch);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const runner = ghRunnerForCleanupPrProbe("CLOSED", "implement");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand({ dryRun: true, configPath }, registry, jarvisRoot, runner, async () => [], store, io),
+    ).toBe(0);
+    expect(stdout).toContain("Landed elsewhere:");
+    expect(stdout).toContain(worktreePath);
+    expect(stdout).toContain(`jarvis cleanup --abandon ${branch} --discard-unlanded`);
+    expect(stdout).not.toContain("Retired");
+
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true, configPath },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("Landed elsewhere:");
+    expect(stdout).not.toContain("Retired");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test.each([
+    { case: "OPEN PR", prState: "OPEN" as const },
+    { case: "PR probe failure", prState: "probe-failure" as const },
+  ])("implement landed-elsewhere lane ineligible for report: $case", async ({ prState }) => {
+    const specName = "20260930T130001Z-landed-elsewhere-silent";
+    const branch = "20260930T130001Z-landed-elsewhere-silent";
+    const { worktreePath, configPath } = await setupImplementLandedElsewhereLane(specName, branch);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    let stdout = "";
+    await runCleanupCommand(
+      { dryRun: true, configPath },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForCleanupPrProbe(prState, "implement"),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    expect(stdout).not.toContain("Landed elsewhere:");
+  });
+
+  test("evaluateImplementLandedElsewhereReport guard inversion: OPEN PR blocks report", async () => {
+    const specName = "20260930T130002Z-landed-guard";
+    const branch = "20260930T130002Z-landed-guard";
+    const { worktreePath, configPath } = await setupImplementLandedElsewhereLane(specName, branch);
+    const store = storeForLaneRun(specName, branch, worktreePath);
+    const worktree: DiscoveredWorktree = { path: worktreePath, branch };
+    const registry = { project: { root: projectRoot } };
+    const openRunner = ghRunnerForCleanupPrProbe("OPEN", "implement");
+    expect(
+      await evaluateImplementLandedElsewhereReport(
+        worktree,
+        "project",
+        branch,
+        projectRoot,
+        openRunner,
+        store,
+        registry,
+        configPath,
+      ),
+    ).toBeUndefined();
+    const closedRunner = ghRunnerForCleanupPrProbe("CLOSED", "implement");
+    expect(
+      await evaluateImplementLandedElsewhereReport(
+        worktree,
+        "project",
+        branch,
+        projectRoot,
+        closedRunner,
+        store,
+        registry,
+        configPath,
+      ),
+    ).toMatch(/^PR not merged:/);
+  });
+
+  test("planSubsumedPrGateAllows guard inversion: OPEN PR blocks retirement", async () => {
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, _args) => {
+        if (cmd === "gh") return ghPrListJsonRows([{ number: 1, state: "OPEN" }]);
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    expect(await planSubsumedPrGateAllows("plan/x", projectRoot, runner)).toBe(false);
+    const allowRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd) => {
+        if (cmd === "gh") return ghPrListJsonRows([{ number: 1, state: "CLOSED" }]);
+        throw new Error(`unexpected ${cmd}`);
+      },
+    };
+    expect(await planSubsumedPrGateAllows("plan/x", projectRoot, allowRunner)).toBe(true);
+  });
+
+  test.each([
+    { name: "relative", specPath: () => join(".jarvis-plan-stage", "verdict-plan.md") },
+    {
+      name: "absolute under the worktree",
+      specPath: (worktreePath: string) => join(worktreePath, ".jarvis-plan-stage", "verdict-plan.md"),
+    },
+  ])("rejects a $name .jarvis-* specPath as a spec source identity", async ({ specPath }) => {
+    const branch = "plan/harness-staging-only";
+    const worktreePath = await createWorktree(branch);
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: specPath(worktreePath),
+          project: "project",
+          branch,
+          stepId: "plan",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`Skipped artifact: ${worktreePath} — no durable spec identity`);
+    expect(existsSync(worktreePath)).toBe(false);
+  });
+
+  test("returns no artifact when the resolved source has no index.md and is not a Markdown file", async () => {
+    const branch = "plan/unproven-source";
+    const bogusDir = join(projectRoot, "spec", "not-a-spec");
+    mkdirSync(bogusDir, { recursive: true });
+    writeFileSync(join(bogusDir, "notes.txt"), "not a spec\n");
+    const worktreePath = await materializeWorktree(branch, "unproven source");
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "spec", "not-a-spec"),
+          project: "project",
+          branch,
+          stepId: "plan",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`Skipped artifact: ${worktreePath} — no durable spec identity`);
+  });
+
+  test("does not preview archiving a candidate whose resolved source no longer exists on disk", async () => {
+    const branch = "plan/ghost-source";
+    const worktreePath = await createWorktree(branch);
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "spec", "ready-intents", "ghost.md"),
+          project: "project",
+          branch,
+          stepId: "plan",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(worktreePath);
+    expect(stdout).not.toContain("archive:");
+  });
+
+  test.each([
+    { name: "ready-intent", queueDir: "ready-intents" },
+    { name: "seed", queueDir: "seeds" },
+  ])("never archives a $name as a merged intent worktree's only run-row source", async ({ queueDir }) => {
+    const branch = `intent/queue-only-${queueDir}`;
+    const worktreePath = await createWorktree(branch);
+    mkdirSync(join(projectRoot, "spec", queueDir), { recursive: true });
+    const queuePath = join(projectRoot, "spec", queueDir, "queue-only.md");
+    writeFileSync(queuePath, "# Intent\n\n## Acceptance criteria\n\n- [ ] Not yet implemented.\n");
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "spec", queueDir, "queue-only.md"),
+          project: "project",
+          branch,
+          stepId: "intent",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let preview = "";
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        { stdout: (s: string) => (preview += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(preview).toContain(worktreePath);
+    expect(preview).not.toContain("archive:");
+    expect(preview).not.toContain(`${queueDir}/completed`);
+
+    let applied = "";
+    await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      store,
+      { stdout: (s: string) => (applied += s), stderr: () => {} },
+    );
+    expect(applied).not.toContain("Archived");
+    expect(existsSync(queuePath)).toBe(true);
+    expect(existsSync(join(projectRoot, "spec", queueDir, "completed"))).toBe(false);
+  });
+
+  test("prefers a spec-tree directory over a landed ready-intent on the same branch", async () => {
+    // The shape every intent branch has: an older write row whose specPath was rewritten to the
+    // landed `ready-intents/<slug>.md`, and a newer review row. `listRuns` is newest-first, so a
+    // single `find(dir || .md)` would let whichever row comes first decide and could offer the
+    // queue file for archival into a fabricated `ready-intents/completed/`. Ready-intents are
+    // pruned by byte-proof, never archived.
+    const branch = "implement/prefers-spec-dir";
+    const worktreePath = await createWorktree(branch);
+    const specName = "20260101T000000Z-prefers-spec-dir";
+    // Sources resolve worktree-relative paths against the operator checkout, so the artifacts live
+    // under `projectRoot`; the run rows still carry the worktree-side paths the harness records.
+    const specDir = join(projectRoot, "spec", specName);
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Spec\n\n- [x] [00-a.md](./00-a.md)\n");
+    writeFileSync(join(specDir, "00-a.md"), "# A\n\n## Acceptance criteria\n\n- [x] Done.\n");
+    mkdirSync(join(projectRoot, "spec", "ready-intents"), { recursive: true });
+    const readyIntentPath = join(projectRoot, "spec", "ready-intents", "prefers-spec-dir.md");
+    writeFileSync(readyIntentPath, "# Intent\n\n## Acceptance criteria\n\n- [x] Landed.\n");
+    const worktreeSpecIndex = join(worktreePath, "spec", specName, "index.md");
+    const worktreeReadyIntent = join(worktreePath, "spec", "ready-intents", "prefers-spec-dir.md");
+
+    const store: StateStore = {
+      // Newest first, matching `listRuns`' ordering: the queue file would win a combined `find`.
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: worktreeReadyIntent,
+          project: "project",
+          branch,
+          stepId: "review",
+          worktreePath,
+        },
+        {
+          status: "completed",
+          specPath: worktreeSpecIndex,
+          project: "project",
+          branch,
+          stepId: "implement",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`archive: ${specDir}`);
+    expect(stdout).not.toContain("ready-intents/completed");
+    expect(stdout).not.toContain(`archive: ${readyIntentPath}`);
+  });
+
+  test.each([
+    {
+      name: "reviewed implement",
+      branch: "implement/reviewed-archive",
+      stepId: "implement",
+      reviewStepId: "implement-review",
+      authoredSpecPath: (worktreePath: string, specName: string) => join(worktreePath, "spec", specName, "index.md"),
+      reviewSpecPath: (worktreePath: string, specName: string) =>
+        join(worktreePath, "spec", specName, "verdict-patch.md"),
+    },
+    {
+      name: "reviewed plan",
+      branch: "plan/reviewed-archive",
+      stepId: "plan",
+      reviewStepId: "review-debate",
+      authoredSpecPath: (_worktreePath: string, specName: string) => join("spec", specName),
+      reviewSpecPath: (worktreePath: string) => join(worktreePath, ".jarvis-plan-stage", "verdict-plan.md"),
+    },
+  ])("retires and archives the authored spec for a default $name workflow", async ({
+    branch,
+    stepId,
+    reviewStepId,
+    authoredSpecPath,
+    reviewSpecPath,
+  }) => {
+    const specName = "20260721T000000Z-reviewed-archive";
+    const { source } = createSpec(specName, "[x] Done");
+    const worktreePath = await materializeWorktree(branch, "reviewed spec");
+    const store: StateStore = {
+      listRuns: () =>
+        [
+          {
+            status: "completed",
+            project: "project",
+            branch,
+            stepId: reviewStepId,
+            worktreePath,
+            specPath: reviewSpecPath(worktreePath, specName),
+          },
+          {
+            status: "completed",
+            project: "project",
+            branch,
+            stepId,
+            worktreePath,
+            specPath: authoredSpecPath(worktreePath, specName),
+          },
+        ] as never[],
+    } as unknown as StateStore;
+    const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
+            return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
+              const headIndex = args.indexOf("--head");
+              const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+              if (branchName === branch) {
+                const oid = (
+                  await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+                ).trim();
+                return ghPrListJsonRows([
+                  { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+                ]);
+              }
+              return "[]";
+            }
+            return "[]";
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      projectRoot,
+    );
+    let stdout = "";
+
+    await commitFixtures(projectRoot);
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${specName}/index.md`);
+    expect(stdout).not.toContain("no durable spec identity");
+  });
+
+  test("preserves artifacts when retirement fails and reports post-retirement archive refusals", async () => {
+    const branch = "plan/refuse-archive";
+    const specName = "20260717T000001Z-refuse-archive";
+    const { source, readyIntent } = createSpec(specName, "[ ] Incomplete", "intent\n");
+    const worktreePath = await materializeWorktree(branch, "incomplete spec");
+    const store: StateStore = {
+      findRunByProjectBranch: () => ({
+        status: "completed",
+        specPath: join(worktreePath, "spec", specName, "index.md"),
+      }),
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "spec", specName, "index.md"),
+          project: "project",
+          branch,
+          stepId: "implement",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let failRemoval = true;
+    let stdout = "";
+    const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
+            return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+          if (
+            cmd === "gh" &&
+            args[0] === "pr" &&
+            args[1] === "list" &&
+            args.includes("--state") &&
+            args[args.indexOf("--state") + 1] === "all"
+          ) {
+            const headIndex = args.indexOf("--head");
+            const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+            if (branchName === branch) {
+              const oid = (
+                await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+              ).trim();
+              return ghPrListJsonRows([
+                { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+              ]);
+            }
+            return "[]";
+          }
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove" && failRemoval)
+            throw new Error("remove failed");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      projectRoot,
+    );
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(1);
+    expect(existsSync(source)).toBe(true);
+    if (readyIntent === undefined) throw new Error("expected ready intent");
+    expect(readFileSync(readyIntent, "utf8")).toBe("intent\n");
+
+    failRemoval = false;
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(existsSync(source)).toBe(true);
+    expect(stdout).toContain("unchecked acceptance criterion");
+  });
+
+  test("dry-run previews archive and proven intent pruning without changes", async () => {
+    const branch = "plan/preview-archive";
+    const specName = "20260717T000002Z-preview-archive";
+    const { source, readyIntent } = createSpec(specName, "[x] Done", "intent\n");
+    if (readyIntent === undefined) throw new Error("expected ready intent");
+    const worktreePath = await materializeWorktree(branch, "preview spec");
+    const store: StateStore = {
+      findRunByProjectBranch: () => ({
+        status: "completed",
+        specPath: join(worktreePath, "spec", specName, "index.md"),
+      }),
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "spec", specName, "index.md"),
+          project: "project",
+          branch,
+          stepId: "implement",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) =>
+        cmd === "gh" && args[0] === "pr" && args[1] === "view"
+          ? JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" })
+          : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
+    };
+
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`archive: ${source} -> ${join(projectRoot, "spec", "completed", specName)}`);
+    expect(stdout).toContain("prune consumed ready-intent");
+    expect(stdout).toMatch(/push: cleanup\/archive-\d{8}T\d{6}Z/);
+    expect(stdout).toContain("open PR: Archive completed specs for project");
+    expect(existsSync(worktreePath)).toBe(true);
+    expect(existsSync(source)).toBe(true);
+    expect(existsSync(readyIntent)).toBe(true);
+  });
+
+  test("archives eligible stranded specs without retiring a worktree and retains refused siblings", async () => {
+    const home = join(projectRoot, "spec");
+    const complete = "20260717T000003Z-stranded-complete";
+    const incomplete = "20260717T000004Z-stranded-incomplete";
+    const open = "20260717T000005Z-stranded-open";
+    const owned = "20260717T000006Z-stranded-owned";
+    mkdirSync(join(home, owned), { recursive: true });
+    writeFileSync(join(home, owned, "index.md"), "# Plan\n\n## Acceptance criteria\n\n- [x] Done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "owned stranded spec"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "owned-worktree"], projectRoot);
+    const ownedWorktree = join(jarvisRoot, "worktrees", "project", "owned-worktree");
+    mkdirSync(join(jarvisRoot, "worktrees", "project"), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", ownedWorktree, "owned-worktree"], projectRoot);
+    for (const [name, criterion] of [
+      [complete, "[x] Done"],
+      [incomplete, "[ ] Incomplete"],
+      [open, "[x] Done"],
+    ] as const) {
+      mkdirSync(join(home, name), { recursive: true });
+      writeFileSync(join(home, name, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- ${criterion}\n`);
+    }
+    mkdirSync(join(home, "completed", "ignored"), { recursive: true });
+    mkdirSync(join(home, "seeds", "ignored"), { recursive: true });
+    mkdirSync(join(home, "ready-intents", "ignored"), { recursive: true });
+    const mockRunner: AsyncSubprocessRunner = mergeArchivePublicationRunner(
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+            const jsonIndex = args.indexOf("--json");
+            const fields = jsonIndex >= 0 ? (args[jsonIndex + 1] ?? "") : "";
+            if (fields.includes("state,mergedAt")) return ghPrViewStateJson("CLOSED", null);
+          }
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            const headIndex = args.indexOf("--head");
+            const head = headIndex >= 0 ? args[headIndex + 1] : undefined;
+            return head === open ? ghPrListJsonRows([{ number: 1, state: "OPEN" }]) : "[]";
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      projectRoot,
+    );
+    const store: StateStore = {
+      listRuns: () =>
+        [complete, incomplete, open, owned].map((name) => ({
+          project: "project",
+          branch: name === owned ? "owned-worktree" : name,
+          worktreePath: projectRoot,
+          specPath: join(home, name, "index.md"),
+        })) as never[],
+    } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`archive: ${join(home, complete)}`);
+    expect(stdout).toContain("unchecked acceptance criterion");
+    expect(stdout).toContain(`matching open PR exists for ${open}`);
+    expect(stdout).toContain("another materialized worktree owns this spec");
+    expect(existsSync(join(home, complete))).toBe(true);
+
+    stdout = "";
+    await commitFixtures(projectRoot);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(existsSync(join(home, complete))).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${complete}/index.md`);
+    expect(existsSync(join(home, incomplete))).toBe(true);
+    expect(existsSync(join(home, open))).toBe(true);
+    expect(existsSync(join(home, owned))).toBe(true);
+    expect(existsSync(join(home, "completed", "ignored"))).toBe(true);
+    expect(existsSync(join(home, "seeds", "ignored"))).toBe(true);
+    expect(existsSync(join(home, "ready-intents", "ignored"))).toBe(true);
+  });
+
+  test("archives open-home spec when retiring its owning worktree in one invocation", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20260726T000001Z-open-home-retire";
+    const branch = "feat/open-home-owner";
+    createSpec(specName, "[x] Done");
+    const worktreePath = await materializeWorktree(branch, "open-home owner");
+    const store = storeForStrandedSpec(specName, branch);
+    const mockRunner = ghRunnerForPr("MERGED");
+    const registry = { project: { root: projectRoot } };
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, mockRunner);
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+    await inspectStrandedArtifacts(
+      [{ home, source: join(home, specName), name: specName, project: "project" }],
+      registry,
+      discovered,
+      jarvisRoot,
+      store,
+      mockRunner,
+      io,
+    );
+    expect(stdout).toContain("another materialized worktree owns this spec");
+    expect(existsSync(join(home, specName))).toBe(true);
+
+    stdout = "";
+    const openHomeSource = join(home, specName);
+    const trackingRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          expect(existsSync(openHomeSource)).toBe(true);
+          expect(existsSync(join(home, "completed", specName))).toBe(false);
+        }
+        return mockRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    await commitFixtures(projectRoot);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        trackingRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`Skipped artifact: ${worktreePath} — no durable spec identity`);
+    const retiredAt = stdout.indexOf(`Retired: ${worktreePath}`);
+    const archivedAt = stdout.indexOf(`Archived: ${openHomeSource} ->`);
+    expect(retiredAt).toBeGreaterThanOrEqual(0);
+    expect(archivedAt).toBeGreaterThan(retiredAt);
+    expect(existsSync(openHomeSource)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${specName}/index.md`);
+    expect(existsSync(worktreePath)).toBe(false);
+
+    stdout = "";
+    await commitFixtures(projectRoot);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+  });
+
+  test("archive publication leaves the primary checkout clean", async () => {
+    const specName = "20260910T000010Z-publish-clean";
+    const intent = "---\nname: publish-clean\n---\n";
+    const { source, readyIntent } = createSpec(specName, "[x] Done", intent);
+    await commitFixtures(projectRoot);
+    const store = storeForStrandedSpec(specName, "implement/publish-clean");
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+
+    // The move is a commit on an isolated cleanup branch, never a rename in the operator checkout.
+    expect(await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], projectRoot)).toBe("");
+    expect(existsSync(source)).toBe(true);
+    expect(readyIntent === undefined || existsSync(readyIntent)).toBe(true);
+    const tree = await cleanupArchiveTree(projectRoot);
+    expect(tree).toContain(`spec/completed/${specName}/index.md`);
+    expect(tree).not.toContain(`spec/${specName}/index.md`);
+    expect(tree).not.toContain(`spec/ready-intents/${specName}.md`);
+    expect(stdout).toMatch(/committed on cleanup\/archive-\d{8}T\d{6}Z; the operator checkout is unchanged/);
+    expect(stdout).toContain("https://github.com/example/test/pull/42");
+    expect(stdout).not.toMatch(
+      /Archive branch for project: cleanup\/archive-\d{8}T\d{6}Z \(1 commit\(s\)\) at .* — push it and open one archive PR\./,
+    );
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", "cleanup"))).toBe(true);
+  });
+
+  describe("hand-landed specs without a run row", () => {
+    const emptyStore = { listRuns: () => [] } as unknown as StateStore;
+    const specName = "20260911T000001Z-hand-landed";
+
+    function strandedArtifact(name: string) {
+      return {
+        home: join(projectRoot, "spec"),
+        source: join(projectRoot, "spec", name),
+        name,
+        project: "project",
+      };
+    }
+
+    async function inspect(
+      artifacts: ReturnType<typeof strandedArtifact>[],
+      store: StateStore,
+      worktrees: { path: string; branch: string | undefined }[] = [],
+    ) {
+      let stdout = "";
+      const eligible = await inspectStrandedArtifacts(
+        artifacts,
+        { project: { root: projectRoot } },
+        worktrees,
+        jarvisRoot,
+        store,
+        ghRunnerForPr("MERGED"),
+        { stdout: (s: string) => (stdout += s) },
+      );
+      return { eligible, stdout };
+    }
+
+    test("archives a complete in-repo spec with no run row and no owning worktree", async () => {
+      const { source } = createSpec(specName, "[x] Done");
+      await commitFixtures(projectRoot);
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+      expect(
+        await runCleanupCommand(
+          { promptConfirm: async () => true },
+          { project: { root: projectRoot } },
+          jarvisRoot,
+          ghRunnerForPr("MERGED"),
+          async () => [],
+          emptyStore,
+          io,
+        ),
+      ).toBe(0);
+
+      expect(stdout).toContain(`Archived: ${source} ->`);
+      expect(stdout).not.toContain("no durable implementation branch");
+      expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${specName}/index.md`);
+      expect(existsSync(source)).toBe(true);
+    });
+
+    test("previews the widened archive like any stranded archive", async () => {
+      const { source } = createSpec(specName, "[x] Done");
+      await commitFixtures(projectRoot);
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        emptyStore,
+        io,
+      );
+
+      expect(stdout).toContain(`archive: ${source} -> ${join(projectRoot, "spec", "completed", specName)}`);
+    });
+
+    test("still skips a spec with an unchecked non-human-only criterion, naming the real reason", async () => {
+      createSpec(specName, "[ ] Not done");
+      await commitFixtures(projectRoot);
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore);
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain(
+        `Skipped artifact: ${join(projectRoot, "spec", specName)} — unchecked acceptance criterion in index.md: Not done`,
+      );
+    });
+
+    test("skips a spec whose criteria are ticked only in the working tree", async () => {
+      createSpec(specName, "[ ] Not done");
+      await commitFixtures(projectRoot);
+      // The operator ticks the checkbox locally; nothing merged.
+      writeFileSync(
+        join(projectRoot, "spec", specName, "index.md"),
+        "# Plan\n\n## Acceptance criteria\n\n- [x] Not done\n",
+      );
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore);
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain("unchecked acceptance criterion in index.md: Not done");
+    });
+
+    test("skips a spec absent from the default branch even when complete on disk", async () => {
+      createSpec(specName, "[x] Done");
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore);
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain(`Skipped artifact: ${join(projectRoot, "spec", specName)} — spec is not committed on`);
+    });
+
+    test("still skips a spec whose source exists inside a materialized worktree", async () => {
+      createSpec(specName, "[x] Done");
+      await commitFixtures(projectRoot);
+      const worktreePath = join(tempRoot, "some-worktree");
+      mkdirSync(join(worktreePath, "spec", specName), { recursive: true });
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], emptyStore, [
+        { path: worktreePath, branch: "feature" },
+      ]);
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain("no durable implementation branch");
+    });
+
+    test("still skips an external plan tree with no run row", async () =>
+      withJarvisHome(async () => {
+        writeMachineConfig({ specs: "external" });
+        const planName = "20260911T000002Z-external-hand";
+        const { specReadRoot, plansHome } = createExternalPlan(planName, "[x] Done");
+        const { eligible, stdout } = await inspect(
+          [{ home: plansHome, source: specReadRoot, name: planName, project: "project" }],
+          emptyStore,
+        );
+        expect(eligible).toEqual([]);
+        expect(stdout).toContain("no durable implementation branch");
+      }));
+
+    test("still skips an artifact whose run row resolves no branch", async () => {
+      createSpec(specName, "[x] Done");
+      await commitFixtures(projectRoot);
+      const { eligible, stdout } = await inspect([strandedArtifact(specName)], storeForStrandedSpec(specName, ""));
+      expect(eligible).toEqual([]);
+      expect(stdout).toContain("no durable implementation branch");
+    });
+
+    test("handLandedArtifactArchivability decides both directions from the default-branch spec tree", async () => {
+      createSpec(specName, "[x] Done");
+      createSpec("20260911T000003Z-incomplete", "[ ] Todo");
+      await commitFixtures(projectRoot);
+      const uncommitted = createSpec("20260911T000004Z-uncommitted", "[x] Done");
+      expect(existsSync(uncommitted.source)).toBe(true);
+      const worktreePath = join(tempRoot, "other-worktree");
+      mkdirSync(join(worktreePath, "spec", specName), { recursive: true });
+      const artifact = strandedArtifact(specName);
+      const runner = ghRunnerForPr("MERGED");
+      const decide = (
+        spec: Parameters<typeof handLandedArtifactArchivability>[0],
+        root = projectRoot,
+        worktrees: DiscoveredWorktree[] = [],
+      ) => handLandedArtifactArchivability(spec, root, worktrees, runner);
+
+      expect(await decide(artifact)).toEqual({ status: "eligible" });
+      expect(await decide(strandedArtifact("20260911T000003Z-incomplete"))).toMatchObject({ status: "ineligible" });
+      expect(await decide(strandedArtifact("20260911T000004Z-uncommitted"))).toMatchObject({
+        status: "ineligible",
+        reason: expect.stringContaining("not committed on"),
+      });
+      expect(await decide(artifact, projectRoot, [{ path: worktreePath, branch: "b" }])).toMatchObject({
+        status: "ineligible",
+      });
+      expect(await decide({ ...artifact, queue: "seed" })).toMatchObject({ status: "ineligible" });
+      expect(await decide(artifact, join(tempRoot, "elsewhere"))).toMatchObject({ status: "ineligible" });
+    });
+  });
+
+  test("archive publication failure restores the source tree", async () => {
+    const specName = "20260910T000011Z-publish-fails";
+    const { source } = createSpec(specName, "[x] Done");
+    await commitFixtures(projectRoot);
+    const store = storeForStrandedSpec(specName, "implement/publish-fails");
+    const merged = ghRunnerForPr("MERGED");
+    const failingCommit: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "commit" && cwd?.includes(join("worktrees", "project", "cleanup"))) {
+          throw new Error("disk full");
+        }
+        return merged.runAsync(cmd, args, cwd);
+      },
+    };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      failingCommit,
+      async () => [],
+      store,
+      io,
+    );
+
+    expect(stdout).toContain("archive publication failed at commit: ");
+    expect(stdout).not.toContain("Archived:");
+    expect(await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], projectRoot)).toBe("");
+    expect(existsSync(source)).toBe(true);
+    expect(existsSync(join(projectRoot, "spec", "completed", specName))).toBe(false);
+    expect(await cleanupArchiveTree(projectRoot)).toEqual([]);
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", "cleanup"))).toBe(false);
+  });
+
+  test("resolves absolute external plan specPath from durable implement run for retired-worktree archival", async () =>
+    withJarvisHome(async () => {
+      const planName = "20260902T000001Z-external-retire";
+      writeMachineConfig({ specs: "external" });
+      const { specReadRoot, indexPath, plansHome } = createExternalPlan(planName, "[x] Done");
+      const resolvedSpecReadRoot = realpathSync(specReadRoot);
+      const completedPlan = join(realpathSync(plansHome), "completed", planName);
+      const branch = "feat/external-plan-owner";
+      const worktreePath = await createWorktree(branch);
+      const store: StateStore = {
+        listRuns: () => [
+          {
+            project: "project",
+            branch,
+            worktreePath,
+            specPath: indexPath,
+            status: "completed",
+            stepId: "implement",
+          },
+        ],
+      } as unknown as StateStore;
+      const mockRunner = ghRunnerForPr("MERGED");
+      const registry = { project: { root: projectRoot } };
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+      expect(
+        await runCleanupCommand(
+          { promptConfirm: async () => true },
+          registry,
+          jarvisRoot,
+          mockRunner,
+          async () => [],
+          store,
+          io,
+        ),
+      ).toBe(0);
+      expect(stdout).toContain(`Retired: ${worktreePath}`);
+      expect(stdout).toContain(`Archived: ${resolvedSpecReadRoot} ->`);
+      expect(existsSync(specReadRoot)).toBe(false);
+      expect(existsSync(completedPlan)).toBe(true);
+      expect(existsSync(worktreePath)).toBe(false);
+    }));
+
+  test("recordedStrandedBranch matches external plan directory from chained implement specPath", async () =>
+    withJarvisHome(async () => {
+      const planName = "20260902T000002Z-external-stranded";
+      writeMachineConfig({ specs: "external" });
+      const { specReadRoot, indexPath, plansHome } = createExternalPlan(planName, "[x] Done");
+      const branch = "implement/external-plan";
+      const store: StateStore = {
+        listRuns: () => [
+          {
+            project: "project",
+            branch,
+            worktreePath: projectRoot,
+            specPath: indexPath,
+            status: "completed",
+            stepId: "implement",
+          },
+        ],
+      } as unknown as StateStore;
+      const registry = { project: { root: projectRoot } };
+      const mockRunner = ghRunnerForPr("MERGED");
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+      const eligible = await inspectStrandedArtifacts(
+        [{ home: plansHome, source: specReadRoot, name: planName, project: "project" }],
+        registry,
+        [],
+        jarvisRoot,
+        store,
+        mockRunner,
+        io,
+      );
+      expect(eligible).toHaveLength(1);
+      expect(eligible[0]?.branch).toBe(branch);
+      expect(stdout).not.toContain("no durable implementation branch");
+    }));
+
+  test("discovers completed external plan directories for planSourcePublishesExternally projects and ignores completed sibling and unrelated storage", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ specs: "external" });
+      const eligibleName = "20260902T100001Z-external-discover-eligible";
+      const { plansHome, specReadRoot } = createExternalPlan(eligibleName, "[x] Done");
+      const completedName = "archived-external-plan";
+      mkdirSync(join(plansHome, "completed", completedName), { recursive: true });
+      writeFileSync(join(plansHome, "completed", completedName, "index.md"), "# archived\n");
+      const otherPlansHome = join(jarvisRoot, "specs", projectSafeId("other-project"), "plans", "unrelated");
+      mkdirSync(otherPlansHome, { recursive: true });
+      writeFileSync(join(otherPlansHome, "index.md"), "# other\n");
+      const readyIntent = join(jarvisRoot, "specs", projectSafeId("project"), "ready-intents", "ignored.md");
+      mkdirSync(dirname(readyIntent), { recursive: true });
+      writeFileSync(readyIntent, "# ready\n");
+      mkdirSync(join(plansHome, "no-index-plan"), { recursive: true });
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      const external = discovered.filter((artifact) => artifact.home === plansHome);
+
+      expect(external).toHaveLength(1);
+      expect(external[0]).toMatchObject({
+        home: plansHome,
+        source: realpathSync(specReadRoot),
+        name: eligibleName,
+        project: "project",
+      });
+    }));
+
+  test("discovers stranded artifacts in external seeds and ready-intents homes", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ specs: "external" });
+      const externalHome = join(jarvisRoot, "specs", projectSafeId("project"));
+      const seedsHome = join(externalHome, "seeds");
+      const readyHome = join(externalHome, "ready-intents");
+      mkdirSync(seedsHome, { recursive: true });
+      mkdirSync(join(readyHome, "nested-dir"), { recursive: true });
+      writeFileSync(join(seedsHome, "queued-seed.md"), "# seed\n");
+      writeFileSync(join(seedsHome, ".hidden.md"), "# hidden\n");
+      writeFileSync(join(seedsHome, "notes.txt"), "not markdown\n");
+      writeFileSync(join(readyHome, "queued-intent.md"), "# intent\n");
+      writeFileSync(join(readyHome, ".jarvis-intent-stage.md"), "# staging\n");
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      const queue = discovered.filter((artifact) => artifact.queue !== undefined);
+      expect(queue.map((artifact) => [artifact.queue, artifact.name, artifact.home])).toEqual([
+        ["seed", "queued-seed", seedsHome],
+        ["ready-intent", "queued-intent", readyHome],
+      ]);
+      expect(discovered.some((artifact) => artifact.name === "notes")).toBe(false);
+      expect(discovered.some((artifact) => artifact.name === "nested-dir")).toBe(false);
+      expect(discovered.some((artifact) => artifact.name.startsWith("."))).toBe(false);
+
+      // Not opted in: the same layout under an in-repo-only project is invisible, like its in-repo queues.
+      writeMachineConfig({ specs: "repo" });
+      expect(discoverStrandedArtifacts({ project: { root: projectRoot } }).some((a) => a.queue !== undefined)).toBe(
+        false,
+      );
+    }));
+
+  test("external queue entries inspect as pending, consumed-by-open-plan, or prunable when the plan archived", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ specs: "external" });
+      const externalHome = join(jarvisRoot, "specs", projectSafeId("project"));
+      const plansHome = join(externalHome, "plans");
+      const readyHome = join(externalHome, "ready-intents");
+      const seedsHome = join(externalHome, "seeds");
+      mkdirSync(join(plansHome, "completed", "20260910T000001Z-archived-plan"), { recursive: true });
+      mkdirSync(join(plansHome, "20260910T000002Z-open-plan"), { recursive: true });
+      mkdirSync(readyHome, { recursive: true });
+      mkdirSync(seedsHome, { recursive: true });
+      writeFileSync(join(plansHome, "completed", "20260910T000001Z-archived-plan", "intent.md"), "# archived intent\n");
+      writeFileSync(join(plansHome, "20260910T000002Z-open-plan", "intent.md"), "# open intent\n");
+      writeFileSync(join(plansHome, "20260910T000002Z-open-plan", "index.md"), "# open\n");
+      const consumedArchived = join(readyHome, "archived-plan.md");
+      const consumedOpen = join(readyHome, "open-plan.md");
+      const unconsumed = join(readyHome, "pending.md");
+      const seed = join(seedsHome, "pending-seed.md");
+      writeFileSync(consumedArchived, "# archived intent\n");
+      writeFileSync(consumedOpen, "# open intent\n");
+      writeFileSync(unconsumed, "# nobody consumed this\n");
+      writeFileSync(seed, "# seed\n");
+
+      const registry = { project: { root: projectRoot } };
+      const discovered = discoverStrandedArtifacts(registry).filter((artifact) => artifact.queue !== undefined);
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s) };
+      const eligible = await inspectStrandedArtifacts(
+        discovered,
+        registry,
+        [],
+        jarvisRoot,
+        { listRuns: () => [] } as unknown as StateStore,
+        realAsyncSubprocessRunner,
+        io,
+      );
+      expect(eligible.map((artifact) => artifact.source)).toEqual([consumedArchived]);
+      expect(stdout).toContain(`${seed} — pending seed`);
+      expect(stdout).toContain(`${unconsumed} — unconsumed ready-intent`);
+      expect(stdout).toContain(`${consumedOpen} — consumed by open plan plans/20260910T000002Z-open-plan`);
+
+      let applyStdout = "";
+      expect(
+        await runCleanupCommand(
+          { promptConfirm: async () => true },
+          registry,
+          jarvisRoot,
+          ghRunnerForPr("MERGED"),
+          async () => [],
+          { listRuns: () => [] } as unknown as StateStore,
+          { stdout: (s: string) => (applyStdout += s), stderr: () => {} },
+        ),
+      ).toBe(0);
+      expect(applyStdout).toContain(`Pruned consumed ready-intent: ${consumedArchived}`);
+      expect(existsSync(consumedArchived)).toBe(false);
+      expect(existsSync(consumedOpen)).toBe(true);
+      expect(existsSync(unconsumed)).toBe(true);
+      expect(existsSync(seed)).toBe(true);
+    }));
+
+  test("dry-run previews external plan archive as plans/<name> -> plans/completed/<name> without mutation", async () =>
+    withJarvisHome(async () => {
+      const planName = "20260902T200001Z-external-dry-run";
+      const { specReadRoot, plansHome, store } = prepareExternalStrandedPlan(planName, "implement/external-dry-run");
+      const registry = { project: { root: projectRoot } };
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+      expect(
+        await runCleanupCommand(
+          { dryRun: true },
+          registry,
+          jarvisRoot,
+          ghRunnerForPr("MERGED"),
+          async () => [],
+          store,
+          io,
+        ),
+      ).toBe(0);
+
+      expect(stdout).toContain(`archive: plans/${planName} -> plans/completed/${planName}`);
+      expect(stdout).not.toContain("(prune consumed ready-intent)");
+      expect(existsSync(specReadRoot)).toBe(true);
+      expect(existsSync(join(plansHome, "completed", planName))).toBe(false);
+    }));
+
+  test("archives eligible external plan after completeness and ownership checks", async () =>
+    withJarvisHome(async () => {
+      const planName = "20260902T200002Z-external-archive";
+      const { specReadRoot, plansHome, store, specsReady } = prepareExternalStrandedPlan(
+        planName,
+        "implement/external-archive",
+      );
+      const trapReady = join(plansHome, "ready-intents", `${planName}.md`);
+      mkdirSync(dirname(trapReady), { recursive: true });
+      writeFileSync(trapReady, "# ready\n");
+      const registry = { project: { root: projectRoot } };
+      const completedPlan = join(plansHome, "completed", planName);
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+      expect(
+        await runCleanupCommand(
+          { promptConfirm: async () => true },
+          registry,
+          jarvisRoot,
+          ghRunnerForPr("MERGED"),
+          async () => [],
+          store,
+          io,
+        ),
+      ).toBe(0);
+
+      expect(stdout).toContain("Archived:");
+      expect(stdout).toContain(`plans/completed/${planName}`);
+      expect(existsSync(specReadRoot)).toBe(false);
+      expect(existsSync(completedPlan)).toBe(true);
+      expect(readFileSync(specsReady, "utf8")).toBe("# ready\n");
+      expect(existsSync(trapReady)).toBe(true);
+    }));
+
+  test("rolls back failed external plan archival under the existing transaction contract", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ specs: "external" });
+      const planName = "20260902T200003Z-external-rollback";
+      const { specReadRoot, plansHome } = createExternalPlan(planName, "[x] Done");
+      writeFileSync(join(specReadRoot, "intent.md"), "intent\n");
+      const trapReady = join(plansHome, "ready-intents", `${planName}.md`);
+      mkdirSync(dirname(trapReady), { recursive: true });
+      writeFileSync(trapReady, "intent\n");
+      const spec = { home: plansHome, source: specReadRoot, name: planName, branch: "implement/external-rollback" };
+      const result = archiveCompletedSpec(
+        spec,
+        {
+          exists: existsSync,
+          mkdir: (path) => mkdirSync(path, { recursive: true }),
+          read: readFileSync,
+          rename: renameSync,
+          unlink: () => {
+            throw new Error("disk error");
+          },
+        },
+        { intentPrune: true },
+      );
+      expect(result).toMatchObject({ status: "skipped", reason: expect.stringContaining("archive restored") });
+      expect(existsSync(specReadRoot)).toBe(true);
+      expect(existsSync(trapReady)).toBe(true);
+      expect(existsSync(join(plansHome, "completed", planName))).toBe(false);
+    }));
+
+  test("stranded discovery ignores non-spec and vanished paths", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ specs: "external" });
+      const home = join(projectRoot, "spec");
+      const plansHome = join(jarvisRoot, "specs", projectSafeId("project"), "plans");
+
+      for (const [parent, name] of [
+        [home, ".scratch"],
+        [home, ".jarvis-plan-stage"],
+        [plansHome, ".scratch"],
+        [plansHome, ".jarvis-intent-stage"],
+      ] as const) {
+        const dir = join(parent, name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "index.md"), "# ignored\n");
+      }
+
+      const vanishedName = "20260908T000001Z-vanished-stranded";
+      const vanishedSource = join(home, vanishedName);
+      mkdirSync(vanishedSource, { recursive: true });
+      writeFileSync(join(vanishedSource, "index.md"), `# Vanished\n\n## Acceptance criteria\n\n- [x] Done\n`);
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      expect(discovered.some((artifact) => artifact.name === ".scratch")).toBe(false);
+      expect(discovered.some((artifact) => artifact.name === ".jarvis-plan-stage")).toBe(false);
+      expect(discovered.some((artifact) => artifact.source.includes(join("plans", ".scratch")))).toBe(false);
+      expect(discovered.some((artifact) => artifact.source.includes(join("plans", ".jarvis-intent-stage")))).toBe(
+        false,
+      );
+      expect(discovered.some((artifact) => artifact.name === vanishedName)).toBe(true);
+
+      rmSync(vanishedSource, { recursive: true });
+
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s) };
+      await inspectStrandedArtifacts(
+        discovered,
+        { project: { root: projectRoot } },
+        [],
+        jarvisRoot,
+        storeForStrandedSpec(vanishedName, "implement/vanished"),
+        ghRunnerForPr("MERGED"),
+        io,
+      );
+
+      expect(stdout).not.toContain("Skipped artifact:");
+      expect(stdout).not.toContain(".scratch");
+      expect(stdout).not.toContain(".jarvis-plan-stage");
+      expect(stdout).not.toContain(".jarvis-intent-stage");
+      expect(stdout).not.toContain(vanishedSource);
+    }));
+
+  test("skips external plans scan for registered projects where planSourcePublishesExternally is false", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ specs: "repo" });
+      createExternalPlan("20260902T100002Z-external-inrepo-only", "[x] Done");
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      const external = discovered.filter((artifact) =>
+        artifact.source.includes(join("specs", projectSafeId("project"))),
+      );
+
+      expect(external).toHaveLength(0);
+    }));
+
+  test("skips external plans discovery when multiple registered projects share one projectSafeId", async () =>
+    withJarvisHome(async () => {
+      const rootA = join(tempRoot, "project-a");
+      const rootB = join(tempRoot, "project-b");
+      mkdirSync(rootA, { recursive: true });
+      mkdirSync(rootB, { recursive: true });
+      const safeId = projectSafeId("foo/bar");
+      const planName = "20260902T100003Z-collision-plan";
+      const plansHome = join(jarvisRoot, "specs", safeId, "plans");
+      const specReadRoot = join(plansHome, planName);
+      mkdirSync(specReadRoot, { recursive: true });
+      writeFileSync(join(specReadRoot, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- [x] Done\n`);
+      mkdirSync(jarvisRoot, { recursive: true });
+      writeFileSync(
+        join(jarvisRoot, "config.json"),
+        JSON.stringify({
+          projects: {
+            "foo/bar": { root: rootA, specs: "external" },
+            "foo-bar": { root: rootB, specs: "external" },
+          },
+        }),
+      );
+
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s) };
+      const registry = { "foo/bar": { root: rootA }, "foo-bar": { root: rootB } };
+      const discovered = discoverStrandedArtifacts(registry, io);
+      const external = discovered.filter((artifact) => artifact.source.includes(join("specs", safeId)));
+
+      expect(external).toHaveLength(0);
+      expect(stdout).toContain("Skipped external plans discovery:");
+      expect(stdout).toContain(safeId);
+      expect(stdout).toContain("multiple registered projects share one projectSafeId");
+      expect(stdout).toContain("foo/bar");
+      expect(stdout).toContain("foo-bar");
+    }));
+
+  test("dry-run previews and apply prunes in-repo ready-intent proven by open spec on default branch", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20261002T120001Z-open-spec-ready-prune";
+    const intent = "---\nname: open-spec-ready-prune\n---\n\n# Open spec prune\n";
+    createSpec(specName, "[ ] Still open", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-ready-prune.md");
+    writeFileSync(slugReady, intent);
+    await commitFixtures(projectRoot);
+
+    const dry = await cleanupStdout({ dryRun: true });
+    expect(dry.stdout).toContain(`prune: ready-intents/open-spec-ready-prune.md (consumed by open spec ${specName})`);
+    expect(dry.stdout).not.toContain(`archive: ${join(home, specName)}`);
+    expect(existsSync(join(home, specName))).toBe(true);
+    expect(existsSync(slugReady)).toBe(true);
+
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).toContain("Pruned consumed ready-intent:");
+    expect(existsSync(join(home, specName))).toBe(true);
+    expect(existsSync(join(home, "completed", specName))).toBe(false);
+    expect(existsSync(slugReady)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain("spec/ready-intents/open-spec-ready-prune.md");
+  });
+
+  test("leaves in-repo ready-intent when bytes differ from open spec intent.md", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20261002T120002Z-open-spec-ready-mismatch";
+    const intent = "---\nname: open-spec-ready-mismatch\n---\n\n# Spec intent\n";
+    createSpec(specName, "[ ] Still open", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-ready-mismatch.md");
+    writeFileSync(slugReady, `${intent}\nqueue drift\n`);
+    await commitFixtures(projectRoot);
+
+    const dry = await cleanupStdout({ dryRun: true });
+    expect(dry.stdout).not.toContain("prune: ready-intents/open-spec-ready-mismatch.md");
+    expect(dry.stdout).toContain("unconsumed ready-intent: no open spec tree carries its bytes on the default branch");
+
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).not.toContain("Pruned consumed ready-intent:");
+    expect(existsSync(slugReady)).toBe(true);
+  });
+
+  test("prunes in-repo ready-intent proven by open spec while implement worktree still materialized", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20261002T120003Z-open-spec-ready-owner";
+    const branch = "feat/open-spec-ready-owner";
+    const intent = "---\nname: open-spec-ready-owner\n---\n\n# Open spec with owner\n";
+    createSpec(specName, "[ ] Still open", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-ready-owner.md");
+    writeFileSync(slugReady, intent);
+    const worktreePath = await materializeWorktree(branch, "implement owns open spec");
+    const registry = { project: { root: projectRoot } };
+    const store = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch,
+          worktreePath,
+          specPath: join(home, specName, "index.md"),
+          status: "in-progress",
+        },
+      ],
+    } as unknown as StateStore;
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, ghRunnerForPr("MERGED"));
+    expect(discovered.some((worktree) => worktree.path === worktreePath)).toBe(true);
+
+    let dryStdout = "";
+    expect(
+      await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, ghRunnerForPr("MERGED"), async () => [], store, {
+        stdout: (s) => (dryStdout += s),
+        stderr: () => {},
+      }),
+    ).toBe(0);
+    expect(dryStdout).toContain(`prune: ready-intents/open-spec-ready-owner.md (consumed by open spec ${specName})`);
+    expect(dryStdout).not.toContain("another materialized worktree owns the consuming open spec");
+
+    let applyStdout = "";
+    await commitFixtures(projectRoot);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(applyStdout).toContain("Pruned consumed ready-intent:");
+    expect(existsSync(join(home, specName))).toBe(true);
+    expect(existsSync(slugReady)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain("spec/ready-intents/open-spec-ready-owner.md");
+  });
+
+  test("in-repo ready-intent proof costs constant git calls per project, never a per-blob show", async () => {
+    async function dryRunGitCalls(count: number, offset: number): Promise<string[][]> {
+      for (let i = 0; i < count; i++) {
+        const specName = `20261002T13${String(offset + i).padStart(4, "0")}Z-git-bound-${offset + i}`;
+        createSpec(specName, "[ ] Still open", `---\nname: git-bound-${offset + i}\n---\n`);
+      }
+      await commitFixtures(projectRoot);
+      const calls: string[][] = [];
+      const inner = ghRunnerForPr("MERGED");
+      const runner: AsyncSubprocessRunner = {
+        runAsync: async (cmd, args, cwd, options) => {
+          if (cmd === "git") calls.push(args);
+          return inner.runAsync(cmd, args, cwd, options);
+        },
+      };
+      let stdout = "";
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        runner,
+        async () => [],
+        { listRuns: () => [] } as unknown as StateStore,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      );
+      expect(stdout.match(/prune: ready-intents\//g)?.length).toBe(offset + count);
+      return calls;
+    }
+    const readyIntentProbes = (calls: string[][]) =>
+      calls.filter((args) => args.some((arg) => arg.includes("ready-intents")) || args.includes("main:spec"));
+
+    const one = await dryRunGitCalls(1, 0);
+    const nine = await dryRunGitCalls(8, 1);
+    expect(readyIntentProbes(nine).length).toBe(readyIntentProbes(one).length);
+    expect(nine.filter((args) => args[0] === "show" && args.some((arg) => arg.includes("ready-intents/")))).toEqual([]);
+  });
+
+  test("open spec archived in the same run prunes its ready-intent once, with no separate prune", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20261002T120004Z-open-spec-archives-same-run";
+    const intent = "---\nname: open-spec-archives-same-run\n---\n\n# Archives same run\n";
+    // Complete on the default branch but not yet under completed/: both the archive and the queue prune see it.
+    createSpec(specName, "[x] Done", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-archives-same-run.md");
+    writeFileSync(slugReady, intent);
+    await commitFixtures(projectRoot);
+
+    const dry = await cleanupStdout({ dryRun: true });
+    expect(dry.stdout).toContain(`archive: ${join(home, specName)}`);
+    expect(dry.stdout).not.toContain("prune: ready-intents/open-spec-archives-same-run.md");
+
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).toContain("(pruned consumed ready-intent)");
+    expect(apply.stdout).not.toContain("archive publication failed");
+    const tree = await cleanupArchiveTree(projectRoot);
+    expect(tree).toContain(`spec/completed/${specName}/index.md`);
+    expect(tree).not.toContain("spec/ready-intents/open-spec-archives-same-run.md");
+  });
+
+  test("apply re-proves the prune on the default branch, not a divergent operator checkout", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20261002T120005Z-open-spec-divergent";
+    const intent = "---\nname: open-spec-divergent\n---\n\n# Divergent checkout\n";
+    createSpec(specName, "[ ] Still open", intent);
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "open-spec-divergent.md");
+    writeFileSync(slugReady, intent);
+    await commitFixtures(projectRoot);
+    // Uncommitted drift: the slug copy no longer matches, a raw-name copy does.
+    writeFileSync(slugReady, `${intent}\nlocal drift\n`);
+    const rawReady = join(home, "ready-intents", `${specName}.md`);
+    writeFileSync(rawReady, intent);
+
+    const apply = await cleanupStdout({ promptConfirm: async () => true });
+    expect(apply.code).toBe(0);
+    expect(apply.stdout).toContain("Pruned consumed ready-intent:");
+    expect(apply.stdout).not.toContain("archive publication failed");
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain("spec/ready-intents/open-spec-divergent.md");
+    expect(existsSync(rawReady)).toBe(true);
+  });
+
+  test("dry-run previews and apply prunes the slug-named consumed ready-intent", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20260909T000002Z-slug-prune";
+    const branch = "feat/slug-prune";
+    const intent = "---\nname: slug-prune\n---\n\n# Slug prune\n";
+    createSpec(specName, "[x] Done", intent);
+    // The real queue file is slug-named; the fixture's timestamped copy is the legacy shape.
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "slug-prune.md");
+    writeFileSync(slugReady, intent);
+    await materializeWorktree(branch, "slug prune owner");
+    const registry = { project: { root: projectRoot } };
+    const store = storeForStrandedSpec(specName, branch);
+
+    let dryStdout = "";
+    await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, ghRunnerForPr("MERGED"), async () => [], store, {
+      stdout: (s) => (dryStdout += s),
+      stderr: () => {},
+    });
+    expect(dryStdout).toContain(
+      `archive: ${join(home, specName)} -> ${join(home, "completed", specName)} (prune consumed ready-intent)`,
+    );
+    expect(existsSync(slugReady)).toBe(true);
+
+    let applyStdout = "";
+    await commitFixtures(projectRoot);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(applyStdout).toContain("(pruned consumed ready-intent)");
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${specName}/index.md`);
+    expect(existsSync(slugReady)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain("spec/ready-intents/slug-prune.md");
+  });
+
+  test("refuses open-home stranded archival while a materialized owner is not retired", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20260726T000002Z-open-home-blocked";
+    const branch = "feat/still-owned";
+    createSpec(specName, "[x] Done");
+    await materializeWorktree(branch, "blocking owner");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("OPEN"),
+        async () => [],
+        storeForStrandedSpec(specName, branch),
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("another materialized worktree owns this spec");
+    expect(existsSync(join(home, specName))).toBe(true);
+    expect(existsSync(join(home, "completed", specName))).toBe(false);
+  });
+
+  test("dry-run stranded archive preview matches apply when owning worktree is in retire preview set", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20260726T000003Z-dry-run-parity";
+    const branch = "feat/dry-run-parity";
+    createSpec(specName, "[x] Done");
+    await materializeWorktree(branch, "dry-run parity owner");
+    const mockRunner = ghRunnerForPr("MERGED");
+    const registry = { project: { root: projectRoot } };
+    const store = storeForStrandedSpec(specName, branch);
+    const archiveLine = `archive: ${join(home, specName)} -> ${join(home, "completed", specName)}`;
+    let dryStdout = "";
+    expect(
+      await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, {
+        stdout: (s) => (dryStdout += s),
+        stderr: () => {},
+      }),
+    ).toBe(0);
+    expect(dryStdout).toContain(archiveLine);
+    expect(existsSync(join(home, specName))).toBe(true);
+
+    let applyStdout = "";
+    await commitFixtures(projectRoot);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${specName}/index.md`);
+    expect(applyStdout).toContain(`Archived: ${join(home, specName)} -> ${join(home, "completed", specName)}`);
+  });
+
+  test("keys stranded ownership to the recorded project branch and rechecks it before archival", async () => {
+    const home = join(projectRoot, "spec");
+    const eligible = "20260717T000007Z-eligible";
+    const owned = "20260717T000008Z-owned";
+    const late = "20260717T000009Z-late";
+    const guarded = "20260717T000010Z-guarded";
+    const relative = "20260717T000011Z-relative";
+    const otherOnly = "20260717T000012Z-other-only";
+    for (const name of [eligible, owned, late, relative, otherOnly]) createSpec(name, "[x] Done");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "stranded ownership fixtures"], projectRoot);
+
+    const addWorktree = async (branch: string): Promise<string> => {
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+      const path = join(jarvisRoot, "worktrees", "project", branch);
+      mkdirSync(dirname(path), { recursive: true });
+      await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", path, branch], projectRoot);
+      return path;
+    };
+    await addWorktree("unrelated");
+    await addWorktree("custom-owner");
+
+    const otherRoot = join(tempRoot, "other-project");
+    mkdirSync(otherRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], otherRoot);
+    writeFileSync(join(otherRoot, "README.md"), "# Other\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "custom-owner"], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "other-only-owner"], otherRoot);
+    const otherWorktree = join(jarvisRoot, "worktrees", "other", "custom-owner");
+    mkdirSync(dirname(otherWorktree), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", otherWorktree, "custom-owner"], otherRoot);
+    const otherOnlyWorktree = join(jarvisRoot, "worktrees", "other", "other-only-owner");
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["worktree", "add", otherOnlyWorktree, "other-only-owner"],
+      otherRoot,
+    );
+
+    const runs = [
+      { name: eligible, branch: "custom-eligible" },
+      { name: owned, branch: "custom-owner" },
+      { name: late, branch: "custom-late" },
+      { name: guarded, branch: "custom-guarded" },
+      { name: relative, branch: "custom-relative" },
+      { name: otherOnly, branch: "other-only-owner" },
+    ].map(({ name, branch }) => ({
+      project: "project",
+      branch,
+      worktreePath: projectRoot,
+      specPath: name === relative ? join("spec", name, "index.md") : join(home, name, "index.md"),
+    }));
+    const store: StateStore = {
+      listRuns: () => runs as never[],
+    } as unknown as StateStore;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) =>
+        cmd === "gh" && args[1] === "list" ? "[]" : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
+    };
+    const registry = { project: { root: projectRoot }, other: { root: otherRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, io);
+    expect(stdout).toContain(`archive: ${join(home, eligible)}`);
+    expect(stdout).toContain(`archive: ${join(home, relative)}`);
+    expect(stdout).toContain(`archive: ${join(home, otherOnly)}`);
+    expect(stdout).toContain(`Skipped artifact: ${join(home, owned)} — another materialized worktree owns this spec`);
+    expect(stdout).not.toContain(
+      `Skipped artifact: ${join(home, eligible)} — another materialized worktree owns this spec`,
+    );
+
+    stdout = "";
+    await commitFixtures(projectRoot);
+    await runCleanupCommand(
+      {
+        promptConfirm: async () => {
+          await addWorktree("custom-late");
+          return true;
+        },
+      },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      async () => [],
+      store,
+      io,
+    );
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${eligible}/index.md`);
+    expect(existsSync(join(home, late))).toBe(true);
+    expect(stdout).toContain(`Skipped artifact: ${join(home, late)} — another materialized worktree owns this spec`);
+
+    createSpec(guarded, "[x] Done");
+    const detached = await addWorktree("detached-owner");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], detached);
+    // A detached worktree owns only the artifact its own durable run row resolves to.
+    runs.push({
+      project: "project",
+      branch: "custom-guarded",
+      worktreePath: detached,
+      specPath: join(detached, "spec", guarded, "index.md"),
+    });
+    stdout = "";
+    await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, io);
+    expect(stdout).toContain(`Skipped artifact: ${join(home, guarded)} — another materialized worktree owns this spec`);
+  });
+
+  test("detached owner blocks only its own artifact", async () => {
+    const home = join(projectRoot, "spec");
+    const owned = "20260908T000001Z-detached-owned";
+    const unrelated = "20260908T000002Z-detached-unrelated";
+    createSpec(owned, "[x] Done");
+    createSpec(unrelated, "[x] Done");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "detached ownership fixtures"], projectRoot);
+    const detached = await createWorktree("detached-identified");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], detached);
+
+    const store: StateStore = {
+      listRuns: () =>
+        [
+          {
+            project: "project",
+            branch: "detached-identified",
+            worktreePath: detached,
+            specPath: join(detached, "spec", owned, "index.md"),
+          },
+          {
+            project: "project",
+            branch: "implement/unrelated",
+            worktreePath: projectRoot,
+            specPath: join(home, unrelated, "index.md"),
+          },
+        ] as never[],
+    } as unknown as StateStore;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) =>
+        cmd === "gh" && args[1] === "list" ? "[]" : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
+    };
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, io);
+    expect(stdout).toContain(`archive: ${join(home, unrelated)}`);
+    expect(stdout).toContain(`Skipped artifact: ${join(home, owned)} — another materialized worktree owns this spec`);
+    expect(stdout).not.toContain(`Skipped artifact: ${join(home, unrelated)}`);
+
+    stdout = "";
+    await commitFixtures(projectRoot);
+    await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      async () => [],
+      store,
+      io,
+    );
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${unrelated}/index.md`);
+    expect(existsSync(join(home, owned))).toBe(true);
+    expect(existsSync(join(home, "completed", owned))).toBe(false);
+  });
+
+  test("each skipped artifact is reported once", async () => {
+    const home = join(projectRoot, "spec");
+    const specName = "20260908T000003Z-skip-once";
+    const branch = "feat/skip-once";
+    createSpec(specName, "[ ] Not done");
+    await materializeWorktree(branch, "skip-once owner");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    // Retirement archival and the post-retirement stranded pass both refuse this one identity.
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        storeForStrandedSpec(specName, branch),
+        io,
+      ),
+    ).toBe(0);
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", branch))).toBe(false);
+    expect(existsSync(join(home, specName))).toBe(true);
+    const skipLines = stdout.split("\n").filter((line) => line.startsWith(`Skipped artifact: ${join(home, specName)}`));
+    expect(skipLines).toHaveLength(1);
+    expect(skipLines[0]).toContain("unchecked acceptance criterion");
+    expect(stdout).not.toContain("Skipped stranded artifact:");
+  });
+
+  test("runCleanupCommand rechecks eligibility after confirmation and spares a worktree that went live in the race window", async () => {
+    const branch = "race-branch";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    // Eligible on the preview call (no live runs), then a live run appears before removal.
+    // A working post-confirmation recheck must catch this and spare the worktree.
+    let daemonCalls = 0;
+    const daemonClient: DaemonClient = async () => {
+      daemonCalls += 1;
+      return daemonCalls === 1 ? [] : [{ isLive: true }];
+    };
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const io = {
+      stdout: (s: string) => {
+        stdout += s;
+      },
+      stderr: () => {},
+    };
+
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+      },
+    };
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      store,
+      io,
+    );
+
+    expect(code).toBe(0);
+    // Preview call + at least one post-confirmation recheck call.
+    expect(daemonCalls).toBeGreaterThanOrEqual(2);
+    expect(stdout).toContain("became ineligible");
+    expect(stdout).not.toContain("Retired");
+
+    // The worktree survives because the recheck caught the live run.
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("runCleanupCommand exits nonzero when the daemon becomes unreachable during recheck", async () => {
+    const branch = "recheck-daemon-unreachable";
+    const worktreePath = await createWorktree(branch);
+    let daemonCalls = 0;
+    const daemonClient: DaemonClient = async () => {
+      daemonCalls += 1;
+      if (daemonCalls === 1) return [];
+      throw new Error("probe transport lost");
+    };
+    let stdout = "";
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped (became ineligible): ${worktreePath}`);
+    expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("runCleanupCommand treats a malformed daemon list response as unreachable", async () => {
+    const branch = "malformed-daemon-list";
+    const worktreePath = await createWorktree(branch);
+    let resolveFrame: ((frame: IpcFrame) => void) | undefined;
+    const client: IpcClient = {
+      send(frame): void {
+        resolveFrame?.({ kind: "response", id: (frame as { id: string }).id, result: { runs: "not-an-array" } });
+      },
+      nextFrame: () => new Promise((resolve) => (resolveFrame = resolve)),
+      close: () => {},
+    };
+    let stdout = "";
+
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      createStaleResetDaemonClient(client),
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
+  });
+
+  test("runCleanupCommand makes worktree ineligible when daemon client throws", async () => {
+    const branch = "daemon-fail-branch";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => {
+      throw new Error("connect ENOENT /private/leaked-daemon.sock");
+    };
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const io = {
+      stdout: (s: string) => {
+        stdout += s;
+      },
+      stderr: () => {},
+    };
+
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+      },
+    };
+
+    const code = await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, daemonClient, store, io);
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
+    expect(stdout).not.toContain("connect ENOENT");
+    expect(stdout).not.toContain("/private/leaked-daemon.sock");
+    expect(stdout).toContain("No eligible worktrees");
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("daemon-unreachable skip exits nonzero when nothing else to clean", async () => {
+    const branch = "daemon-only-skip";
+    const worktreePath = await createWorktree(branch);
+    const runner = ghRunnerForPr("MERGED");
+    const store = { listRuns: () => [] } as unknown as StateStore;
+    let stdout = "";
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => {
+        throw new Error("probe detail must not leak");
+      },
+      store,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).not.toContain("probe detail must not leak");
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("daemon-unreachable skips drive dry-run, decline, and apply exit", async () => {
+    const skippedBranch = "daemon-skip";
+    const eligibleBranch = "daemon-skip-peer";
+    for (const branch of [skippedBranch, eligibleBranch]) {
+      await createWorktree(branch);
+    }
+    const daemonClient: DaemonClient = async (_project, branch) => {
+      if (branch === skippedBranch) throw new Error("unreachable");
+      return [];
+    };
+    const store = { listRuns: () => [] } as unknown as StateStore;
+    const registry = { project: { root: projectRoot } };
+    const io = { stdout: () => {}, stderr: () => {} };
+
+    expect(
+      await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, ghRunnerForPr("MERGED"), daemonClient, store, io),
+    ).toBe(1);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => false },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        daemonClient,
+        store,
+        io,
+      ),
+    ).toBe(1);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        daemonClient,
+        store,
+        io,
+      ),
+    ).toBe(1);
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", skippedBranch))).toBe(true);
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", eligibleBranch))).toBe(false);
+  });
+
+  test("stable-socket-only: a conflicting isLive answer from another live socket is ignored", async () => {
+    // Inversion target: createBulkCleanupDaemonClient cross-socket merge in cleanup.ts — merging in the
+    // other socket's live run instead of querying only deps.socketPath turns this test RED.
+    const branch = "conflicting-live";
+    const worktreePath = await createWorktree(branch);
+    const invokingSocket = join(jarvisRoot, "daemon-invoking.sock");
+    const otherLiveSocket = join(jarvisRoot, "daemon-other.sock");
+    const bulkDeps = {
+      socketPath: invokingSocket,
+      socketDiscovery: async () => [otherLiveSocket],
+      connectIpcClient: async (socketPath: string) =>
+        socketPath === otherLiveSocket
+          ? liveRunListIpcClient(branch)
+          : makeIpcClient([], { staleResetPreflight: { listRuns: [] } }),
+    };
+
+    const { client: daemonClient } = await createBulkCleanupDaemonClient(bulkDeps);
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain("No eligible worktrees or stranded artifacts");
+    expect(stdout).toContain(worktreePath);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("a dismissed live run reported by the stable daemon still makes a merged worktree ineligible, via includeDismissed on every list call", async () => {
+    const branch = "dismissed-live";
+    const worktreePath = await createWorktree(branch);
+    const invokingSocket = join(jarvisRoot, "daemon-dismissed-live.sock");
+    const sent: unknown[] = [];
+    const bulkDeps = {
+      socketPath: invokingSocket,
+      connectIpcClient: async () =>
+        makeIpcClient([], {
+          sent,
+          staleResetPreflight: {
+            listRuns: [
+              { runId: "live-run", project: "project", branch, status: "in-progress", isLive: true, dismissedAt: 1234 },
+            ],
+          },
+        }),
+    };
+
+    const { client: daemonClient } = await createBulkCleanupDaemonClient(bulkDeps);
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(stdout).not.toContain(worktreePath);
+    expect(existsSync(worktreePath)).toBe(true);
+
+    const listRequests = sent.filter((frame) => (frame as { method?: string }).method === "list");
+    expect(listRequests.length).toBeGreaterThan(0);
+    for (const frame of listRequests) {
+      expect((frame as { params?: unknown }).params).toEqual({ includeDismissed: true });
+    }
+  });
+
+  test("cleanup fails closed when the stable socket doesn't answer, never falling back to another discovered socket", async () => {
+    // Inversion target: createBulkCleanupDaemonClient falling back to a discovered socket in cleanup.ts
+    // instead of failing closed on deps.socketPath alone turns this test RED.
+    const branch = "stable-dead-peer-live";
+    const worktreePath = await createWorktree(branch);
+    const invokingSocket = join(jarvisRoot, "daemon-dead.sock");
+    const liveSocket = join(jarvisRoot, "daemon-live.sock");
+    const bulkDeps = {
+      socketPath: invokingSocket,
+      socketDiscovery: async () => [liveSocket],
+      connectIpcClient: connectWithDeadSocket(invokingSocket, "ECONNREFUSED", branch),
+    };
+
+    const { client: daemonClient, hasAnsweringDaemon } = await createBulkCleanupDaemonClient(bulkDeps);
+    expect(hasAnsweringDaemon).toBe(false);
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath} — ${DAEMON_UNREACHABLE_REASON}`);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("a malformed list response from the stable socket is treated as unreachable, not as an empty answer", async () => {
+    const branch = "malformed-stable-list";
+    const worktreePath = await createWorktree(branch);
+    const invokingSocket = join(jarvisRoot, "daemon-malformed.sock");
+    const bulkDeps = {
+      socketPath: invokingSocket,
+      connectIpcClient: async (): Promise<IpcClient> => {
+        let resolveFrame: ((frame: IpcFrame) => void) | undefined;
+        return {
+          send(frame): void {
+            resolveFrame?.({ kind: "response", id: (frame as { id: string }).id, result: { runs: "not-an-array" } });
+          },
+          nextFrame: () => new Promise((resolve) => (resolveFrame = resolve)),
+          close: () => {},
+        };
+      },
+    };
+
+    const { client: daemonClient, hasAnsweringDaemon, firstError } = await createBulkCleanupDaemonClient(bulkDeps);
+    expect(hasAnsweringDaemon).toBe(false);
+    expect(firstError).toBeInstanceOf(Error);
+    expect((firstError as Error).message).toBe("invalid daemon response");
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath} — ${DAEMON_UNREACHABLE_REASON}`);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("non-daemon ineligibility keeps cleanup exit zero", async () => {
+    const openBranch = "open-pr-skip";
+    const durableBranch = "durable-run-skip";
+    for (const branch of [openBranch, durableBranch]) {
+      await createWorktree(branch);
+    }
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify(
+            args[2] === openBranch
+              ? { state: "OPEN", mergedAt: null }
+              : { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" },
+          );
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    const store = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch: durableBranch,
+          status: "in-progress",
+        },
+      ],
+    } as unknown as StateStore;
+    let daemonCalls = 0;
+
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => {
+        daemonCalls += 1;
+        return [];
+      },
+      store,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(daemonCalls).toBe(0);
+  });
+
+  test("listRuns failure aborts cleanup", async () => {
+    const branch = "store-failure";
+    await createWorktree(branch);
+    const store = {
+      listRuns: () => {
+        throw new Error("state store unavailable");
+      },
+    } as unknown as StateStore;
+
+    await expect(
+      runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        { stdout: () => {}, stderr: () => {} },
+      ),
+    ).rejects.toThrow("state store unavailable");
+  });
+
+  test("runCleanupCommand with declined confirmation changes nothing", async () => {
+    const branch = "decline-branch";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const io = {
+      stdout: (s: string) => {
+        stdout += s;
+      },
+      stderr: () => {},
+    };
+
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+      },
+    };
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => false },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      store,
+      io,
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Cancelled");
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("removal guards are load-bearing: git worktree remove is essential", async () => {
+    const branch = "test-removal";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    // Simulate a removal that fails (broken git call)
+    const brokenRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+        }
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          throw new AsyncSubprocessError(
+            "Command failed: git",
+            1,
+            "",
+            "fatal: simulated worktree remove failure",
+            undefined,
+          );
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+      },
+    };
+
+    const candidate: DiscoveredWorktree & { branch: string } = { path: worktreePath, branch };
+    let stderr = "";
+    const io = {
+      stdout: () => {},
+      stderr: (s: string) => {
+        stderr += s;
+      },
+    };
+
+    const code = await performWorktreeRemovals([{ worktree: candidate, project: "project" }], brokenRunner, io);
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to retire");
+    expect(stderr).toContain("git worktree-remove");
+
+    // Verify worktree still exists because removal failed
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("merged plan worktree with landed criteria-only dirt retires safely", async () => {
+    const specName = "20260908-criteria-retire-spec";
+    const specDir = join(projectRoot, "spec", specName);
+    const subspecRel = `spec/${specName}/00-task.md`;
+    const indexRel = `spec/${specName}/index.md`;
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add spec"], projectRoot);
+
+    const criteriaBranch = "plan/criteria-only-dirt";
+    const criteriaWorktree = await createWorktree(criteriaBranch);
+    writeFileSync(join(criteriaWorktree, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+
+    const unrelatedBranch = "plan/unrelated-dirt";
+    const unrelatedWorktree = await createWorktree(unrelatedBranch);
+    const unrelatedRel = "unrelated-retire-me.txt";
+    writeFileSync(join(unrelatedWorktree, unrelatedRel), "keep\n");
+
+    writeFileSync(join(projectRoot, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criteria on main"], projectRoot);
+
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch: criteriaBranch,
+          worktreePath: criteriaWorktree,
+          specPath: join(criteriaWorktree, indexRel),
+          status: "completed",
+        },
+        {
+          project: "project",
+          branch: unrelatedBranch,
+          worktreePath: unrelatedWorktree,
+          specPath: join(unrelatedWorktree, indexRel),
+          status: "completed",
+        },
+      ],
+    } as unknown as StateStore;
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain("Retired:");
+    expect(stdout).toContain(criteriaWorktree);
+    expect(stdout).toContain(`Skipped merged worktree retirement: ${unrelatedWorktree}`);
+    expect(stdout).toContain(unrelatedRel);
+    expect(stdout).toContain(`jarvis cleanup --abandon ${unrelatedBranch} --discard-unlanded`);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(criteriaWorktree);
+    expect(listOutput).toContain(unrelatedWorktree);
+  });
+
+  test("merged worktree whose spec was archived on main keeps prose dirt refused", async () => {
+    const specName = "20260930-archived-prose-dirt";
+    const specDir = join(projectRoot, "spec", specName);
+    const subspecRel = `spec/${specName}/00-task.md`;
+    const indexRel = `spec/${specName}/index.md`;
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add spec"], projectRoot);
+
+    const branch = "plan/archived-prose-dirt";
+    const worktreePath = await createWorktree(branch);
+    writeFileSync(
+      join(worktreePath, subspecRel),
+      "# Task\n\nOperator prose edit.\n\n## Acceptance criteria\n\n- [ ] done\n",
+    );
+
+    mkdirSync(join(projectRoot, "spec", "completed"), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["mv", specDir, join(projectRoot, "spec", "completed", specName)],
+      projectRoot,
+    );
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "archive spec"], projectRoot);
+
+    const store: StateStore = {
+      listRuns: () => [
+        { project: "project", branch, worktreePath, specPath: join(worktreePath, indexRel), status: "completed" },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(stdout).toContain(`Skipped merged worktree retirement: ${worktreePath}`);
+    expect(stdout).toContain(subspecRel);
+    expect(readFileSync(join(worktreePath, subspecRel), "utf8")).toContain("Operator prose edit.");
+  });
+});
+
+// Discovery tests from original sandbox-unrunnable file
+describe("cleanup: discover materialized worktrees", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-test-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+
+    mkdirSync(projectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], projectRoot);
+
+    writeFileSync(join(projectRoot, "README.md"), "# Test Project\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial commit"], projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("discovers a real worktree created with git worktree add", async () => {
+    const worktreesBranch = "test-worktree";
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, worktreesBranch);
+
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", worktreesBranch], projectRoot);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, worktreesBranch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot);
+
+    expect(discovered).toHaveLength(1);
+    expect(discovered[0]?.path).toBe(worktreePath);
+    expect(discovered[0]?.branch).toBe(worktreesBranch);
+  });
+
+  test("resolves branch for slash-nested worktree paths like plan/<name>", async () => {
+    const branchName = "plan/my-feature";
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branchName);
+
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branchName], projectRoot);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branchName], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot);
+
+    expect(discovered).toHaveLength(1);
+    expect(discovered[0]?.path).toBe(worktreePath);
+    expect(discovered[0]?.branch).toBe(branchName);
+  });
+
+  test("propagates branch-resolution failures instead of skipping a retirement candidate", async () => {
+    const branch = "unresolved-branch";
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+          throw new Error("branch unavailable");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+
+    await expect(discoverMaterializedWorktrees(registry, jarvisRoot, runner)).rejects.toThrow("branch unavailable");
+  });
+
+  test("excludes empty directories and non-worktree directories", async () => {
+    const branchName = "valid-worktree";
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const validWorktreePath = join(worktreesRoot, branchName);
+
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branchName], projectRoot);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", validWorktreePath, branchName], projectRoot);
+
+    mkdirSync(join(worktreesRoot, "plan"), { recursive: true });
+    mkdirSync(join(worktreesRoot, "not-a-worktree"), { recursive: true });
+    writeFileSync(join(worktreesRoot, "not-a-worktree", "some-file.txt"), "not a git repo");
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot);
+
+    expect(discovered).toHaveLength(1);
+    expect(discovered[0]?.path).toBe(validWorktreePath);
+    expect(discovered[0]?.branch).toBe(branchName);
+  });
+
+  test("handles multiple worktrees under the same project", async () => {
+    const branch1 = "feature-1";
+    const branch2 = "feature-2";
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch1], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch2], projectRoot);
+
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["worktree", "add", join(worktreesRoot, branch1), branch1],
+      projectRoot,
+    );
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["worktree", "add", join(worktreesRoot, branch2), branch2],
+      projectRoot,
+    );
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot);
+
+    expect(discovered).toHaveLength(2);
+    const branches = discovered.map((w) => w.branch).sort();
+    expect(branches).toContain(branch1);
+    expect(branches).toContain(branch2);
+  });
+
+  test("returns empty list when jarvisRoot worktrees directory does not exist", async () => {
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot);
+
+    expect(discovered).toHaveLength(0);
+  });
+
+  test("returns empty list when project has no worktrees", async () => {
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    mkdirSync(worktreesRoot, { recursive: true });
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot);
+
+    expect(discovered).toHaveLength(0);
+  });
+});
+
+describe("classifyNeverLandedLane", () => {
+  test("a failed gh probe is inconclusive, never a confirmed never-landed lane", async () => {
+    const classification = await classifyNeverLandedLane("/repo", "plan/probe-fail", "main", {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") throw GH_PR_LIST_PROBE_ERROR;
+        throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+      },
+    });
+    expect(classification).toEqual({
+      kind: "inconclusive",
+      reason: expect.stringContaining(OPEN_PR_PROBE_UNREACHABLE_REASON),
+    });
+  });
+
+  test("a ready PR classifies the lane as landed without touching git", async () => {
+    const classification = await classifyNeverLandedLane(
+      "/repo",
+      "plan/ready-pr",
+      "main",
+      ghPrListRunner("/repo", [{ number: 7, isDraft: false }]),
+    );
+    expect(classification).toEqual({ kind: "landed" });
+  });
+});
+
+describe("gateOnOpenPrs", () => {
+  test("probe failure yields unknown distinct from confirmed empty", async () => {
+    const unknown = await gateOnOpenPrs("feat/probe-fail", {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") throw GH_PR_LIST_PROBE_ERROR;
+        throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+      },
+    });
+    expect(unknown).toMatchObject({
+      status: "unknown",
+      reason: expect.stringContaining(OPEN_PR_PROBE_UNREACHABLE_REASON),
+    });
+
+    const ok = await gateOnOpenPrs("feat/no-pr", ghPrListRunner(".", []));
+    expect(ok).toEqual({ status: "ok", pr: undefined });
+  });
+});
+
+describe("cleanup: runAbandonCommand", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  async function createUnmergedWorktree(branch: string): Promise<string> {
+    // Create a new file with unique content for this branch (sanitize branch name for filename)
+    const fileName = `${branch.replace(/\//g, "-")}.txt`;
+    writeFileSync(join(projectRoot, fileName), `Content for ${branch}\n`);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", `Working on ${branch}`], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    return worktreePath;
+  }
+
+  async function leaveStaleOriginTrackingRef(branch: string): Promise<void> {
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", "-d", `refs/heads/${branch}`], originRoot);
+  }
+
+  async function expectAbandonRefused(
+    branch: string,
+    worktreePath: string,
+    daemonClient: DaemonClient,
+    stderrNeedle: string,
+  ): Promise<void> {
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stderr = "";
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      ghPrListRunner(projectRoot, []),
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain(stderrNeedle);
+
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  }
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-abandon-e2e-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+
+    mkdirSync(projectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], projectRoot);
+    writeFileSync(join(projectRoot, "README.md"), "# Test\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], projectRoot);
+
+    // Real local bare remote so remote-branch deletion has an `origin` to act on.
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], tempRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  async function gitIn(cwd: string, ...args: string[]): Promise<string> {
+    return (await realAsyncSubprocessRunner.runAsync("git", args, cwd)).trim();
+  }
+
+  async function createLaneWorktree(branch: string, files: string[]): Promise<string> {
+    await gitIn(projectRoot, "branch", branch);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await gitIn(projectRoot, "worktree", "add", worktreePath, branch);
+    for (const file of files) {
+      mkdirSync(dirname(join(worktreePath, file)), { recursive: true });
+      writeFileSync(join(worktreePath, file), `lane ${file}\n`);
+      await gitIn(worktreePath, "add", ".");
+      await gitIn(worktreePath, "commit", "-m", `lane ${file}`);
+    }
+    return worktreePath;
+  }
+
+  type AbandonProbe = {
+    prs?: OpenPr[] | "unreachable";
+    closedPrs?: { number: number; isDraft: boolean; state: string }[];
+    failGit?: (args: string[]) => boolean;
+    worktreeHead?: { path: string; sha: string };
+  };
+
+  async function runAbandonWith(branch: string, probe: AbandonProbe, options: { discardUnlanded?: boolean } = {}) {
+    const mutations: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          if (probe.prs === "unreachable") throw GH_PR_LIST_PROBE_ERROR;
+          if (args.includes("closed")) {
+            return ghPrListJsonRows(
+              (probe.closedPrs ?? []).map((pr) => ({
+                number: pr.number,
+                isDraft: pr.isDraft,
+                state: pr.state,
+              })),
+            );
+          }
+          return ghPrListJsonRows(
+            (probe.prs ?? []).map((pr) => ({ number: pr.number, isDraft: pr.isDraft, state: "OPEN" })),
+          );
+        }
+        if (cmd === "gh" && args[0] === "repo") return "main\n";
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          mutations.push("close-pr");
+          return "";
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
+        if (cmd === "git" && probe.failGit?.(args) === true) throw new Error(`git ${args[0]} probe failed`);
+        if (
+          cmd === "git" &&
+          args[0] === "rev-parse" &&
+          probe.worktreeHead !== undefined &&
+          cwd !== undefined &&
+          (() => {
+            try {
+              return realpathSync(cwd) === realpathSync(probe.worktreeHead.path);
+            } catch {
+              return resolve(cwd) === resolve(probe.worktreeHead.path);
+            }
+          })() &&
+          args[1] === "--verify" &&
+          args[2] === "--quiet" &&
+          args[3] === "HEAD"
+        ) {
+          return `${probe.worktreeHead.sha}\n`;
+        }
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") mutations.push("remove-worktree");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") mutations.push("delete-branch");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    let stdout = "";
+    let stderr = "";
+    let prompted = false;
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      {
+        ...options,
+        promptConfirm: async () => {
+          prompted = true;
+          return true;
+        },
+      },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => [],
+      { stdout: (s) => (stdout += s), stderr: (s) => (stderr += s) },
+    );
+    return { code, stdout, stderr, prompted, mutations };
+  }
+
+  async function expectNothingRetired(branch: string, worktreePath: string, mutations: string[]): Promise<void> {
+    expect(mutations).toEqual([]);
+    expect(await gitIn(projectRoot, "worktree", "list")).toContain(worktreePath);
+    expect(await gitIn(projectRoot, "branch")).toContain(branch);
+  }
+
+  test("abandon refuses a branch with unlanded commits and no PR", async () => {
+    const branch = "feat/unlanded";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt", "more.txt"]);
+    const tip = await gitIn(projectRoot, "rev-parse", branch);
+    await gitIn(projectRoot, "push", "origin", branch);
+
+    const { code, stderr, mutations } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain(tip);
+    expect(stderr).toContain("2 commit(s)");
+    expect(stderr).toContain("--discard-unlanded");
+    await expectNothingRetired(branch, worktreePath, mutations);
+    expect(await gitIn(projectRoot, "ls-remote", "origin", branch)).toContain(tip);
+  });
+
+  test("abandon refuses when the worktree HEAD is unreachable from the branch", async () => {
+    const branch = "feat/unreachable-head";
+    const worktreePath = await createUnmergedWorktree(branch);
+    const tree = await gitIn(projectRoot, "rev-parse", `${branch}^{tree}`);
+    const strayHead = await gitIn(projectRoot, "commit-tree", tree, "-m", "stray");
+
+    const { code, stderr, mutations } = await runAbandonWith(branch, {
+      worktreeHead: { path: worktreePath, sha: strayHead },
+    });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain(strayHead);
+    expect(stderr).toContain("not reachable");
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
+  test("abandon refusal for unlanded work is not bypassed by --yes", async () => {
+    const branch = "feat/unlanded-yes";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    // `--yes` supplies an always-true promptConfirm, which is what this harness passes.
+    const { code, mutations } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(1);
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
+  test("abandon refusal happens before the confirm prompt", async () => {
+    const branch = "feat/unlanded-prompt";
+    await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stdout, prompted } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(1);
+    expect(prompted).toBe(false);
+    expect(stdout).not.toContain("Preview abandon");
+  });
+
+  test("abandon discards unlanded work under the explicit override", async () => {
+    const branch = "feat/unlanded-discard";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stdout, mutations } = await runAbandonWith(branch, {}, { discardUnlanded: true });
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Abandoned workspace");
+    expect(mutations).toEqual(["remove-worktree", "delete-branch"]);
+    expect(await gitIn(projectRoot, "worktree", "list")).not.toContain(worktreePath);
+  });
+
+  test("abandon retires a branch whose commits are all on base", async () => {
+    const branch = "feat/all-on-base";
+    await createUnmergedWorktree(branch);
+
+    const { code, prompted } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(0);
+    expect(prompted).toBe(true);
+  });
+
+  test("abandon retires a squash-merged branch", async () => {
+    const branch = "feat/squash-merged";
+    await createLaneWorktree(branch, ["a.txt", "b.txt"]);
+    writeFileSync(join(projectRoot, "a.txt"), "lane a.txt\n");
+    writeFileSync(join(projectRoot, "b.txt"), "lane b.txt\n");
+    await gitIn(projectRoot, "add", ".");
+    await gitIn(projectRoot, "commit", "-m", "squash of lane");
+
+    const { code } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(0);
+  });
+
+  test("abandon retires a branch whose only unlanded commits are harness staging", async () => {
+    const branch = "feat/staging-only";
+    await createLaneWorktree(branch, [".jarvis-plan-stage/note.md"]);
+
+    const { code } = await runAbandonWith(branch, {});
+
+    expect(code).toBe(0);
+  });
+
+  test("abandon proceeds for a draft PR with unlanded commits", async () => {
+    const branch = "feat/draft-unlanded";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, mutations } = await runAbandonWith(branch, { prs: [{ number: 77, isDraft: true }] });
+
+    expect(code).toBe(0);
+    expect(mutations).toContain("close-pr");
+    expect(await gitIn(projectRoot, "worktree", "list")).not.toContain(worktreePath);
+    expect(await gitIn(projectRoot, "branch")).not.toContain(branch);
+  });
+
+  test("abandon refuses unlanded work when the PR is closed unmerged", async () => {
+    const branch = "feat/closed-unmerged";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stderr, mutations } = await runAbandonWith(branch, {
+      prs: [],
+      closedPrs: [{ number: 5, isDraft: false, state: "CLOSED" }],
+    });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("commit(s) not on base");
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
+  test("abandon refuses when gh is unreachable and the branch has unlanded commits", async () => {
+    const branch = "feat/gh-down-unlanded";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stderr, mutations } = await runAbandonWith(branch, { prs: "unreachable" });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain(OPEN_PR_PROBE_UNREACHABLE_REASON);
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
+  test("abandon refuses when a git probe fails", async () => {
+    const branch = "feat/probe-throws";
+    const worktreePath = await createLaneWorktree(branch, ["src.txt"]);
+
+    const { code, stderr, mutations, prompted } = await runAbandonWith(branch, {
+      failGit: (args) => args[0] === "rev-list",
+    });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("could not verify");
+    expect(prompted).toBe(false);
+    await expectNothingRetired(branch, worktreePath, mutations);
+  });
+
+  test("abandon refuses when gh pr list probe fails without mutating workspace", async () => {
+    const branch = "feat/gh-probe-fail";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    let prompted = false;
+    const teardownCalls: string[] = [];
+    const mockRunner = ghPrListProbeFailureRunner(projectRoot, teardownCalls);
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      {
+        promptConfirm: async () => {
+          prompted = true;
+          return true;
+        },
+      },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(prompted).toBe(false);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain(OPEN_PR_PROBE_UNREACHABLE_REASON);
+    expect(stderr).toContain("sandbox");
+    expect(teardownCalls).toEqual([]);
+
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+    const branchListOutput = await realAsyncSubprocessRunner.runAsync("git", ["branch"], projectRoot);
+    expect(branchListOutput).toContain(branch);
+  });
+
+  test("abandon retires an unmerged workspace via git worktree remove --force, branch -D, and push origin --delete", async () => {
+    const branch = "feat/test";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    const invocations: Array<{ cmd: string; args: string[] }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        invocations.push({ cmd, args: [...args] });
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 123, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Abandoned workspace");
+
+    // Verify exact git commands were called
+    const removeInvocation = invocations.find(
+      (i) => i.cmd === "git" && i.args[0] === "worktree" && i.args[1] === "remove",
+    );
+    expect(removeInvocation?.args).toEqual(["worktree", "remove", "--force", worktreePath]);
+
+    const branchDeleteInvocation = invocations.find(
+      (i) => i.cmd === "git" && i.args[0] === "branch" && i.args[1] === "-D",
+    );
+    expect(branchDeleteInvocation?.args).toEqual(["branch", "-D", branch]);
+
+    const pushDeleteInvocation = invocations.find(
+      (i) => i.cmd === "git" && i.args[0] === "push" && i.args[1] === "origin" && i.args[2] === "--delete",
+    );
+    expect(pushDeleteInvocation?.args).toEqual(["push", "origin", "--delete", branch]);
+
+    // Verify worktree and branches are gone
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+
+    const branchListOutput = await realAsyncSubprocessRunner.runAsync("git", ["branch"], projectRoot);
+    expect(branchListOutput).not.toContain(branch);
+  });
+
+  test("abandon closes matching draft PR via gh pr close with exact argv", async () => {
+    const branch = "feat/with-pr";
+    const _worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    const ghInvocations: Array<{ cmd: string; args: string[] }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh") {
+          ghInvocations.push({ cmd, args: [...args] });
+          if (args[0] === "pr" && args[1] === "list") {
+            return ghPrListJsonRows([{ number: 456, isDraft: true }]);
+          } else if (args[0] === "pr" && args[1] === "close") {
+            return "";
+          }
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+
+    // Verify gh pr close was called with exact number
+    const closeInvocation = ghInvocations.find((i) => i.args[0] === "pr" && i.args[1] === "close");
+    expect(closeInvocation?.args).toEqual(["pr", "close", "456"]);
+  });
+
+  test("abandon fails (nonzero) if gh pr close fails", async () => {
+    const branch = "feat/pr-close-fails";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 789, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          throw new Error("gh pr close failed");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to close PR");
+
+    // Verify worktree was removed (earlier steps succeeded)
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon refuses a workspace held by a live run (daemon isLive)", async () => {
+    const branch = "feat/live-daemon";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    await expectAbandonRefused(
+      branch,
+      worktreePath,
+      async (project, b) => (project === "project" && b === branch ? [{ isLive: true }] : []),
+      "daemon reports live run",
+    );
+  });
+
+  test("abandon refuses a workspace held by a live worktree lock", async () => {
+    const branch = "feat/live-lock";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const lockPath = join(jarvisRoot, "worktree-locks", "project", branch, ".jarvis.lock");
+    mkdirSync(dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid }));
+
+    await expectAbandonRefused(branch, worktreePath, async () => [], `process ${process.pid} holds worktree lock`);
+  });
+
+  test("abandon refuses a missing worktree", async () => {
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      "nonexistent",
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("No worktree found matching name");
+  });
+
+  test("abandon leaves spec files and run rows intact", async () => {
+    const branch = "feat/spec-intact";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    // Create a spec file in the worktree
+    const specDir = join(worktreePath, "spec", "test-spec");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Test Spec\n");
+
+    // Create a spec file in the project root (the source)
+    const projectSpecDir = join(projectRoot, "spec", "test-spec");
+    mkdirSync(projectSpecDir, { recursive: true });
+    writeFileSync(join(projectSpecDir, "index.md"), "# Test Spec\n");
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 789, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+
+    // Verify source spec files remain
+    expect(existsSync(projectSpecDir)).toBe(true);
+    expect(existsSync(join(projectSpecDir, "index.md"))).toBe(true);
+  });
+
+  test("abandon previews and declines confirmation changes nothing", async () => {
+    const branch = "feat/decline";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    let gitRemoveInvoked = false;
+    const base = ghPrListRunner(projectRoot, []);
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ number: 999, state: "DRAFT" });
+        }
+        return base.runAsync(cmd, args, cwd);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => false },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Preview abandon");
+    expect(stdout).toContain("Cancelled");
+    expect(gitRemoveInvoked).toBe(false);
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon with --dry-run previews without changes", async () => {
+    const branch = "feat/dry-run";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    let gitRemoveInvoked = false;
+    const base = ghPrListRunner(projectRoot, []);
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ number: 111, state: "DRAFT" });
+        }
+        return base.runAsync(cmd, args, cwd);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Preview abandon");
+    expect(stdout).toContain("dry-run");
+    expect(gitRemoveInvoked).toBe(false);
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon refuses when the matching PR is ready (non-draft)", async () => {
+    const branch = "feat/ready-pr";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    let gitRemoveInvoked = false;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 222, isDraft: false }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ number: 222, state: "OPEN" });
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain("ready");
+    expect(gitRemoveInvoked).toBe(false);
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon refuses when multiple open PRs match the branch", async () => {
+    const branch = "feat/multi-pr";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    let gitRemoveInvoked = false;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([
+            { number: 333, isDraft: true, state: "OPEN" },
+            { number: 334, isDraft: true, state: "OPEN" },
+          ]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain("multiple open PRs");
+    expect(gitRemoveInvoked).toBe(false);
+
+    // Verify worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon proceeds with single open draft PR, passes through to retirement", async () => {
+    const branch = "feat/draft-pr";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    let gitRemoveInvoked = false;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          gitRemoveInvoked = true;
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          // Mock successful remote branch deletion
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 445, isDraft: true }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ number: 445, state: "DRAFT" });
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          // Mock successful PR close
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Abandoned workspace");
+    expect(gitRemoveInvoked).toBe(true);
+
+    // Verify worktree is gone
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon aborts and exits nonzero on worktree removal failure, leaving branches and PR intact", async () => {
+    const branch = "feat/abort-worktree";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<{ cmd: string; args: string[]; step: string }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          invocations.push({ cmd, args: [...args], step: "remove-worktree" });
+          throw new Error("simulated worktree remove failure");
+        }
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
+          invocations.push({ cmd, args: [...args], step: "delete-branch" });
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocations.push({ cmd, args: [...args], step: "delete-remote" });
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push({ cmd, args: [...args], step: "close-pr" });
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 555, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to remove worktree");
+    // Later steps should not be executed
+    expect(invocations.map((i) => i.step)).toEqual(["remove-worktree"]);
+    // Worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon aborts and exits nonzero on local branch deletion failure, leaving remote branch and PR intact", async () => {
+    const branch = "feat/abort-local-branch";
+    await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
+          invocations.push("delete-branch");
+          throw new Error("simulated branch delete failure");
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocations.push("delete-remote");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push("close-pr");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 556, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to delete local branch");
+    // Only up to and including the failed step
+    expect(invocations).toEqual(["delete-branch"]);
+    // Remote branch should not be deleted and PR should not be closed
+  });
+
+  test("abandon aborts and exits nonzero on remote branch deletion failure, leaving PR intact", async () => {
+    const branch = "feat/abort-remote-branch";
+    await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocations.push("delete-remote");
+          throw new Error("simulated remote delete failure");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push("close-pr");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 557, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to delete remote branch");
+    // Only up to and including the failed step
+    expect(invocations).toEqual(["delete-remote"]);
+    // PR should not be closed
+  });
+
+  test("abandon aborts and exits nonzero on remote-tracking ref prune failure, leaving PR intact", async () => {
+    const branch = "feat/abort-prune-tracking";
+    await createUnmergedWorktree(branch);
+    await leaveStaleOriginTrackingRef(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (
+          cmd === "git" &&
+          args[0] === "update-ref" &&
+          args[1] === "-d" &&
+          args[2]?.startsWith("refs/remotes/origin/")
+        ) {
+          invocations.push("prune-tracking");
+          throw new Error("simulated prune failure");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push("close-pr");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 558, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to prune remote-tracking ref");
+    expect(invocations).toEqual(["prune-tracking"]);
+  });
+
+  test("abandon aborts and exits nonzero on PR closure failure", async () => {
+    const branch = "feat/abort-pr-close";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocations.push("delete-remote");
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push("close-pr");
+          throw new Error("simulated PR close failure");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 558, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to close PR");
+    // The remote delete ran and nothing followed the failed closure
+    expect(invocations).toEqual(["delete-remote", "close-pr"]);
+    // Worktree should be removed despite PR close failure
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon executes steps in order: remove worktree, delete local branch, delete remote branch, close PR", async () => {
+    const branch = "feat/step-order";
+    await createUnmergedWorktree(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", "-d", `refs/heads/${branch}`], originRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    const stepOrder: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          stepOrder.push("remove-worktree");
+        }
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
+          stepOrder.push("delete-local-branch");
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          stepOrder.push("delete-remote-branch");
+          return "";
+        }
+        if (
+          cmd === "git" &&
+          args[0] === "update-ref" &&
+          args[1] === "-d" &&
+          args[2]?.startsWith("refs/remotes/origin/")
+        ) {
+          stepOrder.push("prune-remote-tracking-ref");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          stepOrder.push("close-pr");
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 559, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stepOrder).toEqual([
+      "remove-worktree",
+      "delete-local-branch",
+      "delete-remote-branch",
+      "prune-remote-tracking-ref",
+      "close-pr",
+    ]);
+  });
+
+  // Goal-state cases: the remote branch is already gone. Both run real git so the
+  // absence is observed end-to-end rather than stubbed.
+  test("abandon succeeds when the repo has no origin remote", async () => {
+    const branch = "feat/no-origin";
+    const worktreePath = await createUnmergedWorktree(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "remove", "origin"], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    const gitCommands: string[][] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git") gitCommands.push([...args]);
+        return base.runAsync(cmd, args, cwd);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("already absent");
+    expect(stdout).toContain("Abandoned workspace");
+    expect(gitCommands.some((args) => args[0] === "push")).toBe(false);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon succeeds when the branch was never pushed to origin, then closes the PR", async () => {
+    const branch = "feat/never-pushed";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    const stepOrder: string[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 561, isDraft: true }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          stepOrder.push("close-pr");
+          return "";
+        }
+        // Real `git push origin --delete` against the bare origin that never
+        // received this branch: git reports "remote ref does not exist".
+        if (cmd === "git" && args[0] === "push") stepOrder.push("delete-remote");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain(`Remote branch ${branch} already absent`);
+    expect(stepOrder).toEqual(["delete-remote", "close-pr"]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon preview lists actions in execution order", async () => {
+    const branch = "feat/preview-order";
+    await createUnmergedWorktree(branch);
+    await leaveStaleOriginTrackingRef(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 560, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    // Verify preview order: remove worktree, delete local, delete remote, then close PR
+    const removeIdx = stdout.indexOf("remove: worktree");
+    const deleteLocalIdx = stdout.indexOf("delete: local branch");
+    const deleteRemoteIdx = stdout.indexOf("delete: remote branch");
+    const pruneIdx = stdout.indexOf("prune: stale remote-tracking ref");
+    const closeIdx = stdout.indexOf("close: PR");
+    expect(removeIdx).toBeGreaterThan(0);
+    expect(deleteLocalIdx).toBeGreaterThan(removeIdx);
+    expect(deleteRemoteIdx).toBeGreaterThan(deleteLocalIdx);
+    expect(pruneIdx).toBeGreaterThan(deleteRemoteIdx);
+    expect(closeIdx).toBeGreaterThan(pruneIdx);
+  });
+});
+
+describe("cleanup: legacy daemon artifact reaping", () => {
+  const socketTest = test.skipIf(!canUseUnixSockets());
+  let tempRoot: string;
+  let jarvisRoot: string;
+
+  beforeEach(() => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-socket-reap-${Date.now()}-${Math.random()}`);
+    jarvisRoot = join(tempRoot, "jarvis-home");
+    mkdirSync(jarvisRoot, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  socketTest("dead daemon digest reaps socket pid and log", async () => {
+    const artifactsFor = (key: string): [string, string, string] => {
+      const base = join(jarvisRoot, `daemon-${key}`);
+      return [`${base}.sock`, `${base}.pid`, `${base}.log`];
+    };
+    const deadArtifacts = artifactsFor("0000000000000020");
+    const liveArtifacts = artifactsFor("0000000000000021");
+    const ambiguousArtifacts = artifactsFor("0000000000000022");
+    for (const path of [...deadArtifacts, ...liveArtifacts.slice(1), ...ambiguousArtifacts.slice(1)]) {
+      writeFileSync(path, "");
+    }
+    const liveServer = await startIpcServer(liveArtifacts[0], {
+      health: () => ({ kind: "response", result: { ok: true } }),
+    });
+    const ambiguousServer = createServer(() => {});
+    await new Promise<void>((resolve, reject) => {
+      ambiguousServer.once("error", reject);
+      ambiguousServer.listen(ambiguousArtifacts[0], () => resolve());
+    });
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+    const preservedArtifacts = [...liveArtifacts, ...ambiguousArtifacts];
+    // A killed daemon's leftover socket is real dead residue, but on this platform Bun's connect()
+    // reports it (like any non-socket path) as ENOENT/absent, never ECONNREFUSED — see
+    // daemon-dead-socket-reclaim.sandbox-unrunnable.test.ts. Force "stale" for the dead unit's
+    // socket only; the live and ambiguous units are real listeners, so the real probe still
+    // exercises their classification.
+    const legacyDaemonArtifactDeps = {
+      isProcessAlive: () => false,
+      probeSocketLiveness: (path: string): Promise<SocketLiveness> =>
+        path === deadArtifacts[0] ? Promise.resolve("stale" as const) : probeSocketLiveness(path),
+    };
+
+    try {
+      let dryRunStdout = "";
+      const dryRunCode = await runCleanupCommand(
+        { dryRun: true, legacyDaemonArtifactDeps },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        { stdout: (s) => (dryRunStdout += s), stderr: () => {} },
+      );
+
+      expect(dryRunCode).toBe(0);
+      expect(dryRunStdout).toContain("Found 3 legacy daemon artifact(s) for cleanup:");
+      for (const path of deadArtifacts) {
+        expect(dryRunStdout).toContain(`remove: ${path}`);
+        expect(existsSync(path)).toBe(true);
+      }
+      for (const path of preservedArtifacts) {
+        expect(dryRunStdout).not.toContain(`remove: ${path}`);
+        expect(existsSync(path)).toBe(true);
+      }
+
+      let applyStdout = "";
+      const applyCode = await runCleanupCommand(
+        { promptConfirm: async () => true, legacyDaemonArtifactDeps },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      );
+
+      expect(applyCode).toBe(0);
+      for (const path of deadArtifacts) {
+        expect(applyStdout).toContain(`Removed daemon artifact: ${path}`);
+        expect(existsSync(path)).toBe(false);
+      }
+      for (const path of preservedArtifacts) expect(existsSync(path)).toBe(true);
+    } finally {
+      await liveServer.close();
+      await new Promise<void>((resolve) => ambiguousServer.close(() => resolve()));
+    }
+  });
+
+  test("runCleanupCommand removes a dead daemon socket whose probe reports stale (connection-refused)", async () => {
+    const deadSocket = join(jarvisRoot, "daemon-0000000000000001.sock");
+    writeFileSync(deadSocket, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      {
+        promptConfirm: async () => true,
+        legacyDaemonArtifactDeps: { isProcessAlive: () => false, probeSocketLiveness: async () => "stale" },
+      },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("legacy daemon artifact(s)");
+    expect(existsSync(deadSocket)).toBe(false);
+  });
+
+  socketTest("runCleanupCommand preserves every socket a daemon answers on", async () => {
+    const liveSocket = join(jarvisRoot, "daemon-0000000000000010.sock");
+    rmSync(liveSocket, { force: true });
+    const server = await startIpcServer(liveSocket, {
+      health: () => ({ kind: "response", result: { ok: true } }),
+    });
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    try {
+      const code = await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        {
+          stdout: (s) => (stdout += s),
+          stderr: () => {},
+        },
+      );
+
+      expect(code).toBe(0);
+      expect(existsSync(liveSocket)).toBe(true);
+      expect(stdout).not.toContain(`remove: ${liveSocket}`);
+    } finally {
+      await server.close();
+    }
+  });
+
+  socketTest("revalidates a dead digest before removing its triplet", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000030.sock");
+    const pid = join(jarvisRoot, "daemon-0000000000000030.pid");
+    const log = join(jarvisRoot, "daemon-0000000000000030.log");
+    for (const path of [socket, pid, log]) writeFileSync(path, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+    let server: Awaited<ReturnType<typeof startIpcServer>> | undefined;
+
+    try {
+      const code = await runCleanupCommand(
+        {
+          promptConfirm: async () => {
+            rmSync(socket);
+            server = await startIpcServer(socket, { health: () => ({ kind: "response", result: { ok: true } }) });
+            return true;
+          },
+        },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        { stdout: () => {}, stderr: () => {} },
+      );
+
+      expect(code).toBe(0);
+      for (const path of [socket, pid, log]) expect(existsSync(path)).toBe(true);
+    } finally {
+      await server?.close();
+    }
+  });
+
+  test("runCleanupCommand with --dry-run lists dead sockets and removes none", async () => {
+    const deadSocket = join(jarvisRoot, "daemon-0000000000000002.sock");
+    writeFileSync(deadSocket, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      {
+        dryRun: true,
+        legacyDaemonArtifactDeps: { isProcessAlive: () => false, probeSocketLiveness: async () => "stale" },
+      },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("dry-run");
+    expect(stdout).toContain(`remove: ${deadSocket}`);
+    expect(existsSync(deadSocket)).toBe(true);
+  });
+
+  test("cleanup run with only dead sockets previews and reaps them instead of reporting nothing to clean up", async () => {
+    const deadSocket = join(jarvisRoot, "daemon-0000000000000003.sock");
+    writeFileSync(deadSocket, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      {
+        promptConfirm: async () => true,
+        legacyDaemonArtifactDeps: { isProcessAlive: () => false, probeSocketLiveness: async () => "stale" },
+      },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain("No eligible worktrees");
+    expect(stdout).toContain("legacy daemon artifact(s)");
+    expect(existsSync(deadSocket)).toBe(false);
+  });
+
+  test("enumeration failure removes no socket in that cleanup run", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000011.sock");
+    writeFileSync(socket, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    chmodSync(jarvisRoot, 0o000);
+    try {
+      let stdout = "";
+      const code = await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        {
+          stdout: (s) => (stdout += s),
+          stderr: () => {},
+        },
+      );
+
+      expect(code).toBe(0);
+      expect(stdout).not.toContain(`remove: ${socket}`);
+    } finally {
+      chmodSync(jarvisRoot, 0o700);
+    }
+
+    expect(existsSync(socket)).toBe(true);
+  });
+
+  socketTest("reports preserved legacy artifacts when they are the only socket work", async () => {
+    const preservedSocket = join(jarvisRoot, "daemon-0000000000000012.sock");
+    rmSync(preservedSocket, { force: true });
+    const server = createServer(() => {});
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(preservedSocket, () => resolve());
+    });
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    try {
+      const code = await runCleanupCommand(
+        { dryRun: true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        {
+          stdout: (s) => (stdout += s),
+          stderr: () => {},
+        },
+      );
+
+      expect(code).toBe(0);
+      expect(stdout).not.toContain("No eligible worktrees");
+      expect(stdout).toContain("Preserved 1 legacy daemon artifact(s):");
+      expect(stdout).toContain("daemon-0000000000000012");
+      expect(stdout).toContain("socket is live");
+      expect(existsSync(preservedSocket)).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("createAbsentDaemonClient rejects list and claim probes with stable recovery text", async () => {
+    const client = createAbsentDaemonClient();
+
+    await expect(client("project", "branch")).rejects.toThrow("Daemon unreachable; run `jarvis daemon start`");
+    await expect(client.checkWorkflowStartClaim?.("project", "branch")).rejects.toThrow(
+      "Daemon unreachable; run `jarvis daemon start`",
+    );
+  });
+
+  socketTest("createStaleResetDaemonClient returns only runs matching both project and branch", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000013.sock");
+    rmSync(socket, { force: true });
+    const server = await startIpcServer(socket, {
+      list: () => ({
+        kind: "response",
+        result: {
+          runs: [
+            { project: "wanted", branch: "wanted-branch", isLive: true },
+            { project: "wanted", branch: "other-branch", isLive: false },
+            { project: "other", branch: "wanted-branch", isLive: false },
+            { project: "other", branch: "other-branch", isLive: false },
+          ],
+        },
+      }),
+    });
+
+    try {
+      const client = await connectIpcClient(socket);
+      try {
+        const rows = await createStaleResetDaemonClient(client)("wanted", "wanted-branch");
+        // Exactly the both-fields match. An inverted comparison on either field selects
+        // the other three rows instead, so this fails if the filter flips.
+        expect(rows).toEqual([{ isLive: true }]);
+      } finally {
+        client.close();
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("discovers and removes a socketless legacy keyed PID/log pair whose recorded process is dead", async () => {
+    const pid = join(jarvisRoot, "daemon-0000000000000031.pid");
+    const log = join(jarvisRoot, "daemon-0000000000000031.log");
+    writeFileSync(pid, "999999");
+    writeFileSync(log, "daemon output");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let dryRunStdout = "";
+    const dryRunCode = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: (s) => (dryRunStdout += s), stderr: () => {} },
+    );
+    expect(dryRunCode).toBe(0);
+    expect(dryRunStdout).toContain(`remove: ${pid}`);
+    expect(dryRunStdout).toContain(`remove: ${log}`);
+
+    let applyStdout = "";
+    const applyCode = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: (s) => (applyStdout += s), stderr: () => {} },
+    );
+    expect(applyCode).toBe(0);
+    expect(applyStdout).toContain(`Removed daemon artifact: ${pid}`);
+    expect(applyStdout).toContain(`Removed daemon artifact: ${log}`);
+    expect(existsSync(pid)).toBe(false);
+    expect(existsSync(log)).toBe(false);
+  });
+
+  socketTest("never offers the stable socket, pid, or log for removal while a stable daemon listens", async () => {
+    const stableSocket = join(jarvisRoot, "daemon.sock");
+    const stablePid = join(jarvisRoot, "daemon.pid");
+    const stableLog = join(jarvisRoot, "daemon.log");
+    const server = await startIpcServer(stableSocket, {
+      health: () => ({ kind: "response", result: { ok: true } }),
+    });
+    writeFileSync(stablePid, "1");
+    writeFileSync(stableLog, "stable daemon output");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    try {
+      const code = await runCleanupCommand(
+        { dryRun: true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      );
+
+      expect(code).toBe(0);
+      for (const path of [stableSocket, stablePid, stableLog]) {
+        expect(stdout).not.toContain(`remove: ${path}`);
+        expect(existsSync(path)).toBe(true);
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("preserves a legacy unit whose recorded PID is running", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000034.sock");
+    const pid = join(jarvisRoot, "daemon-0000000000000034.pid");
+    writeFileSync(socket, "");
+    writeFileSync(pid, String(process.pid));
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain(`remove: ${socket}`);
+    expect(stdout).not.toContain(`remove: ${pid}`);
+    expect(stdout).toContain("daemon-0000000000000034");
+    expect(stdout).toContain(`pid ${process.pid} is running`);
+    expect(existsSync(socket)).toBe(true);
+    expect(existsSync(pid)).toBe(true);
+  });
+
+  test("preserves a legacy unit with neither a parseable PID file nor a socket file", async () => {
+    const log = join(jarvisRoot, "daemon-0000000000000035.log");
+    writeFileSync(log, "daemon output");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain(`remove: ${log}`);
+    expect(stdout).toContain("daemon-0000000000000035");
+    expect(stdout).toContain("no PID file or socket to prove death");
+    expect(existsSync(log)).toBe(true);
+  });
+
+  test("apply never removes a keyed artifact created for a different unit after preview", async () => {
+    const previewedSocket = join(jarvisRoot, "daemon-0000000000000032.sock");
+    writeFileSync(previewedSocket, "");
+    const lateKeyPid = join(jarvisRoot, "daemon-0000000000000033.pid");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    const code = await runCleanupCommand(
+      {
+        promptConfirm: async () => {
+          // A keyed unit that never existed at preview time; apply must never discover or
+          // revalidate it, since it only re-checks units the preview already saw.
+          writeFileSync(lateKeyPid, String(process.pid));
+          return true;
+        },
+        legacyDaemonArtifactDeps: { isProcessAlive: () => false, probeSocketLiveness: async () => "stale" },
+      },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(existsSync(previewedSocket)).toBe(false);
+    expect(existsSync(lateKeyPid)).toBe(true);
+  });
+
+  test("apply preserves a previewed unit whose PID or socket turns live before revalidation", async () => {
+    const pidKey = "0000000000000036";
+    const previewedPid = join(jarvisRoot, `daemon-${pidKey}.pid`);
+    writeFileSync(previewedPid, "999999");
+
+    const socketKey = "0000000000000037";
+    const previewedSocket = join(jarvisRoot, `daemon-${socketKey}.sock`);
+    writeFileSync(previewedSocket, "");
+
+    let pidLive = false;
+    let socketLiveness: SocketLiveness = "stale";
+    const legacyDaemonArtifactDeps: LegacyDaemonArtifactDeps = {
+      isProcessAlive: (pid) => pid === 999999 && pidLive,
+      probeSocketLiveness: async () => socketLiveness,
+    };
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    const code = await runCleanupCommand(
+      {
+        legacyDaemonArtifactDeps,
+        promptConfirm: async () => {
+          // Both units turn live between preview and apply's revalidation.
+          pidLive = true;
+          socketLiveness = "live";
+          return true;
+        },
+      },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(existsSync(previewedPid)).toBe(true);
+    expect(existsSync(previewedSocket)).toBe(true);
+  });
+
+  test("apply does not remove a file that appears for an already-previewed dead unit after preview", async () => {
+    const key = "0000000000000038";
+    const socket = join(jarvisRoot, `daemon-${key}.sock`);
+    writeFileSync(socket, "");
+    const lateLog = join(jarvisRoot, `daemon-${key}.log`);
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    const code = await runCleanupCommand(
+      {
+        promptConfirm: async () => {
+          // A log file appears for the previewed dead unit's own key after preview; apply must
+          // only remove paths the preview actually saw.
+          writeFileSync(lateLog, "daemon output");
+          return true;
+        },
+        legacyDaemonArtifactDeps: { isProcessAlive: () => false, probeSocketLiveness: async () => "stale" },
+      },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(existsSync(socket)).toBe(false);
+    expect(existsSync(lateLog)).toBe(true);
+  });
+});
+
+function expectContinuePathBeforeSalvage(reason: string): void {
+  const continueAt = reason.indexOf("re-run without `--reset-despite-continuable` to continue");
+  expect(continueAt).toBeGreaterThan(-1);
+  expect(continueAt).toBeLessThan(reason.indexOf("hand-finish"));
+  expect(reason.indexOf("hand-finish")).toBeLessThan(reason.indexOf("jarvis cleanup --abandon"));
+}
+
+describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  const silentIo = { stdout: () => {}, stderr: () => {} };
+  const noLiveDaemon = daemonClientWithFreeClaimProbe();
+
+  async function setupWorktreeAndBranch(branch: string): Promise<string> {
+    const sanitizedBranchName = branch.replace(/\//g, "-");
+    writeFileSync(join(projectRoot, `file-${sanitizedBranchName}.txt`), `Content for ${branch}\n`);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", `Setup for ${branch}`], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    return worktreePath;
+  }
+
+  async function leaveStaleOriginTrackingRef(branch: string): Promise<void> {
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", "-d", `refs/heads/${branch}`], originRoot);
+  }
+
+  function callReset(
+    branch: string,
+    runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+    daemonClient: DaemonClient = noLiveDaemon,
+    io: { stdout: (s: string) => void; stderr: (s: string) => void } = silentIo,
+    options?: ResetStaleWorkspaceOptions,
+  ) {
+    return resetStaleWorkspace("project", branch, projectRoot, jarvisRoot, runner, daemonClient, io, options);
+  }
+
+  function genericRefusalReason(result: Awaited<ReturnType<typeof resetStaleWorkspace>>): string {
+    if (result.status !== "refused" || "code" in result) return "";
+    return result.reason;
+  }
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-reset-e2e-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+
+    mkdirSync(projectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], projectRoot);
+    writeFileSync(join(projectRoot, "README.md"), "# Test\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], projectRoot);
+
+    // Real local bare remote so remote-branch deletion has an `origin` to act on.
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], tempRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("reset refuses without teardown when gh pr list probe fails", async () => {
+    const branch = "impl/gh-probe-fail";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const teardownCalls: string[] = [];
+    const mockRunner = ghPrListProbeFailureRunner(projectRoot, teardownCalls);
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("refused");
+    if (result.status === "refused" && !("code" in result)) {
+      expect(result.reason).toContain(OPEN_PR_PROBE_UNREACHABLE_REASON);
+    }
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset removes stale worktree and draft PR before re-run", async () => {
+    const branch = "impl/stale-reset";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const closedPrs: number[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 123, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          closedPrs.push(Number(args[2]));
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    let stdout = "";
+    const result = await callReset(branch, mockRunner, noLiveDaemon, {
+      stdout: (s) => (stdout += s),
+      stderr: () => {},
+    });
+
+    expect(result.status).toBe("reset");
+    expect(stdout).toContain("Closed PR #123");
+    expect(stdout).toContain("Removed worktree");
+    expect(stdout).toContain("Deleted");
+    expect(closedPrs).toContain(123);
+
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("reset refuses when worktree is live-held by daemon", async () => {
+    const branch = "impl/live-held";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(
+      branch,
+      realAsyncSubprocessRunner,
+      daemonClientWithFreeClaimProbe(async () => [{ isLive: true }]),
+    );
+
+    expect(result).toEqual({ status: "refused", reason: expect.stringContaining("live run") });
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses when matching PR is ready (non-draft)", async () => {
+    const branch = "impl/ready-pr";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 456, isDraft: false }]));
+
+    expect(result).toEqual({ status: "refused", reason: "matching PR is ready (non-draft)" });
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses when multiple open PRs match the branch", async () => {
+    const branch = "impl/multi-pr";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [
+        { number: 111, isDraft: true },
+        { number: 112, isDraft: true },
+      ]),
+    );
+
+    expect(result).toEqual({ status: "refused", reason: "multiple open PRs match branch" });
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset is no-op when no stale worktree exists", async () => {
+    const branch = "impl/no-worktree";
+
+    const result = await callReset(branch);
+
+    expect(result.status).toBe("no-op");
+  });
+
+  test("reset leaves the source spec tree intact", async () => {
+    const branch = "impl/spec-survives";
+    const specDir = join(projectRoot, "spec", "my-spec");
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "index.md");
+    const subspecPath = join(specDir, "00-task.md");
+    const indexContent = "# Index\n\n- [ ] [00](./00-task.md)\n";
+    const subspecContent = "# Task\n\n## Acceptance criteria\n\n- [ ] done\n";
+    writeFileSync(indexPath, indexContent);
+    writeFileSync(subspecPath, subspecContent);
+
+    await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 321, isDraft: true }]));
+
+    expect(result.status).toBe("reset");
+    expect(readFileSync(indexPath, "utf8")).toBe(indexContent);
+    expect(readFileSync(subspecPath, "utf8")).toBe(subspecContent);
+  });
+
+  test("reset deletes branch before closing PR in new retirement order", async () => {
+    const branch = "impl/pr-close-order";
+    await setupWorktreeAndBranch(branch);
+    await leaveStaleOriginTrackingRef(branch);
+
+    const invocationOrder: string[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 789, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          invocationOrder.push("remove-worktree");
+        }
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
+          invocationOrder.push("branch-delete");
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocationOrder.push("push-delete");
+          return "";
+        }
+        if (
+          cmd === "git" &&
+          args[0] === "update-ref" &&
+          args[1] === "-d" &&
+          args[2]?.startsWith("refs/remotes/origin/")
+        ) {
+          invocationOrder.push("prune-remote-tracking");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocationOrder.push("pr-close");
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("reset");
+    expect(invocationOrder).toEqual([
+      "remove-worktree",
+      "branch-delete",
+      "push-delete",
+      "prune-remote-tracking",
+      "pr-close",
+    ]);
+  });
+
+  test("refusal from a partial teardown names the failed step and the surviving artifacts", async () => {
+    const branch = "impl/partial-teardown";
+    await setupWorktreeAndBranch(branch);
+
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 790, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          throw new Error("remote rejected: protected branch");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain("remote branch deletion");
+    expect(genericRefusalReason(result)).toContain("worktree and local branch removed");
+  });
+
+  test("reset succeeds when the branch was never pushed to origin", async () => {
+    const branch = "impl/never-pushed";
+    await setupWorktreeAndBranch(branch);
+
+    const closedPrs: number[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 791, isDraft: true }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          closedPrs.push(Number(args[2]));
+          return "";
+        }
+        // Real `git push origin --delete` runs against the bare origin, which
+        // never received this branch.
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("reset");
+    expect(closedPrs).toEqual([791]);
+  });
+
+  test("reset refuses when worktree has uncommitted tracked changes", async () => {
+    const branch = "impl/dirty-tracked";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const trackedRel = `file-${branch.replace(/\//g, "-")}.txt`;
+    writeFileSync(join(worktreePath, trackedRel), "edited\n");
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+        return base.runAsync(cmd, args, cwd);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("refused");
+    if (result.status !== "refused" || "code" in result) throw new Error("expected generic refused");
+    expect(result.reason).toContain("worktree has uncommitted changes");
+    expect(result.reason).toContain(trackedRel);
+    expect(result.reason).toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
+    expect(result.reason).toContain("jarvis cleanup --abandon");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses when worktree has untracked paths", async () => {
+    const branch = "impl/dirty-untracked";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, "leftover.txt"), "agent output\n");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 802, isDraft: true }]));
+
+    expect(result.status).toBe("refused");
+    if (result.status !== "refused" || "code" in result) throw new Error("expected generic refused");
+    expect(result.reason).toContain("leftover.txt");
+    expect(result.reason).toContain("discard local changes");
+    expect(result.reason).toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses when porcelain is non-empty but paths are unparseable", async () => {
+    const branch = "impl/unparseable-porcelain";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "status") return "??\n";
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        return base.runAsync(cmd, args, cwd);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("refused");
+    if (result.status !== "refused" || "code" in result) throw new Error("expected generic refused");
+    expect(result.reason).toContain("worktree has uncommitted changes");
+    expect(result.reason).toContain("unparseable git status output");
+    expect(result.reason).toContain("jarvis cleanup --abandon");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses fail-closed when dirty listing fails", async () => {
+    const branch = "impl/dirty-list-fail";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "status") throw new Error("git status unavailable");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "prune") teardownCalls.push("worktree-prune");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+          teardownCalls.push("remote-branch-delete");
+        }
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d") {
+          teardownCalls.push("remote-tracking-ref-prune");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        return base.runAsync(cmd, args, cwd);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+    expect(result.status).toBe("refused");
+    if (result.status !== "refused" || "code" in result) throw new Error("expected generic refused");
+    expect(result.reason).toContain("could not list worktree changes");
+    expect(result.reason).toContain("git status unavailable");
+    expect(result.reason).not.toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
+
+    const overrideResult = await callReset(branch, mockRunner, noLiveDaemon, silentIo, { skipDirtyWorktreeGate: true });
+    expect(overrideResult.status).toBe("refused");
+    if (overrideResult.status !== "refused" || "code" in overrideResult) throw new Error("expected generic refused");
+    expect(overrideResult.reason).toContain("could not list worktree changes");
+    expect(overrideResult.reason).not.toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
+    expect(teardownCalls).toEqual([]);
+
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset classifies Git's missing-repository diagnostic from subprocess stderr", async () => {
+    const branch = "impl/non-git-stderr";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "remove", "--force", worktreePath], projectRoot);
+    mkdirSync(worktreePath, { recursive: true });
+
+    const base = ghPrListRunner(projectRoot, []);
+    const result = await callReset(branch, {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "status") {
+          throw new AsyncSubprocessError("git exited 128", 128, "", "fatal: not a git repository", undefined);
+        }
+        return base.runAsync(cmd, args, cwd);
+      },
+    });
+
+    expect(result).toEqual({ status: "no-op" });
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("reset retires a dirty worktree when dirty gate override is set", async () => {
+    const branch = "impl/dirty-gate-inversion";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, "keep-me.txt"), "dirty\n");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 803, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        skipDirtyWorktreeGate: true,
+      },
+    );
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("reset refuses unlanded commits with no PR even when dirty gate override is set", async () => {
+    const branch = "impl/unlanded-dirty-override";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const implRel = "impl-work.txt";
+    writeFileSync(join(worktreePath, implRel), "implementation\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", implRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
+    const tipSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    writeFileSync(join(worktreePath, "dirty.txt"), "uncommitted\n");
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+          return base.runAsync(cmd, args, cwd);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", skipDirtyWorktreeGate: true },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(tipSha);
+    expect(reason).toContain("commit(s) not on base");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses when worktree spec has criteria ticked absent from base", async () => {
+    const branch = "impl/landed-criteria-refuse";
+    const specDir = join(projectRoot, "spec", "my-spec");
+    const subspecRel = "spec/my-spec/00-task.md";
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+
+    const teardownCalls: string[] = [];
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            return ghPrListJsonRows([{ number: 901, isDraft: true }]);
+          }
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: "spec/my-spec/index.md" },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(subspecRel);
+    expect(reason).toContain("acceptance criteria ticked");
+    expect(reason).toContain(STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG);
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset proceeds with reset-despite-landed-criteria when worktree spec has criteria ticked absent from base", async () => {
+    const branch = "impl/landed-criteria-override";
+    const specDir = join(projectRoot, "spec", "override-spec");
+    const subspecRel = "spec/override-spec/00-task.md";
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add override spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criterion on branch"], worktreePath);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 902, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: "spec/override-spec/index.md",
+        skipLandedCriteriaGate: true,
+      },
+    );
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("reset refusal names landed-criteria drift before dirty reuse when both apply", async () => {
+    const branch = "impl/landed-before-dirty";
+    const specDir = join(projectRoot, "spec", "ordered-spec");
+    const subspecRel = "spec/ordered-spec/00-task.md";
+    const dirtyRel = `file-${branch.replace(/\//g, "-")}.txt`;
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add ordered spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    writeFileSync(join(worktreePath, dirtyRel), "edited\n");
+
+    const teardownCalls: string[] = [];
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            return ghPrListJsonRows([{ number: 903, isDraft: true }]);
+          }
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: "spec/ordered-spec/index.md" },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(subspecRel);
+    expect(reason).toContain(dirtyRel);
+    expect(reason.indexOf("acceptance criteria ticked")).toBeLessThan(
+      reason.indexOf("worktree has uncommitted changes"),
+    );
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace continues a clean descendant lane with unlanded commits and no PR", async () => {
+    const branch = "impl/unlanded-no-pr";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const implRel = "impl-work.txt";
+    writeFileSync(join(worktreePath, implRel), "implementation\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", implRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+          return base.runAsync(cmd, args, cwd);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD" },
+    );
+
+    expect(result.status).toBe("continue");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+    const branchList = await realAsyncSubprocessRunner.runAsync("git", ["branch", "--list", branch], projectRoot);
+    expect(branchList.trim()).toContain(branch);
+  });
+
+  test("resetStaleWorkspace refuses a worktree HEAD the branch ref cannot reach when disposableLane is set", async () => {
+    // Never-landed classification compares the *branch* against base, so a commit reachable only
+    // from the worktree is invisible to it. Detach HEAD and commit there: the branch ref stays at
+    // base — classification would call this disposable — while the worktree holds real work that
+    // retiring the branch would destroy. The descendant gate used to catch this, and disposableLane
+    // skips it.
+    const branch = "impl/unreachable-worktree-head";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], worktreePath);
+    const detachedRel = "detached-work.txt";
+    writeFileSync(join(worktreePath, detachedRel), "work only the worktree has\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", detachedRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "detached work"], worktreePath);
+    const detachedSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return base.runAsync(cmd, args, cwd);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", disposableLane: true },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(detachedSha);
+    expect(reason).toContain("not reachable from");
+    expect(teardownCalls).toEqual([]);
+  });
+
+  test("resetStaleWorkspace refuses unlanded commits even when disposableLane is set", async () => {
+    const branch = "impl/unlanded-disposable";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const implRel = "impl-disposable.txt";
+    writeFileSync(join(worktreePath, implRel), "implementation\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", implRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
+    const tipSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    const commitCount = Number.parseInt(
+      (await realAsyncSubprocessRunner.runAsync("git", ["rev-list", "--count", `HEAD..${branch}`], projectRoot)).trim(),
+      10,
+    );
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return base.runAsync(cmd, args, cwd);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", disposableLane: true },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(tipSha);
+    expect(reason).toContain(String(commitCount));
+    expect(reason).toContain("hand-finish");
+    expect(reason).toContain("jarvis cleanup --abandon");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace retires a disposable never-landed lane past descendant drift", async () => {
+    const branch = "impl/disposable-descendant";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    writeFileSync(join(projectRoot, "base-advance.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance main"], projectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+    expect(worktreeHead).not.toBe(baseHead);
+    const unlandedCount = Number.parseInt(
+      (await realAsyncSubprocessRunner.runAsync("git", ["rev-list", "--count", `HEAD..${branch}`], projectRoot)).trim(),
+      10,
+    );
+    expect(unlandedCount).toBe(0);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      disposableLane: true,
+    });
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  async function advanceBase(name: string): Promise<void> {
+    writeFileSync(join(projectRoot, name), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", `advance ${name}`], projectRoot);
+  }
+
+  async function commitInWorktree(worktreePath: string, rel: string): Promise<string> {
+    writeFileSync(join(worktreePath, rel), "lane work\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", rel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane work"], worktreePath);
+    return (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+  }
+
+  async function expectOrigHeadAbsent(worktreePath: string): Promise<void> {
+    let failed = false;
+    try {
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "ORIG_HEAD"], worktreePath);
+    } catch {
+      failed = true;
+    }
+    expect(failed).toBe(true);
+  }
+
+  async function runMaybeResetStaleWorkspace(args: { branch: string; specPath: string; prs: OpenPr[] }) {
+    const writeStep: {
+      behavior: "write";
+      specPath: string;
+      leaseFromSha?: string;
+      worktree: {
+        git: true;
+        projectRoot: string;
+        projectName: string;
+        branchName: string;
+        baseRef: string;
+      };
+    } = {
+      behavior: "write",
+      specPath: args.specPath,
+      worktree: {
+        git: true,
+        projectRoot,
+        projectName: "project",
+        branchName: args.branch,
+        baseRef: "HEAD",
+      },
+    };
+    const built = { ok: true as const, steps: [writeStep] };
+    const runner = ghPrListRunner(projectRoot, args.prs);
+    let outcome: "reset" | "no-op" | "continue" | undefined;
+    const exitCode = await maybeResetStaleWorkspace(
+      "implement",
+      built as never,
+      { jarvisRoot, subprocessRunner: runner } as never,
+      silentIo,
+      { workflow: "implement" } as never,
+      makeStaleResetIpcClient([]),
+      undefined,
+      (status) => {
+        outcome = status;
+      },
+    );
+    return { exitCode, writeStep, outcome };
+  }
+
+  test("resetStaleWorkspace retires a clean lane whose HEAD is an older base commit", async () => {
+    const branch = "impl/empty-lane-behind-base";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await advanceBase("empty-lane-advance.md");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(genericRefusalReason(result)).toBe("");
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace retires a clean lane whose commits were squash-merged into base", async () => {
+    const branch = "impl/squash-merged-lane";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const laneSha = await commitInWorktree(worktreePath, "squashed.txt");
+    await advanceBase("squash-advance.md");
+    await realAsyncSubprocessRunner.runAsync("git", ["cherry-pick", laneSha], projectRoot);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(genericRefusalReason(result)).toBe("");
+    expect(result.status).toBe("reset");
+  });
+
+  test("resetStaleWorkspace retires a clean multi-commit lane squash-merged into base", async () => {
+    const branch = "impl/multi-commit-squash-lane";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "squash-one.txt");
+    await commitInWorktree(worktreePath, "squash-two.txt");
+    await advanceBase("multi-squash-advance.md");
+    await realAsyncSubprocessRunner.runAsync("git", ["merge", "--squash", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "squash lane"], projectRoot);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(genericRefusalReason(result)).toBe("");
+    expect(result.status).toBe("reset");
+  });
+
+  describe("base pre-validation before retirement", () => {
+    const destructiveCalls = (invocations: Array<{ cmd: string; args: string[] }>) =>
+      invocations.filter(
+        ({ cmd, args }) =>
+          (cmd === "git" && args[0] === "worktree" && args[1] === "remove") ||
+          (cmd === "git" && args[0] === "branch" && args[1] === "-D") ||
+          (cmd === "git" && args[0] === "push" && args[1] === "origin" && args.includes("--delete")) ||
+          (cmd === "gh" && args[0] === "pr" && args[1] === "close"),
+      );
+
+    function recordingRunner(invocations: Array<{ cmd: string; args: string[] }>): AsyncSubprocessRunner {
+      const inner = ghPrListRunner(projectRoot, []);
+      return {
+        runAsync: async (cmd, args, cwd) => {
+          invocations.push({ cmd, args: [...args] });
+          return inner.runAsync(cmd, args, cwd);
+        },
+      };
+    }
+
+    async function expectNothingDestroyed(
+      branch: string,
+      worktreePath: string,
+      invocations: Array<{ cmd: string; args: string[] }>,
+    ): Promise<void> {
+      expect(existsSync(worktreePath)).toBe(true);
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "--verify", `refs/heads/${branch}`], projectRoot);
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["rev-parse", "--verify", `refs/heads/${branch}`],
+        join(tempRoot, "origin.git"),
+      );
+      expect(destructiveCalls(invocations)).toEqual([]);
+    }
+
+    for (const form of ["X", "refs/heads/X", "origin/X", "refs/remotes/origin/X"]) {
+      test(`refuses retirement when baseRef is the retired branch as '${form}'`, async () => {
+        const branch = "impl/base-is-branch";
+        const worktreePath = await setupWorktreeAndBranch(branch);
+        await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+        const baseRef = form.replace("X", branch);
+        const invocations: Array<{ cmd: string; args: string[] }> = [];
+
+        const result = await callReset(branch, recordingRunner(invocations), noLiveDaemon, silentIo, { baseRef });
+
+        expect(result.status).toBe("refused");
+        const reason = genericRefusalReason(result);
+        expect(reason).toContain(`'${baseRef}'`);
+        expect(reason).toContain(`'${branch}'`);
+        await expectNothingDestroyed(branch, worktreePath, invocations);
+      });
+    }
+
+    test("does not refuse a distinct branch at the retired tip's SHA", async () => {
+      const branch = "impl/retire-me";
+      const worktreePath = await setupWorktreeAndBranch(branch);
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", "impl/base-twin", branch], projectRoot);
+
+      const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+        baseRef: "impl/base-twin",
+      });
+
+      expect(genericRefusalReason(result)).toBe("");
+      expect(result.status).toBe("reset");
+      expect(existsSync(worktreePath)).toBe(false);
+    });
+
+    test("an unresolvable baseRef destroys nothing", async () => {
+      const branch = "impl/base-unresolvable";
+      const worktreePath = await setupWorktreeAndBranch(branch);
+      await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+      const invocations: Array<{ cmd: string; args: string[] }> = [];
+
+      let outcome: "refused" | "threw" | "other" = "other";
+      try {
+        const result = await callReset(branch, recordingRunner(invocations), noLiveDaemon, silentIo, {
+          baseRef: "no-such-ref",
+        });
+        if (result.status === "refused") outcome = "refused";
+      } catch {
+        outcome = "threw";
+      }
+
+      expect(outcome).not.toBe("other");
+      await expectNothingDestroyed(branch, worktreePath, invocations);
+    });
+  });
+
+  test("resetStaleWorkspace still refuses a non-descendant lane with an unlanded commit", async () => {
+    const branch = "impl/unlanded-behind-base";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const laneSha = await commitInWorktree(worktreePath, "unlanded.txt");
+    await advanceBase("unlanded-advance.md");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${laneSha} is not a descendant of base HEAD`);
+    expect(reason).toContain("stale reuse refused");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace refuses to continue a lane whose worktree HEAD the branch cannot reach", async () => {
+    const branch = "impl/continue-detached-head";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+    // Detach the worktree and commit past the branch ref: the branch can no longer reach HEAD.
+    // Continuation rebases what the worktree has checked out, so without the guard these commits
+    // would end up reachable only from the detached HEAD and a later --abandon would discard them.
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], worktreePath);
+    const detachedSha = await commitInWorktree(worktreePath, "detached-work.txt");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${detachedSha} is not reachable from ${branch}`);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace refuses unlanded non-staging commits on a continuable lane when resetDespiteContinuable is set", async () => {
+    const branch = "impl/reset-despite-continuable-unlanded";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const tipSha = await commitInWorktree(worktreePath, "committed-work.txt");
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return base.runAsync(cmd, args, cwd);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", resetDespiteContinuable: true },
+    );
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(tipSha);
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace retires a continuable lane carrying only staging commits when resetDespiteContinuable is set", async () => {
+    const branch = "impl/reset-despite-continuable-staging";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const stagingRel = ".jarvis-plan-stage/verdict-plan.md";
+    mkdirSync(join(worktreePath, ".jarvis-plan-stage"), { recursive: true });
+    writeFileSync(join(worktreePath, stagingRel), "staging\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-f", stagingRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "staging only"], worktreePath);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("reset");
+    expect(existsSync(worktreePath)).toBe(false);
+  });
+
+  test("resetStaleWorkspace refuses an unreachable worktree HEAD, not unlanded commits, when resetDespiteContinuable is set", async () => {
+    const branch = "impl/reset-despite-continuable-detached";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], worktreePath);
+    const detachedSha = await commitInWorktree(worktreePath, "detached-work.txt");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${detachedSha} is not reachable from ${branch}`);
+    expect(reason).not.toContain("commit(s) not on base");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("staleResetUnlandedCommitsGateReason names the continue path before hand-finish and --abandon when available", () => {
+    const reason = staleResetUnlandedCommitsGateReason("abc123", 2, true);
+    expectContinuePathBeforeSalvage(reason);
+  });
+
+  test("staleResetUnlandedCommitsGateReason keeps the pre-fix text without the continue-path input", () => {
+    const expected =
+      "branch has 2 commit(s) not on base (tip abc123); hand-finish the branch or run `jarvis cleanup --abandon <branch>` before retiring the workspace";
+    expect(staleResetUnlandedCommitsGateReason("abc123", 2)).toBe(expected);
+    expect(staleResetUnlandedCommitsGateReason("abc123", 2, false)).toBe(expected);
+  });
+
+  test("staleResetUnreachableWorktreeHeadGateReason text is unchanged", () => {
+    expect(staleResetUnreachableWorktreeHeadGateReason("impl/x", "abc123")).toBe(
+      "worktree HEAD abc123 is not reachable from impl/x, so retiring the branch would discard it; hand-finish the branch or run `jarvis cleanup --abandon <branch>` before retiring the workspace",
+    );
+  });
+
+  test("resetStaleWorkspace names the continue path first when resetDespiteContinuable forces retirement of unlanded commits", async () => {
+    const branch = "impl/continue-path-named";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expectContinuePathBeforeSalvage(reason);
+  });
+
+  test("resetStaleWorkspace does not advertise the continue path on a dirty lane with unlanded commits", async () => {
+    const branch = "impl/continue-path-dirty";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+    writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain("commit(s) not on base");
+    expect(reason).not.toContain("--reset-despite-continuable");
+  });
+
+  test("resetStaleWorkspace does not advertise the continue path on a disposable lane with unlanded commits", async () => {
+    const branch = "impl/continue-path-disposable";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "committed-work.txt");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      disposableLane: true,
+      resetDespiteContinuable: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain("commit(s) not on base");
+    expect(reason).not.toContain("--reset-despite-continuable");
+  });
+
+  test("resetStaleWorkspace omits the continue path for resetDespiteLandedCriteria alone on a continuable lane", async () => {
+    const branch = "impl/continue-path-landed-criteria";
+    const specDir = join(projectRoot, "spec", "continue-path-spec");
+    const subspecRel = "spec/continue-path-spec/00-task.md";
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add continue-path spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criterion on branch"], worktreePath);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: "spec/continue-path-spec/index.md",
+      skipLandedCriteriaGate: true,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain("commit(s) not on base");
+    expect(reason).not.toContain("--reset-despite-continuable");
+  });
+
+  async function setupSpecTree(specName: string, subspecContents: Record<string, string>): Promise<string> {
+    const specDir = join(projectRoot, "spec", specName);
+    mkdirSync(specDir, { recursive: true });
+    const links = Object.keys(subspecContents)
+      .map((name) => `- [ ] [${name}](./${name})`)
+      .join("\n");
+    writeFileSync(join(specDir, "index.md"), `# Index\n\n${links}\n`);
+    for (const [name, content] of Object.entries(subspecContents)) {
+      writeFileSync(join(specDir, name), content);
+    }
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", `add spec ${specName}`], projectRoot);
+    return join("spec", specName, "index.md");
+  }
+
+  /** Prior-stage spec tree under `tempRoot`, like a chained implement stage's out-of-root write-step spec. */
+  function setupChainedOutOfRootSpec(specName: string): string {
+    const priorWorktreeSpecDir = join(tempRoot, "prior-worktree", "spec", specName);
+    mkdirSync(priorWorktreeSpecDir, { recursive: true });
+    writeFileSync(join(priorWorktreeSpecDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(priorWorktreeSpecDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    return join(priorWorktreeSpecDir, "index.md");
+  }
+
+  test("resetStaleWorkspace refuses a checked criterion with no backing commit, naming the subspec and fix", async () => {
+    const branch = "impl/forged-tick";
+    const subspecRel = "spec/forged-spec/00-task.md";
+    const indexRel = await setupSpecTree("forged-spec", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] one\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    // A brand-new bullet typed in already checked, not a transition from an unchecked line and not a
+    // new file — no commit ever did the work of completing it.
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] one\n- [x] two\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "forge a tick"], worktreePath);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: indexRel,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(subspecRel);
+    expect(reason).toContain("no backing commit");
+    expect(reason).toContain("untick");
+    expect(reason).toContain("jarvis cleanup --abandon");
+    expect(reason).not.toContain("commit(s) not on base");
+    expect(reason).not.toContain("unticked on base");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace continues when the backing commit for a checked criterion is not the newest commit touching the file", async () => {
+    const branch = "impl/multi-commit-backing";
+    const subspecRel = "spec/multi-commit-lane/00-task.md";
+    const indexRel = await setupSpecTree("multi-commit-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] one\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    // Older commit: unrelated to "one" — must still be split into its own log block correctly.
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] one\n- [ ] two\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add unrelated pending item"], worktreePath);
+
+    // Newer commit: the genuine unchecked-to-checked transition backing "one".
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] one\n- [ ] two\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete one"], worktreePath);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: indexRel,
+    });
+
+    expect(result.status).toBe("continue");
+  });
+
+  test("tick-backing delegates log-patch read to shared git", async () => {
+    const branch = "impl/log-patch-delegate";
+    const subspecRel = "spec/log-patch-delegate/00-task.md";
+    const indexRel = await setupSpecTree("log-patch-delegate", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] one\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] one\n- [ ] two\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete one"], worktreePath);
+
+    const logSpy = spyOn(sharedGit, "logPatchForPathInRange");
+    try {
+      const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+        baseRef: "HEAD",
+        specPath: indexRel,
+      });
+      expect(result.status).toBe("continue");
+      expect(logSpy).toHaveBeenCalled();
+      expect(logSpy.mock.calls.some((call) => call[3] === subspecRel)).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("resetStaleWorkspace rebases a lane past a non-conflicting moved base and continues", async () => {
+    const branch = "impl/rebase-continues";
+    const subspecRel = "spec/rebase-lane/00-task.md";
+    const indexRel = await setupSpecTree("rebase-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+      "01-task.md": "# Task 2\n\n## Acceptance criteria\n\n- [ ] pending\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    // Advance base with an unrelated, non-conflicting file.
+    writeFileSync(join(projectRoot, "unrelated-advance.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], projectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: indexRel,
+    });
+
+    expect(result.status).toBe("continue");
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(newTip).not.toBe(preRebaseSha);
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", baseHead, newTip], projectRoot);
+    expect(readFileSync(join(worktreePath, subspecRel), "utf8")).toContain("- [x] done");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace continues a chained out-of-root spec lane past a moved base with no PR", async () => {
+    const branch = "impl/chained-out-of-root-rebase";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-stage");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "chained-impl.txt");
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    await advanceBase("chained-out-of-root-advance.md");
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBe(preRebaseSha);
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(newTip).not.toBe(preRebaseSha);
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", baseHead, newTip], projectRoot);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace still refuses a non-descendant out-of-root lane with no common ancestor", async () => {
+    const branch = "impl/chained-disjoint-history";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-disjoint");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "chained-disjoint-impl.txt");
+
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--orphan", "disjoint-main"], projectRoot);
+    writeFileSync(join(projectRoot, "disjoint-root.md"), "disjoint\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "disjoint main root"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-M", "main"], projectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: outOfRootIndexPath,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD (${baseHead})`);
+    expect(reason).toContain("stale reuse refused");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace aborts a conflicting rebase and refuses, leaving the lane unchanged", async () => {
+    const branch = "impl/rebase-conflict";
+    const subspecRel = "spec/rebase-conflict-lane/00-task.md";
+    const indexRel = await setupSpecTree("rebase-conflict-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    // Advance base with a conflicting edit to the very same line.
+    writeFileSync(join(projectRoot, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] done differently\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "reword criterion on base"], projectRoot);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: indexRel,
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(subspecRel);
+    expect(reason).toContain("conflicted");
+    expect(reason).toContain("worktree unchanged");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(preRebaseSha);
+    const statusOutput = await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath);
+    expect(statusOutput.trim()).toBe("");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("stale reset rebase delegates to typed worktree rewrite operations", async () => {
+    const branch = "impl/rebase-delegate-spy";
+    const subspecRel = "spec/rebase-delegate-spy/00-task.md";
+    const indexRel = await setupSpecTree("rebase-delegate-spy", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+
+    writeFileSync(join(projectRoot, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] done differently\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "reword criterion on base"], projectRoot);
+
+    const rebaseSpy = spyOn(sharedGit, "abortableWorktreeRebase");
+    try {
+      const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+        baseRef: "HEAD",
+        specPath: indexRel,
+      });
+      expect(result.status).toBe("refused");
+      expect(rebaseSpy).toHaveBeenCalled();
+      expect(rebaseSpy.mock.calls.some((call) => call[0] === worktreePath)).toBe(true);
+    } finally {
+      rebaseSpy.mockRestore();
+    }
+  });
+
+  test("maybeResetStaleWorkspace sets leaseFromSha on rebase-continue only", async () => {
+    const branch = "impl/lease-from-sha";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("lease-from-sha");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await commitInWorktree(worktreePath, "lease-rebase.txt");
+    await advanceBase("lease-rebase-advance.md");
+    const preRebaseSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    const rebase = await runMaybeResetStaleWorkspace({
+      branch,
+      specPath: outOfRootIndexPath,
+      prs: [],
+    });
+    expect(rebase.exitCode).toBeUndefined();
+    expect(rebase.outcome).toBe("continue");
+    expect(rebase.writeStep.leaseFromSha).toBe(preRebaseSha);
+
+    const mergeBranch = "impl/lease-merge";
+    const mergeOutOfRoot = setupChainedOutOfRootSpec("lease-merge");
+    const mergeWorktreePath = await setupWorktreeAndBranch(mergeBranch);
+    await commitInWorktree(mergeWorktreePath, "lease-merge.txt");
+    await advanceBase("lease-merge-advance.md");
+
+    const merge = await runMaybeResetStaleWorkspace({
+      branch: mergeBranch,
+      specPath: mergeOutOfRoot,
+      prs: [{ number: 904, isDraft: true }],
+    });
+    expect(merge.exitCode).toBeUndefined();
+    expect(merge.outcome).toBe("continue");
+    expect(merge.writeStep.leaseFromSha).toBeUndefined();
+  });
+
+  test("resetStaleWorkspace merges base into an open-PR out-of-root lane past a moved base", async () => {
+    const branch = "impl/chained-out-of-root-merge";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-open-pr-merge");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const preMergeSha = await commitInWorktree(worktreePath, "chained-open-pr-impl.txt");
+
+    await advanceBase("chained-open-pr-merge-advance.md");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 901, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: outOfRootIndexPath,
+      },
+    );
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBeUndefined();
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    await expectOrigHeadAbsent(worktreePath);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace merges base into an open-PR in-root lane past a moved base", async () => {
+    const branch = "impl/in-root-open-pr-merge";
+    const subspecRel = "spec/open-pr-merge-lane/00-task.md";
+    const indexRel = await setupSpecTree("open-pr-merge-lane", {
+      "00-task.md": "# Task\n\n## Acceptance criteria\n\n- [ ] done\n",
+    });
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "complete 00"], worktreePath);
+    const preMergeSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    writeFileSync(join(projectRoot, "unrelated-open-pr-advance.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], projectRoot);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 902, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: indexRel,
+      },
+    );
+
+    expect(result.status).toBe("continue");
+    if (result.status === "continue") {
+      expect(result.preRebaseSha).toBeUndefined();
+    }
+    const newTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["merge-base", "--is-ancestor", preMergeSha, newTip], projectRoot);
+    await expectOrigHeadAbsent(worktreePath);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace refuses rather than merging or retiring when reset-despite-landed-criteria is set on an out-of-root moved-base open-PR lane", async () => {
+    const branch = "impl/out-of-root-landed-override";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("out-of-root-landed-override");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "out-of-root-landed-override.txt");
+    await advanceBase("landed-override-advance.md");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 905, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: outOfRootIndexPath, skipLandedCriteriaGate: true },
+    );
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD`);
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace keeps the descendant gate under reset-despite-landed-criteria on a dirty non-descendant open-PR lane", async () => {
+    const branch = "impl/landed-override-dirty";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("landed-override-dirty");
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = await commitInWorktree(worktreePath, "landed-override-dirty.txt");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--orphan", "disjoint-main"], projectRoot);
+    writeFileSync(join(projectRoot, "disjoint-root.md"), "disjoint\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "disjoint main root"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-M", "main"], projectRoot);
+    writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 907, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: outOfRootIndexPath, skipLandedCriteriaGate: true, skipDirtyWorktreeGate: true },
+    );
+
+    expect(result.status).toBe("refused");
+    expect(genericRefusalReason(result)).toContain(`worktree HEAD ${worktreeHead} is not a descendant of base HEAD`);
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(worktreeHead);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace aborts a conflicting merge for an open-PR out-of-root moved-base lane", async () => {
+    const branch = "impl/chained-open-pr-merge-conflict";
+    const outOfRootIndexPath = setupChainedOutOfRootSpec("chained-open-pr-merge-conflict");
+    const conflictRel = "chained-open-pr-merge-conflict.txt";
+    writeFileSync(join(projectRoot, conflictRel), "start\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add conflict file"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, conflictRel), "lane\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane edit"], worktreePath);
+    const preMergeSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    writeFileSync(join(projectRoot, conflictRel), "base\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", conflictRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "base edit"], projectRoot);
+
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 903, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: outOfRootIndexPath,
+      },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(conflictRel);
+    expect(reason).toContain("conflicted");
+    expect(reason).toContain("worktree unchanged");
+    const tipAfter = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    expect(tipAfter).toBe(preMergeSha);
+    const statusOutput = await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath);
+    expect(statusOutput.trim()).toBe("");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace continues an external plan tree despite an unbacked tick, since the tick guard is out of root", async () => {
+    const branch = "impl/external-continue";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const implRel = "impl-work.txt";
+    writeFileSync(join(worktreePath, implRel), "implementation\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", implRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
+
+    // Lives outside projectRoot, like a Jarvis-owned `specs: external` plan tree — never readable via
+    // `join(worktreePath, relative(projectRoot, specPath))`, so the tick guard cannot apply to it.
+    const externalSpecDir = join(tempRoot, "external-spec");
+    mkdirSync(externalSpecDir, { recursive: true });
+    const externalIndexPath = join(externalSpecDir, "index.md");
+    writeFileSync(externalIndexPath, "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(externalSpecDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [x] never landed\n");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: externalIndexPath,
+    });
+
+    expect(result.status).toBe("continue");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace retires a disposable never-landed lane past landed-criteria drift", async () => {
+    const branch = "impl/disposable-landed-criteria";
+    const specDir = join(projectRoot, "spec", "disposable-spec");
+    const subspecRel = "spec/disposable-spec/00-task.md";
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add disposable spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criterion on branch"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["merge", branch], projectRoot);
+    writeFileSync(join(projectRoot, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    writeFileSync(join(projectRoot, "base-advance-landed.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "revert spec tick on main"], projectRoot);
+    const unlandedCount = Number.parseInt(
+      (await realAsyncSubprocessRunner.runAsync("git", ["rev-list", "--count", `HEAD..${branch}`], projectRoot)).trim(),
+      10,
+    );
+    expect(unlandedCount).toBe(0);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: "spec/disposable-spec/index.md",
+      disposableLane: true,
+    });
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace prunes stale origin tracking ref when remote head is absent", async () => {
+    const branch = "impl/stale-origin-tracking";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await leaveStaleOriginTrackingRef(branch);
+    expect(await originTrackingRefResolvesAsync(projectRoot, branch, realAsyncSubprocessRunner)).toBe(true);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 804, isDraft: true }]));
+
+    expect(result.status).toBe("reset");
+    expect(await originTrackingRefResolvesAsync(projectRoot, branch, realAsyncSubprocessRunner)).toBe(false);
+    const branchList = await realAsyncSubprocessRunner.runAsync("git", ["branch", "--list", branch], projectRoot);
+    expect(branchList.trim()).toBe("");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("reset reports pruned remote-tracking ref in destroyed artifacts and stdout", async () => {
+    const branch = "impl/stale-origin-report";
+    await setupWorktreeAndBranch(branch);
+    await leaveStaleOriginTrackingRef(branch);
+
+    let stdout = "";
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 805, isDraft: true }]),
+      noLiveDaemon,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+
+    expect(result).toMatchObject({ status: "reset", destroyed: { remoteTrackingRef: `origin/${branch}` } });
+    expect(stdout).toContain(`Pruned stale remote-tracking ref: origin/${branch}`);
+  });
+
+  test("reset reports the deleted local branch's tip SHA in destroyed artifacts", async () => {
+    const branch = "impl/local-tip-report";
+    await setupWorktreeAndBranch(branch);
+    const localTip = (
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `refs/heads/${branch}`], projectRoot)
+    ).trim();
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 807, isDraft: true }]));
+
+    expect(result).toMatchObject({ status: "reset", destroyed: { localBranch: branch, localTipSha: localTip } });
+  });
+
+  test("stale origin tracking ref prune guard inversion leaves ref when update-ref is skipped", async () => {
+    const branch = "impl/stale-origin-guard-inversion";
+    await setupWorktreeAndBranch(branch);
+    await leaveStaleOriginTrackingRef(branch);
+
+    const skipPruneRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (
+          cmd === "git" &&
+          args[0] === "update-ref" &&
+          args[1] === "-d" &&
+          args[2]?.startsWith("refs/remotes/origin/")
+        ) {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([{ number: 806, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") return "";
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, skipPruneRunner);
+    expect(result).toMatchObject({
+      status: "refused",
+      reason: expect.stringContaining("remote tracking ref deletion"),
+    });
+    expect(result).not.toHaveProperty("destroyed.remoteTrackingRef");
+    expect(await originTrackingRefResolvesAsync(projectRoot, branch, realAsyncSubprocessRunner)).toBe(true);
+  });
+
+  test("staleResetDirtyWorktreeGateReason refuses dirty paths and skips dirty refusal only when overridden", () => {
+    expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: ["a.txt"] })).toContain("a.txt");
+    expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: [] })).toContain(
+      "unparseable git status output",
+    );
+    expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: ["a.txt"] }, true)).toBeUndefined();
+    const listingRefusal = staleResetDirtyWorktreeGateReason({ status: "error", message: "boom" }, true);
+    expect(listingRefusal).toContain("could not list worktree changes");
+    expect(listingRefusal).not.toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
+  });
+
+  test("listDirtyWorktreePathsForStaleReset treats non-empty unparseable porcelain as dirty", async () => {
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => "??\n",
+    };
+    const listed = await listDirtyWorktreePathsForStaleReset("/unused", runner);
+    expect(listed).toEqual({ status: "dirty", paths: [] });
+  });
+
+  // Guard inversion pair: positive case is `resetStaleWorkspace still retires when claim probe reports unclaimed`.
+  test("resetStaleWorkspace refuses when worktree key is claimed", async () => {
+    const branch = "impl/daemon-claimed";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", branch], projectRoot);
+
+    const teardownCalls: string[] = [];
+    const openDraftPr = { number: 901, isDraft: true };
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return ghPrListJsonRows([openDraftPr]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") teardownCalls.push("remote-delete");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const claimedDaemon = daemonClientWithFreeClaimProbe(
+      async () => [],
+      async () => ({
+        status: "claimed",
+        message: "Worktree already claimed for project=project, branch=impl/daemon-claimed",
+      }),
+    );
+
+    const result = await callReset(branch, mockRunner, claimedDaemon);
+
+    expect(result).toEqual({
+      status: "refused",
+      code: "worktree_claimed",
+      message: "Worktree already claimed for project=project, branch=impl/daemon-claimed",
+    });
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+    const localBranches = await realAsyncSubprocessRunner.runAsync("git", ["branch", "--list", branch], projectRoot);
+    expect(localBranches.trim()).toContain(branch);
+    const remoteBranches = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["branch", "-r", "--list", `origin/${branch}`],
+      projectRoot,
+    );
+    expect(remoteBranches.trim()).toContain(`origin/${branch}`);
+    const prListAfter = await mockRunner.runAsync("gh", ["pr", "list"], projectRoot);
+    expect(JSON.parse(prListAfter)).toEqual([
+      { number: openDraftPr.number, isDraft: openDraftPr.isDraft, baseRefName: "main", state: "OPEN" },
+    ]);
+  });
+
+  test("resetStaleWorkspace refuses fail-closed when claim probe is missing or throws", async () => {
+    const branch = "impl/claim-probe-fail";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+        return base.runAsync(cmd, args, cwd);
+      },
+    };
+
+    const listOnlyDaemon = (async () => []) as DaemonClient;
+    const missingProbeResult = await callReset(branch, mockRunner, listOnlyDaemon);
+    expect(missingProbeResult.status).toBe("refused");
+    expect("code" in missingProbeResult).toBe(false);
+    expect(genericRefusalReason(missingProbeResult)).toContain("missing workflow start claim probe");
+    expect(teardownCalls).toEqual([]);
+
+    const throwingDaemon = daemonClientWithFreeClaimProbe(
+      async () => [],
+      async () => {
+        throw new Error("rpc down");
+      },
+    );
+    const throwResult = await callReset(branch, mockRunner, throwingDaemon);
+    expect(throwResult.status).toBe("refused");
+    expect("code" in throwResult).toBe(false);
+    expect(genericRefusalReason(throwResult)).toContain("daemon claim check failed");
+    expect(genericRefusalReason(throwResult)).toContain("rpc down");
+    expect(teardownCalls).toEqual([]);
+
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace still retires when claim probe reports unclaimed", async () => {
+    const branch = "impl/claim-gate-inversion";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 804, isDraft: true }]), noLiveDaemon);
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("listDirtyWorktreePathsForStaleReset treats invalid gitfile as not-git-repository", async () => {
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => {
+        throw new Error(
+          "Command failed: git rev-parse HEAD\nfatal: gitfile does not point to a valid repository: /bad/.git",
+        );
+      },
+    };
+    expect(await listDirtyWorktreePathsForStaleReset("/any", runner)).toEqual({ status: "not-git-repository" });
+  });
+
+  test("listDirtyWorktreePathsForStaleReset reports lossless status paths", async () => {
+    const branch = "impl/dirty-list-unit";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const tracked = `file-${branch.replace(/\//g, "-")}.txt`;
+    const renameDestination = " renamed\ncafé destination ";
+    const paths = [renameDestination, "new file.txt", "new\nline.txt", "jalapeño.txt", " leading.txt", "trailing.txt "];
+    await realAsyncSubprocessRunner.runAsync("git", ["mv", tracked, renameDestination], worktreePath);
+    for (const path of paths.slice(1)) writeFileSync(join(worktreePath, path), "x\n");
+
+    const listed = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
+    expect(listed.status).toBe("dirty");
+    if (listed.status !== "dirty") throw new Error("expected dirty");
+    expect(listed.paths).toEqual(expect.arrayContaining(paths));
+  });
+
+  test("listDirtyWorktreePathsForStaleReset ignores untracked harness sidecars", async () => {
+    const branch = "impl/dirty-list-harness-sidecars";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, ".jarvis-verdict.md"), "verdict\n");
+    mkdirSync(join(worktreePath, ".jarvis-stage"));
+    writeFileSync(join(worktreePath, ".jarvis-stage", "result.md"), "result\n");
+
+    expect(await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner)).toEqual({
+      status: "clean",
+    });
+  });
+
+  test("listDirtyWorktreePathsForStaleReset treats staged harness sidecar changes as dirty", async () => {
+    const branch = "impl/dirty-list-staged-harness-sidecar";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, ".jarvis-verdict.md"), "verdict\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", ".jarvis-verdict.md"], worktreePath);
+
+    const listed = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
+    expect(listed.status).toBe("dirty");
+    if (listed.status !== "dirty") throw new Error("expected dirty");
+    expect(listed.paths).toEqual(expect.arrayContaining([".jarvis-verdict.md"]));
+  });
+
+  test("listDirtyWorktreePathsForStaleReset ignores a worktree holding only the materialized node_modules symlink", async () => {
+    const branch = "impl/dirty-list-node-modules-symlink";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    symlinkSync("/nonexistent-target-for-test", join(worktreePath, "node_modules"));
+
+    const symlinkOnly = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
+    expect(symlinkOnly).toEqual({ status: "clean" });
+
+    writeFileSync(join(worktreePath, "leftover.txt"), "real work\n");
+    const withLeftover = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
+    expect(withLeftover.status).toBe("dirty");
+    if (withLeftover.status !== "dirty") throw new Error("expected dirty");
+    expect(withLeftover.paths).toEqual(expect.arrayContaining(["leftover.txt"]));
+    expect(withLeftover.paths).not.toContain("node_modules");
+  });
+});
+
+type MergedBranchGhPr = {
+  number: number;
+  baseRefName: string;
+  state: "MERGED" | "OPEN" | "CLOSED";
+  mergedAt?: string | null;
+  headRefOid?: string;
+};
+
+type SupersedeGhFixture = {
+  prListByRepo: Record<string, MergedBranchGhPr[]>;
+  commentsByPr: Record<number, string[]>;
+  prViewByNumber: Record<number, { state: string; mergedAt: string | null; isCrossRepository?: boolean }>;
+  prViewByBranch?: Record<string, { state: string; mergedAt: string | null }>;
+  listThrows?: boolean;
+  commentsThrowsForPr?: ReadonlySet<number>;
+  viewThrowsForPr?: ReadonlySet<number>;
+};
+
+function supersedeSettlementBody(successorPr: number, pipelineId = "pipe-1", stageId = "plan"): string {
+  return formatTerminalSupersedeSettlementComment({
+    terminalPrNumber: successorPr,
+    pipelineId,
+    stageId,
+  });
+}
+
+function supersedeFixtureForBranch(
+  projectRoot: string,
+  branch: string,
+  oid: string,
+  closedPrNumber: number,
+  successorPrNumber: number,
+  options: {
+    commentBody?: string;
+    omitComment?: boolean;
+    openPr?: boolean;
+    headOid?: string;
+    listThrows?: boolean;
+    commentsThrows?: boolean;
+    successorViewThrows?: boolean;
+    successorState?: "MERGED" | "CLOSED" | "OPEN";
+    crossRepo?: boolean;
+  } = {},
+): SupersedeGhFixture {
+  const headRefOid = options.headOid ?? oid;
+  const prs: MergedBranchGhPr[] = [
+    { number: closedPrNumber, baseRefName: "main", state: "CLOSED", mergedAt: null, headRefOid },
+  ];
+  if (options.openPr === true) {
+    prs.push({ number: closedPrNumber + 100, baseRefName: "main", state: "OPEN", mergedAt: null, headRefOid: oid });
+  }
+  const commentBody = options.commentBody ?? supersedeSettlementBody(successorPrNumber);
+  const commentsByPr: Record<number, string[]> = {};
+  if (options.omitComment !== true) commentsByPr[closedPrNumber] = [commentBody];
+  const successorState = options.successorState ?? "MERGED";
+  const fixture: SupersedeGhFixture = {
+    prListByRepo: { [projectRoot]: prs },
+    commentsByPr,
+    prViewByNumber: {
+      [successorPrNumber]: {
+        state: successorState,
+        mergedAt: successorState === "MERGED" ? "2026-01-01T00:00:00Z" : null,
+        isCrossRepository: options.crossRepo === true,
+      },
+    },
+    prViewByBranch: { [branch]: { state: "CLOSED", mergedAt: null } },
+  };
+  if (options.listThrows === true) fixture.listThrows = true;
+  if (options.commentsThrows === true) fixture.commentsThrowsForPr = new Set([closedPrNumber]);
+  if (options.successorViewThrows === true) fixture.viewThrowsForPr = new Set([successorPrNumber]);
+  return fixture;
+}
+
+function mergedBranchPr(oid: string, number = 1): MergedBranchGhPr {
+  return { number, baseRefName: "main", state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid };
+}
+
+async function initMergedBranchTestRepo(root: string): Promise<void> {
+  mkdirSync(root, { recursive: true });
+  await realAsyncSubprocessRunner.runAsync("git", ["init"], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], root);
+  writeFileSync(join(root, "README.md"), `# ${basename(root)}\n`);
+  await realAsyncSubprocessRunner.runAsync("git", ["add", "."], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], root);
+}
+
+async function createMergedBranchLocalHead(root: string, branch: string): Promise<{ branch: string; oid: string }> {
+  writeFileSync(join(root, `${branch.replace(/\//g, "-")}.txt`), `${branch}\n`);
+  await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-b", branch], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["add", "."], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", branch], root);
+  const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], root)).trim();
+  await realAsyncSubprocessRunner.runAsync("git", ["checkout", "main"], root).catch(async () => {
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "master"], root);
+  });
+  return { branch, oid };
+}
+
+function ghPrRunnerByRepo(
+  prsByRepoRoot: Record<string, MergedBranchGhPr[]>,
+  fallbackRoot: string,
+  options: { mergedView?: boolean; supersede?: SupersedeGhFixture } = {},
+): AsyncSubprocessRunner {
+  const supersede = options.supersede;
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd === "gh" && args[0] === "pr") {
+        if (args[1] === "list") {
+          if (supersede?.listThrows === true) throw GH_PR_LIST_PROBE_ERROR;
+          const key = cwd ?? fallbackRoot;
+          const prs = supersede !== undefined ? (supersede.prListByRepo[key] ?? []) : (prsByRepoRoot[key] ?? []);
+          return JSON.stringify(prs);
+        }
+        if (args[1] === "view") {
+          if (supersede !== undefined) {
+            const jsonIndex = args.indexOf("--json");
+            const jsonFields = jsonIndex >= 0 ? (args[jsonIndex + 1] ?? "") : "";
+            const target = args[2];
+            if (target === undefined) return "";
+            const asNumber = Number(target);
+            if (supersede.viewThrowsForPr?.has(asNumber) === true) throw GH_PR_LIST_PROBE_ERROR;
+            if (!Number.isNaN(asNumber)) {
+              if (jsonFields.includes("comments")) {
+                if (supersede.commentsThrowsForPr?.has(asNumber) === true) throw GH_PR_LIST_PROBE_ERROR;
+                const bodies = supersede.commentsByPr[asNumber] ?? [];
+                return JSON.stringify({ comments: bodies.map((body) => ({ body })) });
+              }
+              const view = supersede.prViewByNumber[asNumber];
+              if (view !== undefined) return JSON.stringify(view);
+            }
+            const branchView = supersede.prViewByBranch?.[target];
+            if (branchView !== undefined) return JSON.stringify(branchView);
+            throw new AsyncSubprocessError("not found", 1, "", "", undefined);
+          }
+          if (options.mergedView) {
+            return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+          }
+        }
+      }
+      return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? fallbackRoot);
+    },
+  };
+}
+
+describe("cleanup: superseded-pipeline branch retirement", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-supersede-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+    await initMergedBranchTestRepo(projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("ghSuccessorPrMergedInRepo rejects cross-repository successor", async () => {
+    const branch = "implement/cross-repo-successor";
+    const oid = "abc123456789";
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 20, 88, { crossRepo: true });
+    const runner = ghPrRunnerByRepo({}, projectRoot, { supersede: fixture });
+    expect(await supersededPipelinePrHeadAuthorityMatches(branch, oid, projectRoot, runner)).toBe(false);
+  });
+
+  test("materialized worktree dry-run and apply retire under supersede proof", async () => {
+    const branch = "implement/superseded-lane";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 10, 99);
+    const runner = ghPrRunnerByRepo({}, projectRoot, { supersede: fixture });
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let dryStdout = "";
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        {
+          listRuns: () => [],
+        } as unknown as StateStore,
+        { stdout: (s) => (dryStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(dryStdout).toContain(worktreePath);
+    let applyStdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        { listRuns: () => [] } as unknown as StateStore,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(applyStdout).toContain("Retired:");
+    expect(existsSync(worktreePath)).toBe(false);
+  });
+
+  test("head-only branch ref discovery and prune under supersede proof", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "superseded-head-only");
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 11, 100);
+    const runner = ghPrRunnerByRepo({}, projectRoot, { supersede: fixture });
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const discovered = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(discovered.candidates).toEqual([{ project: "project", branch, headOid: oid, repositoryRoot: projectRoot }]);
+
+    let stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        runner,
+        async () => [],
+        { listRuns: () => [] } as unknown as StateStore,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`Pruned ref: project refs/heads/${branch}`);
+  });
+
+  test.each([
+    { case: "closed without settlement comment", options: { omitComment: true } },
+    { case: "OPEN PR on branch", options: { openPr: true } },
+    { case: "pr list probe failure", options: { listThrows: true } },
+    { case: "comment probe failure", options: { commentsThrows: true } },
+    { case: "successor view probe failure", options: { successorViewThrows: true } },
+    { case: "head OID mismatch", options: { headOid: "deadbeef" } },
+    { case: "non-exact settlement comment", options: { commentBody: "Superseded by #99" } },
+    { case: "unmerged successor", options: { successorState: "CLOSED" } },
+    { case: "open successor", options: { successorState: "OPEN" } },
+    { case: "cross-repo successor", options: { crossRepo: true } },
+  ])("ineligible when $case", async ({ case: caseName, options }) => {
+    const slug = caseName
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 48);
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, `bad-${slug}`);
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 12, 101, options);
+    const runner = ghPrRunnerByRepo({}, projectRoot, { supersede: fixture });
+    expect(await supersededPipelinePrHeadAuthorityMatches(branch, oid, projectRoot, runner)).toBe(false);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    expect((await discoverMergedBranchRefCandidates(registry, { runner })).candidates).toEqual([]);
+  });
+
+  test("guard inversion: merged successor required for supersede authority", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "supersede-successor-guard");
+    const fixture = supersedeFixtureForBranch(projectRoot, branch, oid, 13, 102, { successorState: "MERGED" });
+    const runner = ghPrRunnerByRepo({}, projectRoot, { supersede: fixture });
+    expect(await supersededPipelinePrHeadAuthorityMatches(branch, oid, projectRoot, runner)).toBe(true);
+    fixture.prViewByNumber[102] = { state: "CLOSED", mergedAt: null };
+    expect(await supersededPipelinePrHeadAuthorityMatches(branch, oid, projectRoot, runner)).toBe(false);
+  });
+});
+
+describe("cleanup: discover merged branch-ref candidates", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+
+  function ghPrListRunner(prsByRepoRoot: Record<string, MergedBranchGhPr[]>): AsyncSubprocessRunner {
+    return ghPrRunnerByRepo(prsByRepoRoot, projectRoot);
+  }
+
+  async function branchRefExists(root: string, branch: string): Promise<boolean> {
+    try {
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "--verify", branch], root);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-ref-discovery-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+    projectRoot = join(tempRoot, "project");
+    await initMergedBranchTestRepo(projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("merged local head candidate requires matching merged PR head", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "merged-no-worktree");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+
+    expect(result.candidates).toEqual([{ project: "project", branch, headOid: oid, repositoryRoot: projectRoot }]);
+    expect(result.unusableProjects).toEqual([]);
+  });
+
+  test("guard inversion: open PR blocks merged local head admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "open-pr-branch");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({
+      [projectRoot]: [
+        { number: 1, baseRefName: "main", state: "OPEN", mergedAt: null, headRefOid: oid },
+        mergedBranchPr(oid, 2),
+      ],
+    });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: closed-unmerged PR blocks admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "closed-unmerged");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({
+      [projectRoot]: [{ number: 1, baseRefName: "main", state: "CLOSED", mergedAt: null, headRefOid: oid }],
+    });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: no PR blocks admission", async () => {
+    const { branch } = await createMergedBranchLocalHead(projectRoot, "no-pr");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: OID mismatch blocks admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "oid-mismatch");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(`${oid}deadbeef`)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: post-merge commit blocks admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "post-merge");
+    writeFileSync(join(projectRoot, "post-merge-extra.txt"), "more\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "post-merge"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "main"], projectRoot).catch(async () => {
+      await realAsyncSubprocessRunner.runAsync("git", ["checkout", "master"], projectRoot);
+    });
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: conflicting merged PR matches block admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "conflicting-prs");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid, 1), mergedBranchPr(oid, 2)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: failed gh lookup blocks admission", async () => {
+    const { branch } = await createMergedBranchLocalHead(projectRoot, "gh-failure");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          throw new Error("gh down");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: PR lookup must run in the candidate repository", async () => {
+    const otherRoot = join(tempRoot, "other");
+    await initMergedBranchTestRepo(otherRoot);
+    await createMergedBranchLocalHead(projectRoot, "shared-name");
+    const remote = await createMergedBranchLocalHead(otherRoot, "shared-name");
+
+    const registry: Record<string, ProjectRegistryEntry> = {
+      project: { root: projectRoot },
+      other: { root: otherRoot },
+    };
+    const runner = ghPrListRunner({
+      [projectRoot]: [],
+      [otherRoot]: [mergedBranchPr(remote.oid)],
+    });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates.map((c) => c.project).sort()).toEqual(["other"]);
+    expect(result.candidates[0]?.branch).toBe("shared-name");
+  });
+
+  test("guard inversion: reused historical branch blocks admission when OID differs", async () => {
+    const first = await createMergedBranchLocalHead(projectRoot, "reused-name");
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-D", "reused-name"], projectRoot);
+    await createMergedBranchLocalHead(projectRoot, "reused-name");
+    writeFileSync(join(projectRoot, "reused-name-followup.txt"), "follow-up\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "reused-name"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "follow-up"], projectRoot);
+    const currentOid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "main"], projectRoot).catch(async () => {
+      await realAsyncSubprocessRunner.runAsync("git", ["checkout", "master"], projectRoot);
+    });
+    expect(currentOid).not.toBe(first.oid);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(first.oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, "reused-name")).toBe(true);
+  });
+
+  test("guard inversion: main is never admitted", async () => {
+    const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, "main")).toBe(true);
+  });
+
+  test("guard inversion: project checkout current branch is never admitted", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "current-branch");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: managed worktree checkout blocks admission until retired", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "managed-held");
+    const worktreePath = join(tempRoot, "managed-worktree");
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const blocked = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(blocked.candidates).toEqual([]);
+
+    const admitted = await discoverMergedBranchRefCandidates(registry, {
+      runner,
+      retiredBranches: new Set([branch]),
+    });
+    expect(admitted.candidates).toEqual([{ project: "project", branch, headOid: oid, repositoryRoot: projectRoot }]);
+  });
+
+  test("guard inversion: external linked checkout blocks admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "external-held");
+    const externalPath = join(tempRoot, "external-checkout");
+    mkdirSync(dirname(externalPath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", externalPath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+    expect(
+      parseCheckedOutBranchesFromWorktreePorcelain(
+        await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list", "--porcelain"], projectRoot),
+      ).has(branch),
+    ).toBe(true);
+  });
+
+  test("candidate discovery isolates registered projects", async () => {
+    const otherRoot = join(tempRoot, "other-project");
+    await initMergedBranchTestRepo(otherRoot);
+    const local = await createMergedBranchLocalHead(projectRoot, "same-name");
+    const remote = await createMergedBranchLocalHead(otherRoot, "same-name");
+    const missingRoot = join(tempRoot, "missing");
+    const registry: Record<string, ProjectRegistryEntry> = {
+      project: { root: projectRoot },
+      duplicate: { root: projectRoot },
+      other: { root: otherRoot },
+      missing: { root: missingRoot },
+    };
+    const runner = ghPrListRunner({
+      [projectRoot]: [mergedBranchPr(local.oid)],
+      [otherRoot]: [],
+    });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+
+    expect(result.candidates).toEqual([
+      { project: "project", branch: local.branch, headOid: local.oid, repositoryRoot: projectRoot },
+    ]);
+    expect(result.unusableProjects).toEqual([
+      { project: "missing", root: missingRoot, reason: "project root does not exist" },
+    ]);
+
+    let stderr = "";
+    const jarvisRoot = join(tempRoot, "jarvis-home");
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      runner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain("missing");
+    expect(stderr).toContain("project root does not exist");
+    expect(await branchRefExists(otherRoot, remote.branch)).toBe(true);
+  });
+
+  test("mergedPrHeadAuthorityMatches guard inversion skips OID comparison when disabled", async () => {
+    const oid = "abc123";
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([mergedBranchPr("wrong-oid")]);
+        }
+        return "";
+      },
+    };
+    expect(await mergedPrHeadAuthorityMatches("branch", oid, projectRoot, runner)).toBe(false);
+  });
+});
+
+describe("cleanup: prune verified merged branch refs", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  function ghPrRunner(prsByRepoRoot: Record<string, MergedBranchGhPr[]>): AsyncSubprocessRunner {
+    return ghPrRunnerByRepo(prsByRepoRoot, projectRoot, { mergedView: true });
+  }
+
+  async function addOriginTrackingRef(root: string, branch: string): Promise<void> {
+    const originRoot = join(tempRoot, "origin.git");
+    if (!existsSync(originRoot)) {
+      await initMergedBranchTestRepo(originRoot);
+      await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], root);
+    }
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], root);
+  }
+
+  async function exactRefExists(root: string, ref: string): Promise<boolean> {
+    return (await resolveExactRefOid(root, ref, realAsyncSubprocessRunner)) !== undefined;
+  }
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-ref-prune-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+    await initMergedBranchTestRepo(projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("default cleanup prunes merged branch refs without a materialized worktree", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "merged-no-worktree");
+    await addOriginTrackingRef(projectRoot, branch);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+    const pushDeletes: string[] = [];
+    const wrappedRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+          pushDeletes.push(args[3] ?? "");
+          throw new Error("remote delete must not run");
+        }
+        return runner.runAsync(cmd, args, cwd);
+      },
+    };
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      wrappedRunner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Pruned ref: project refs/heads/merged-no-worktree");
+    expect(stdout).toContain("Pruned ref: project refs/remotes/origin/merged-no-worktree");
+    expect(pushDeletes).toEqual([]);
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(false);
+    expect(await exactRefExists(projectRoot, `refs/remotes/origin/${branch}`)).toBe(false);
+  });
+
+  test("default merged-worktree retirement prunes origin tracking ref", async () => {
+    const branch = "merged-worktree-tracking";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    await addOriginTrackingRef(projectRoot, branch);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }),
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Retired:");
+    expect(stdout).toContain("Pruned ref: project refs/heads/merged-worktree-tracking");
+    expect(stdout).toContain("Pruned ref: project refs/remotes/origin/merged-worktree-tracking");
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(false);
+    expect(await exactRefExists(projectRoot, `refs/remotes/origin/${branch}`)).toBe(false);
+  });
+
+  test("dry-run previews merged dead refs without mutation", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "dry-run-refs");
+    await addOriginTrackingRef(projectRoot, branch);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }),
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("prune ref: project refs/heads/dry-run-refs");
+    expect(stdout).toContain("prune ref: project refs/remotes/origin/dry-run-refs");
+    expect(stdout).toContain("(dry-run: no changes made)");
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+    expect(await exactRefExists(projectRoot, `refs/remotes/origin/${branch}`)).toBe(true);
+  });
+
+  test("head-only daemon-unreachable skip exits nonzero for dry-run and apply", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "head-only-daemon-skip");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+    const store = { listRuns: () => [] } as unknown as StateStore;
+    const unreachableDaemon: DaemonClient = async () => {
+      throw new Error("probe detail must not leak");
+    };
+
+    let dryStdout = "";
+    const dryCode = await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, runner, unreachableDaemon, store, {
+      stdout: (s) => (dryStdout += s),
+      stderr: () => {},
+    });
+    expect(dryCode).toBe(1);
+    expect(dryStdout).toContain("prune ref: project refs/heads/head-only-daemon-skip");
+    expect(dryStdout).not.toContain("probe detail must not leak");
+
+    let applyStdout = "";
+    const applyCode = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      runner,
+      unreachableDaemon,
+      store,
+      { stdout: (s) => (applyStdout += s), stderr: () => {} },
+    );
+    expect(applyCode).toBe(1);
+    expect(applyStdout).toContain(
+      "Skipped ref prune: project refs/heads/head-only-daemon-skip — Daemon unreachable; run `jarvis daemon start`",
+    );
+    expect(applyStdout).not.toContain("probe detail must not leak");
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+  });
+
+  test("guard inversion: ref changed after preview is not deleted", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "race-branch");
+    const candidate = {
+      project: "project",
+      branch,
+      headOid: oid,
+      repositoryRoot: projectRoot,
+    };
+    let applyPass = false;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([mergedBranchPr(oid)]);
+        }
+        if (!applyPass && cmd === "git" && args[0] === "rev-parse" && args[1] === "--verify") {
+          applyPass = true;
+          return `${oid}deadbeef\n`;
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const eligibility = await revalidateMergedBranchRefCandidate(
+      candidate,
+      runner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      new Set(),
+    );
+    expect(eligibility.status).toBe("ineligible");
+    if (eligibility.status !== "ineligible") throw new Error("expected ineligible");
+    expect(eligibility.reason).toContain("OID changed");
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+  });
+
+  test("guard inversion: durable-run ownership blocks apply-time ref prune", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "durable-held");
+    const eligibility = await revalidateMergedBranchRefCandidate(
+      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
+      ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }),
+      async () => [],
+      {
+        listRuns: () => [{ project: "project", branch, status: "running" }],
+      } as unknown as StateStore,
+      new Set(),
+    );
+    expect(eligibility.status).toBe("ineligible");
+    if (eligibility.status !== "ineligible") throw new Error("expected ineligible");
+    expect(eligibility.reason).toContain("non-terminal run");
+  });
+
+  test("guard inversion: daemon-run ownership blocks apply-time ref prune", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "daemon-held");
+    const eligibility = await revalidateMergedBranchRefCandidate(
+      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
+      ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }),
+      async () => [{ isLive: true }],
+      { listRuns: () => [] } as unknown as StateStore,
+      new Set(),
+    );
+    expect(eligibility.status).toBe("ineligible");
+    if (eligibility.status !== "ineligible") throw new Error("expected ineligible");
+    expect(eligibility.reason).toContain("live run");
+  });
+
+  test("guard inversion: orphan tracking ref is not swept", async () => {
+    const branch = "orphan-tracking";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    await addOriginTrackingRef(projectRoot, branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", "-d", `refs/heads/${branch}`], projectRoot);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      ghPrRunner({ [projectRoot]: [] }),
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(await exactRefExists(projectRoot, `refs/remotes/origin/${branch}`)).toBe(true);
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(false);
+  });
+
+  test("guard inversion: similarly named tag does not establish tracking ref presence", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "tag-collision");
+    await realAsyncSubprocessRunner.runAsync("git", ["tag", `origin/${branch}`, oid], projectRoot);
+    expect(await exactOriginTrackingRefOid(projectRoot, branch, realAsyncSubprocessRunner)).toBeUndefined();
+
+    let stdout = "";
+    await pruneVerifiedMergedBranchRef(
+      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
+      realAsyncSubprocessRunner,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    expect(stdout).toContain("Pruned ref: project refs/heads/tag-collision");
+    expect(stdout).not.toContain("refs/remotes/origin/tag-collision");
+    expect(await exactRefExists(projectRoot, `refs/tags/origin/${branch}`)).toBe(true);
+  });
+
+  test("guard inversion: remote deletion is not attempted during ref prune", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "no-remote-delete");
+    await addOriginTrackingRef(projectRoot, branch);
+    const invocations: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") invocations.push("push");
+        return ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }).runAsync(cmd, args, cwd);
+      },
+    };
+
+    await pruneVerifiedMergedBranchRef(
+      { project: "project", branch, headOid: oid, trackingRefOid: oid, repositoryRoot: projectRoot },
+      runner,
+      { stdout: () => {}, stderr: () => {} },
+    );
+    expect(invocations).toEqual([]);
+  });
+
+  test("ref-prune failures continue independent cleanup", async () => {
+    const first = await createMergedBranchLocalHead(projectRoot, "fail-first");
+    const second = await createMergedBranchLocalHead(projectRoot, "succeed-second");
+    const specName = "20260730T000000Z-stranded";
+    const strandedSource = join(projectRoot, "spec", specName);
+    mkdirSync(strandedSource, { recursive: true });
+    writeFileSync(join(strandedSource, "index.md"), "# stranded\n\n## Acceptance criteria\n\n- [x] done\n");
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch: specName,
+          status: "completed",
+          specPath: join(strandedSource, "index.md"),
+          worktreePath: projectRoot,
+        },
+      ],
+    } as unknown as StateStore;
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stdout = "";
+    let stderr = "";
+    let headDeleteCount = 0;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          if (args.includes("--state") && args[args.indexOf("--state") + 1] === "open") return "[]";
+          const branchArg = args.indexOf("--head");
+          const branchName = branchArg >= 0 ? args[branchArg + 1] : "";
+          if (branchName === first.branch) return JSON.stringify([mergedBranchPr(first.oid)]);
+          if (branchName === second.branch) return JSON.stringify([mergedBranchPr(second.oid)]);
+          return "[]";
+        }
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d" && args[2] === `refs/heads/${first.branch}`) {
+          headDeleteCount += 1;
+          throw new Error("simulated head delete failure");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    await commitFixtures(projectRoot);
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      runner,
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(headDeleteCount).toBe(1);
+    expect(stderr).toContain(`Failed to prune ref refs/heads/${first.branch}`);
+    expect(stdout).not.toContain(`Pruned ref: project refs/heads/${first.branch}`);
+    expect(stdout).toContain(`Pruned ref: project refs/heads/${second.branch}`);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`spec/completed/${specName}/index.md`);
+    expect(await exactRefExists(projectRoot, `refs/heads/${first.branch}`)).toBe(true);
+    expect(await exactRefExists(projectRoot, `refs/heads/${second.branch}`)).toBe(false);
+  });
+
+  test("retirement success is not reported when required ref prune fails", async () => {
+    const branch = "retire-prune-fail";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    let stdout = "";
+    let stderr = "";
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([mergedBranchPr(oid)]);
+        }
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d" && args[2] === `refs/heads/${branch}`) {
+          throw new Error("simulated head delete failure");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to retire");
+    expect(stdout).not.toContain(`Retired: ${worktreePath}`);
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+  });
+});
+
+describe("cleanup: session log retention", () => {
+  const now = new Date("2026-09-07T12:00:00.000Z");
+  const dayMs = 24 * 60 * 60 * 1000;
+  const sessionLogStamp = "2026-08-01T00-00-00.000Z";
+  let tempRoot: string;
+  let jarvisRoot: string;
+  let configPath: string;
+
+  function runId(sequence: number): string {
+    return `00000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`;
+  }
+
+  function runRow(id: string, status: Run["status"], finishedAt: number | null): Run {
+    return {
+      id,
+      project: "project",
+      specRef: "spec",
+      createdAt: now.getTime() - 60 * dayMs,
+      status,
+      attemptCount: 1,
+      worktreePath: "/worktree",
+      branch: "branch",
+      specPath: "/spec/index.md",
+      finishedAt,
+    };
+  }
+
+  function writeSessionLog(sessionsDir: string, id: string, content = "log"): string {
+    mkdirSync(sessionsDir, { recursive: true });
+    const path = join(sessionsDir, `${id}-${sessionLogStamp}.log`);
+    writeFileSync(path, content);
+    return path;
+  }
+
+  function writeRetentionConfig(hotDays: number, coldDays: number): void {
+    writeFileSync(configPath, JSON.stringify({ retention: { sessions: { hotDays, coldDays } } }));
+  }
+
+  async function runSessionCleanup(
+    sessionsDir: string,
+    runs: Run[],
+    options: { dryRun?: boolean } = {},
+  ): Promise<{ code: number; stdout: string; stderr: string }> {
+    let stdout = "";
+    let stderr = "";
+    const code = await runCleanupCommand(
+      {
+        ...options,
+        promptConfirm: async () => true,
+        sessionsDir,
+        configPath,
+        clock: () => now,
+      },
+      {},
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      async () => [],
+      { listRuns: () => runs } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: (text) => (stderr += text) },
+    );
+    return { code, stdout, stderr };
+  }
+
+  beforeEach(() => {
+    tempRoot = trackedMkdtempSync(join(tmpdir(), "jarvis-session-reap-"));
+    jarvisRoot = join(tempRoot, "jarvis-home");
+    configPath = join(jarvisRoot, "config.json");
+    mkdirSync(jarvisRoot, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  function ageLog(path: string, ageDays: number): void {
+    const when = new Date(now.getTime() - ageDays * dayMs);
+    utimesSync(path, when, when);
+  }
+
+  function writeColdGzip(logPath: string, plain: string): string {
+    const gzPath = `${logPath}.gz`;
+    writeFileSync(gzPath, gzipSync(plain));
+    return gzPath;
+  }
+
+  test("tiered session log retention hot cold gone", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const shardDir = join(sessionsDir, "2026-08");
+    mkdirSync(shardDir, { recursive: true });
+
+    const hot = runRow(runId(1), "completed", now.getTime() - 5 * dayMs);
+    const warm = runRow(runId(2), "completed", now.getTime() - 20 * dayMs);
+    const coldPlain = runRow(runId(3), "completed", now.getTime() - 40 * dayMs);
+    const coldGzip = runRow(runId(4), "killed", now.getTime() - 45 * dayMs);
+    const live = runRow(runId(5), "in-progress", now.getTime() - 60 * dayMs);
+    const unsettled = runRow(runId(6), "failed", null);
+
+    const hotPath = writeSessionLog(sessionsDir, hot.id, "hot-plain");
+    const warmPath = writeSessionLog(sessionsDir, warm.id, "warm-plain");
+    const coldPlainPath = writeSessionLog(shardDir, coldPlain.id, "cold-plain");
+    const coldGzipLogPath = writeSessionLog(shardDir, coldGzip.id, "gone-plain");
+    const coldGzipPath = writeColdGzip(coldGzipLogPath, "gone-plain");
+    rmSync(coldGzipLogPath, { force: true });
+    const livePath = writeSessionLog(sessionsDir, live.id, "live");
+    const unsettledPath = writeSessionLog(sessionsDir, unsettled.id, "unsettled");
+
+    const oldOrphanPath = writeSessionLog(sessionsDir, runId(7));
+    const youngOrphanPath = writeSessionLog(shardDir, runId(8));
+    ageLog(oldOrphanPath, 40);
+    ageLog(youngOrphanPath, 5);
+
+    const runs = [hot, warm, coldPlain, coldGzip, live, unsettled];
+    const first = await runSessionCleanup(sessionsDir, runs);
+    expect(first.code).toBe(0);
+    expect(first.stdout).toContain("Reaped 3 session log(s) for cold-to-gone deletion (1 by mtime, no run row)");
+    expect(first.stdout).toContain("Reaped 3 session log(s) for hot-to-cold compression (1 by mtime, no run row)");
+
+    expect(existsSync(hotPath)).toBe(true);
+    expect(existsSync(warmPath)).toBe(false);
+    expect(existsSync(`${warmPath}.gz`)).toBe(true);
+    expect(gunzipSync(readFileSync(`${warmPath}.gz`)).toString()).toBe("warm-plain");
+    expect(existsSync(coldPlainPath)).toBe(false);
+    expect(existsSync(`${coldPlainPath}.gz`)).toBe(false);
+    expect(existsSync(coldGzipPath)).toBe(false);
+    expect(existsSync(livePath)).toBe(true);
+    expect(existsSync(unsettledPath)).toBe(true);
+    expect(existsSync(oldOrphanPath)).toBe(false);
+    expect(existsSync(`${oldOrphanPath}.gz`)).toBe(false);
+    expect(existsSync(youngOrphanPath)).toBe(true);
+
+    const second = await runSessionCleanup(sessionsDir, runs);
+    expect(second.code).toBe(0);
+    expect(second.stdout).not.toContain("hot-to-cold");
+    expect(second.stdout).not.toContain("cold-to-gone");
+  });
+
+  test("cleanup preserves closed telemetry archives through session log retention apply", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const telemetryDir = join(jarvisRoot, "telemetry");
+    mkdirSync(telemetryDir, { recursive: true });
+    const archiveMay = join(telemetryDir, "2026-05.jsonl.gz");
+    const archiveApr = join(telemetryDir, "2026-04.jsonl.gz");
+    const mayBytes = gzipSync('{"month":"2026-05"}\n');
+    const aprBytes = gzipSync('{"month":"2026-04"}\n');
+    writeFileSync(archiveMay, mayBytes);
+    writeFileSync(archiveApr, aprBytes);
+
+    const warm = runRow(runId(1), "completed", now.getTime() - 20 * dayMs);
+    const coldGzip = runRow(runId(2), "killed", now.getTime() - 45 * dayMs);
+    const warmPath = writeSessionLog(sessionsDir, warm.id, "warm-plain");
+    const coldGzipLogPath = writeSessionLog(sessionsDir, coldGzip.id, "gone-plain");
+    const coldGzipPath = writeColdGzip(coldGzipLogPath, "gone-plain");
+    rmSync(coldGzipLogPath, { force: true });
+
+    const result = await runSessionCleanup(sessionsDir, [warm, coldGzip]);
+    expect(result.code).toBe(0);
+    expect(readFileSync(archiveMay)).toEqual(mayBytes);
+    expect(readFileSync(archiveApr)).toEqual(aprBytes);
+    expect(existsSync(warmPath)).toBe(false);
+    expect(existsSync(`${warmPath}.gz`)).toBe(true);
+    expect(existsSync(coldGzipPath)).toBe(false);
+  });
+
+  test("tiered session log retention recovers interrupted compression", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const run = runRow(runId(9), "completed", now.getTime() - 20 * dayMs);
+    const plainPath = writeSessionLog(sessionsDir, run.id, "recover-me");
+    const staleGz = writeColdGzip(plainPath, "stale");
+    const tmpPath = `${plainPath}.gz.tmp`;
+    writeFileSync(tmpPath, "partial");
+
+    const result = await runSessionCleanup(sessionsDir, [run]);
+    expect(result.code).toBe(0);
+    expect(existsSync(plainPath)).toBe(false);
+    expect(existsSync(tmpPath)).toBe(false);
+    expect(existsSync(staleGz)).toBe(true);
+    expect(gunzipSync(readFileSync(staleGz)).toString()).toBe("recover-me");
+    expect(result.stdout).toContain("Reaped 1 session log(s) for hot-to-cold compression");
+  });
+
+  test("tiered session log retention dry-run per-tier summary", async () => {
+    writeRetentionConfig(7, 30);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const compress = runRow(runId(10), "completed", now.getTime() - 20 * dayMs);
+    const deleteGzip = runRow(runId(11), "failed", now.getTime() - 40 * dayMs);
+    const compressPath = writeSessionLog(sessionsDir, compress.id, "abcd");
+    const deletePlainPath = writeSessionLog(sessionsDir, deleteGzip.id, "gone");
+    const deleteGzipPath = writeColdGzip(deletePlainPath, "gone");
+    rmSync(deletePlainPath, { force: true });
+
+    const result = await runSessionCleanup(sessionsDir, [compress, deleteGzip], { dryRun: true });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Found 1 session log(s) for hot-to-cold compression: 4 plain bytes.");
+    expect(result.stdout).toContain(
+      `Found 1 session log(s) for cold-to-gone deletion: ${readFileSync(deleteGzipPath).length} gzip bytes.`,
+    );
+    expect(result.stdout).not.toContain(basename(compressPath));
+    expect(result.stdout).not.toContain(basename(deleteGzipPath));
+    expect(result.stdout).toContain("dry-run: no changes made");
+    expect(existsSync(compressPath)).toBe(true);
+    expect(existsSync(deleteGzipPath)).toBe(true);
+  });
+
+  test("session retention config default and invalid values refuse reaping", async () => {
+    const defaultRun = runRow(runId(11), "completed", now.getTime() - 91 * dayMs);
+    const defaultPath = writeSessionLog(join(jarvisRoot, "default-config-sessions"), defaultRun.id);
+
+    await runSessionCleanup(dirname(defaultPath), [defaultRun]);
+    expect(existsSync(defaultPath)).toBe(false);
+    expect(existsSync(`${defaultPath}.gz`)).toBe(false);
+
+    const invalidConfigs: unknown[] = [
+      { retention: "invalid" },
+      { retention: { sessions: { hotDays: 1, coldDays: 1.5 } } },
+      { retention: { sessions: { hotDays: 1, coldDays: 0 } } },
+      { retention: { sessions: { hotDays: 1, coldDays: -1 } } },
+      { retention: { sessions: { hotDays: 1, coldDays: "30" } } },
+    ];
+    for (const [index, config] of invalidConfigs.entries()) {
+      writeFileSync(configPath, JSON.stringify(config));
+      const otherSlicePath = join(jarvisRoot, "daemon-0000000000000099.pid");
+      if (index === 0) writeFileSync(otherSlicePath, "999999"); // dead: proves independence of session-log-config failure
+      const run = runRow(runId(20 + index), "completed", now.getTime() - 60 * dayMs);
+      const path = writeSessionLog(join(jarvisRoot, `invalid-${index}`), run.id);
+
+      const result = await runSessionCleanup(dirname(path), [run]);
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toMatch(/retention\.sessions\.(hotDays|coldDays)/);
+      expect(existsSync(path)).toBe(true);
+      if (index === 0) expect(existsSync(otherSlicePath)).toBe(false);
+    }
+  });
+
+  test("session retention skips reaping when top-level machine config is not an object", async () => {
+    writeFileSync(configPath, JSON.stringify(["not", "config"]));
+    const otherSlicePath = join(jarvisRoot, "daemon-0000000000000098.pid");
+    writeFileSync(otherSlicePath, "999999");
+    const run = runRow(runId(99), "completed", now.getTime() - 60 * dayMs);
+    const path = writeSessionLog(join(jarvisRoot, "bad-root-config"), run.id);
+
+    const result = await runSessionCleanup(dirname(path), [run]);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("Failed to load machine config");
+    expect(result.stderr).not.toContain("retention.sessions");
+    expect(existsSync(path)).toBe(true);
+    expect(existsSync(otherSlicePath)).toBe(false);
+  });
+
+  test("session retention guard preserves excluded paths", async () => {
+    writeRetentionConfig(1, 14);
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const run = runRow(runId(30), "completed", now.getTime() - 20 * dayMs);
+    const expiredPath = writeSessionLog(sessionsDir, run.id);
+    const telemetryPath = join(sessionsDir, "telemetry.jsonl");
+    const statePath = join(sessionsDir, "state", "v2.sqlite");
+    const nestedLogPath = join(sessionsDir, "nested", `${run.id}-${sessionLogStamp}.log`);
+    const malformedLogPath = join(sessionsDir, "not-a-session.log");
+    const outsidePath = join(jarvisRoot, `${run.id}-${sessionLogStamp}.log`);
+    mkdirSync(dirname(statePath), { recursive: true });
+    mkdirSync(dirname(nestedLogPath), { recursive: true });
+    writeFileSync(telemetryPath, "telemetry");
+    writeFileSync(statePath, "state");
+    writeFileSync(nestedLogPath, "nested");
+    writeFileSync(malformedLogPath, "malformed");
+    writeFileSync(outsidePath, "outside");
+    mkdirSync(join(sessionsDir, "decoy.log"));
+
+    await runSessionCleanup(sessionsDir, [run]);
+
+    expect(existsSync(expiredPath)).toBe(false);
+    expect(existsSync(`${expiredPath}.gz`)).toBe(false);
+    for (const path of [telemetryPath, statePath, nestedLogPath, malformedLogPath, outsidePath]) {
+      expect(existsSync(path)).toBe(true);
+    }
+    expect(existsSync(join(sessionsDir, "decoy.log"))).toBe(true);
+  });
+
+  test("zero run rows suppress the orphan mtime fallback", async () => {
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const path = writeSessionLog(sessionsDir, runId(60));
+    ageLog(path, 90);
+
+    const result = await runSessionCleanup(sessionsDir, []);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("session log(s) for hot-to-cold");
+    expect(result.stdout).not.toContain("session log(s) for cold-to-gone");
+    expect(existsSync(path)).toBe(true);
+  });
+});
+
+describe("hasBranchKeyedArtifactOwner", () => {
+  test("guard inversion: branch-keyed ownership treats matching branches and identified detached worktrees as owners", () => {
+    const root = join(process.env.TMPDIR || "/tmp", `jarvis-branch-owner-${Date.now()}`);
+    const projectRoot = join(root, "repo");
+    const registry = { project: { root: projectRoot } };
+    const jarvis = join(root, "jarvis-home");
+    const worktreesRoot = join(jarvis, "worktrees", "project");
+    const spec: ArtifactSpec = {
+      home: join(projectRoot, "spec"),
+      source: join(projectRoot, "spec", "feature"),
+      name: "feature",
+      branch: "implement/feature",
+    };
+    const matching = { path: join(worktreesRoot, "implement", "feature"), branch: "implement/feature" };
+    const detached = { path: join(worktreesRoot, "detached"), branch: undefined };
+    const unrelated = { path: join(worktreesRoot, "feat", "other"), branch: "feat/other" };
+    const excluded = matching.path;
+    const storeWithRuns = (runs: Array<{ worktreePath: string; specPath: string }>): StateStore =>
+      ({
+        listRuns: () => runs.map((run) => ({ project: "project", branch: "any", ...run })) as never[],
+      }) as unknown as StateStore;
+    const owning = {
+      store: storeWithRuns([
+        { worktreePath: detached.path, specPath: join(detached.path, "spec", "feature", "index.md") },
+      ]),
+      projectRoot,
+    };
+    const otherArtifact = {
+      store: storeWithRuns([
+        { worktreePath: detached.path, specPath: join(detached.path, "spec", "other", "index.md") },
+      ]),
+      projectRoot,
+    };
+    const otherWorktree = {
+      store: storeWithRuns([
+        { worktreePath: unrelated.path, specPath: join(unrelated.path, "spec", "feature", "index.md") },
+      ]),
+      projectRoot,
+    };
+
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching], jarvis)).toBe(false);
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [unrelated], jarvis)).toBe(false);
+    // A detached worktree is not a blanket owner: without identity, or with rows naming another artifact or worktree, it owns nothing.
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis)).toBe(false);
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis, otherArtifact)).toBe(
+      false,
+    );
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis, otherWorktree)).toBe(
+      false,
+    );
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis, owning)).toBe(true);
+    expect(
+      hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching, detached, unrelated], jarvis, owning),
+    ).toBe(true);
+  });
+});
+
+describe("stale-reset continuation-readable spec-path gate", () => {
+  test("includes readable markdown paths outside the project root; excludes missing paths and index-less dirs", () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-root-"));
+    const outsideFile = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-"));
+    const outsideDir = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-outside-dir-"));
+    const emptyDir = trackedMkdtempSync(join(tmpdir(), "jarvis-continuation-empty-dir-"));
+    const specFile = join(outsideFile, "index.md");
+    writeFileSync(specFile, "# Spec\n\n- [ ] [00](./00-thing.md)\n");
+    mkdirSync(outsideDir, { recursive: true });
+    writeFileSync(join(outsideDir, "index.md"), "# Spec\n\n- [ ] [00](./00-thing.md)\n");
+    try {
+      expect(isContinuationReadableSpecPath(root, specFile)).toBe(true);
+      expect(isStaleResetLandedCriteriaSpecPath(root, specFile)).toBe(false);
+      expect(isContinuationReadableSpecPath(root, outsideDir)).toBe(true);
+      expect(isContinuationReadableSpecPath(root, join(root, "missing.md"))).toBe(false);
+      expect(isContinuationReadableSpecPath(root, emptyDir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outsideFile, { recursive: true, force: true });
+      rmSync(outsideDir, { recursive: true, force: true });
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("stale-reset landed-criteria spec-path gate", () => {
+  // A chained fan-out lane's spec lives in the PRIOR stage's worktree, outside the project root.
+  // The comparison reads each file at `join(worktreePath, relative(projectRoot, absPath))`, so an
+  // out-of-root spec produces `../../.jarvis/...`, escapes the managed worktree, and the gate
+  // refuses `worktree spec unreadable` for a file that reads fine where it actually lives.
+  // Observed on chess-mvp-yolo-2 pipeline a00ca258, lane home-win-rate-display — it made the lane
+  // permanently unresumable, whose only known workaround was discarding the whole pipeline.
+  test("excludes a readable spec that resolves outside the project root", () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-landed-root-"));
+    const outside = trackedMkdtempSync(join(tmpdir(), "jarvis-landed-outside-"));
+    const specPath = join(outside, "index.md");
+    writeFileSync(specPath, "# Spec\n\n- [ ] [00 - Thing](./00-thing.md)\n");
+    try {
+      expect(existsSync(specPath)).toBe(true);
+      expect(isStaleResetLandedCriteriaSpecPath(root, specPath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("includes a readable spec inside the project root", () => {
+    const root = trackedMkdtempSync(join(tmpdir(), "jarvis-landed-root-"));
+    const specPath = join(root, "spec", "index.md");
+    mkdirSync(dirname(specPath), { recursive: true });
+    writeFileSync(specPath, "# Spec\n\n- [ ] [00 - Thing](./00-thing.md)\n");
+    try {
+      expect(isStaleResetLandedCriteriaSpecPath(root, specPath)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

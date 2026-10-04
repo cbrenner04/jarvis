@@ -1,0 +1,800 @@
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+// biome-ignore assist/source/organizeImports: SUPPORTED_… vs spawn… sorts differently on the macOS and Linux biome builds
+import {
+  aggregateExitCode,
+  defaultConcurrency,
+  defaultSpawn,
+  FAILING_TEST_FILE_MARKER,
+  failingTestFileRecord,
+  fileOutputHeader,
+  isSpawnTimeout,
+  READY_ATTEMPT_ENV,
+  resolveConcurrency,
+  runSliceTestFiles,
+  SUPPORTED_HEALTHY_FILE_BUDGET_MS,
+  sliceTests,
+  spawnTimeoutMessage,
+  validatePerFileTimeout,
+  walkSliceTestFiles,
+} from "./run-slice-tests.ts";
+import { sliceTestFiles, walkTestFiles } from "./test-slice.ts";
+
+const formerSharedRoster = [...walkTestFiles("src/shared"), ...walkTestFiles("test"), ...walkTestFiles("scripts")];
+
+function formerSharedTests(mode: "agent" | "integration"): string[] {
+  return sliceTestFiles(formerSharedRoster, mode);
+}
+
+const POLL_UNTIL_DONE_FILE = "src/commands/workflow.test.ts";
+const SUBPROCESS_SPAWNING_FILE = "src/execution/diff-derived-mutation-verifier.test.ts";
+
+describe("walkSliceTestFiles", () => {
+  test("v2 discovery includes former shared slice roster", () => {
+    const expected = [...walkTestFiles("src"), ...walkTestFiles("test"), ...walkTestFiles("scripts")].sort();
+    expect(walkSliceTestFiles()).toEqual(expected);
+  });
+
+  test("v2 discovery roster matches former sharedTests baseline", () => {
+    const baselineAgent = formerSharedTests("agent");
+    const baselineIntegration = formerSharedTests("integration");
+    const v2Agent = sliceTests("agent");
+    const v2Integration = sliceTests("integration");
+    for (const file of baselineAgent) {
+      expect(v2Agent).toContain(file);
+      expect(v2Integration).not.toContain(file);
+    }
+    for (const file of baselineIntegration) {
+      expect(v2Integration).toContain(file);
+      expect(v2Agent).not.toContain(file);
+    }
+  });
+});
+
+describe("isSpawnTimeout", () => {
+  test("detects a SIGKILL with null status as a timeout", () => {
+    expect(isSpawnTimeout({ signal: "SIGKILL", status: null })).toBe(true);
+  });
+
+  test("does not treat a normal SIGKILL exit as a timeout when status is set", () => {
+    expect(isSpawnTimeout({ signal: "SIGKILL", status: 137 })).toBe(false);
+  });
+
+  test("does not treat a clean exit as a timeout", () => {
+    expect(isSpawnTimeout({ signal: null, status: 0 })).toBe(false);
+  });
+
+  test("does not treat a non-SIGKILL signal as a timeout", () => {
+    expect(isSpawnTimeout({ signal: "SIGTERM", status: null })).toBe(false);
+  });
+});
+
+describe("spawnTimeoutMessage", () => {
+  test("per-file loop names the mode and file", () => {
+    expect(spawnTimeoutMessage("integration", "src/foo.test.ts")).toBe(
+      'error: agent "integration" test run timed out or was killed on file "src/foo.test.ts"\n',
+    );
+  });
+
+  test("agent mode names the mode without a file", () => {
+    expect(spawnTimeoutMessage("agent")).toBe('error: agent "agent" test run timed out or was killed\n');
+  });
+});
+
+describe("defaultConcurrency", () => {
+  test.each([
+    { parallelism: 18, expected: 9 },
+    { parallelism: 4, expected: 2 },
+    { parallelism: 3, expected: 1 },
+    { parallelism: 1, expected: 1 },
+  ])("halves a stubbed parallelism of $parallelism with a floor of 1", ({ parallelism, expected }) => {
+    expect(defaultConcurrency(parallelism)).toBe(expected);
+  });
+});
+
+describe("resolveConcurrency", () => {
+  test("an explicit override wins over the env var and the derived default", () => {
+    expect(resolveConcurrency(5, "3", 18)).toBe(5);
+  });
+
+  test("the env var wins over the derived default when no explicit override is given", () => {
+    expect(resolveConcurrency(undefined, "3", 18)).toBe(3);
+  });
+
+  test("a malformed env var falls back to the derived default", () => {
+    expect(resolveConcurrency(undefined, "not-a-number", 18)).toBe(9);
+  });
+
+  test("a zero env var falls back to the derived default", () => {
+    expect(resolveConcurrency(undefined, "0", 18)).toBe(9);
+  });
+
+  test("an unset env var falls back to the derived default", () => {
+    expect(resolveConcurrency(undefined, undefined, 18)).toBe(9);
+  });
+
+  test("an explicit zero is accepted (clamps to serial elsewhere)", () => {
+    expect(resolveConcurrency(0, "3", 18)).toBe(0);
+  });
+
+  test("throws on a NaN explicit override instead of silently producing a zero-worker pool", () => {
+    expect(() => resolveConcurrency(Number.NaN, "3", 18)).toThrow();
+  });
+
+  test("throws on a fractional explicit override", () => {
+    expect(() => resolveConcurrency(1.5, "3", 18)).toThrow();
+  });
+
+  test("throws on a negative explicit override", () => {
+    expect(() => resolveConcurrency(-1, "3", 18)).toThrow();
+  });
+});
+
+describe("defaultSpawn", () => {
+  test("prints then exceeds a small injected timeout: timedOut true with pre-kill output preserved", async () => {
+    const outcome = await defaultSpawn("bash", ["-c", "echo hi; sleep 5"], { timeout: 200 });
+
+    expect(outcome.timedOut).toBe(true);
+    expect(outcome.stdout).toBe("hi\n");
+  }, 3_000);
+
+  test("a within-budget kill is reported as a failure, not a timeout", async () => {
+    const outcome = await defaultSpawn("bash", ["-c", "kill -9 $$"], { timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS });
+
+    expect(outcome.timedOut).toBe(false);
+    expect(outcome.signal).toBe("SIGKILL");
+  });
+
+  test("a spawn error (e.g. ENOENT) settles as a failure instead of hanging", async () => {
+    const outcome = await defaultSpawn("definitely-not-a-real-command-xyz", [], {
+      timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS,
+    });
+
+    expect(outcome.timedOut).toBe(false);
+    expect(outcome.status).not.toBe(0);
+    expect(outcome.stderr).toContain("definitely-not-a-real-command-xyz");
+  });
+});
+
+describe("runSliceTestFiles", () => {
+  afterEach(() => {
+    // biome-ignore lint/suspicious/noExplicitAny: bun:test mock restore is untyped
+    (process.stderr.write as any).mockRestore?.();
+    // biome-ignore lint/suspicious/noExplicitAny: bun:test mock restore is untyped
+    (process.stdout.write as any).mockRestore?.();
+  });
+
+  test("agent mode continues past a timed-out file and still runs the rest", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const calls: string[] = [];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      calls.push(file);
+      if (file === "hung.test.ts") {
+        return { status: null, signal: "SIGKILL" as const, stdout: "", stderr: "", timedOut: true };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", ["hung.test.ts", "ok.test.ts"], spawn, "agent", 1);
+
+    expect(stderr).toHaveBeenCalledWith(spawnTimeoutMessage("agent", "hung.test.ts"));
+    expect(calls).toEqual(["hung.test.ts", "ok.test.ts"]);
+    expect(aggregateExitCode(results)).not.toBe(0);
+  });
+
+  test("non-agent mode stops the run on a timed-out file", async () => {
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const calls: string[] = [];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      calls.push(file);
+      if (file === "hung.test.ts") {
+        return { status: null, signal: "SIGKILL" as const, stdout: "", stderr: "", timedOut: true };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("integration", ["hung.test.ts", "ok.test.ts"], spawn, "agent", 1);
+
+    expect(calls).toEqual(["hung.test.ts"]);
+    expect(aggregateExitCode(results)).not.toBe(0);
+  });
+
+  test("an ordinary non-zero exit stops the run regardless of mode", async () => {
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const calls: string[] = [];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      calls.push(file);
+      if (file === "failing.test.ts") {
+        return { status: 1, signal: null, stdout: "", stderr: "", timedOut: false };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", ["failing.test.ts", "ok.test.ts"], spawn, "agent", 1);
+
+    expect(calls).toEqual(["failing.test.ts"]);
+    expect(aggregateExitCode(results)).toBe(1);
+  });
+
+  test("flushes a settled file's captured output as one block headed by its file name", async () => {
+    const stdout = spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const spawn = async () => ({
+      status: 0,
+      signal: null,
+      stdout: "line one\n",
+      stderr: "line two\n",
+      timedOut: false,
+    });
+
+    await runSliceTestFiles("agent", ["ok.test.ts"], spawn, "agent", 1);
+
+    expect(stdout).toHaveBeenCalledWith(`${fileOutputHeader("ok.test.ts")}line one\nline two\n`);
+  });
+
+  test("emits one correlated record for every failed pooled settlement and none for a healthy co-runner", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const outcomes = new Map([
+      ["v2/nonzero.test.ts", { status: 2, signal: null, timedOut: false }],
+      ["v2/timeout.test.ts", { status: null, signal: "SIGKILL" as const, timedOut: true }],
+      ["v2/signal.test.ts", { status: 143, signal: "SIGTERM" as const, timedOut: false }],
+      ["v2/null-status.test.ts", { status: null, signal: null, timedOut: false }],
+      ["v2/healthy.test.ts", { status: 0, signal: null, timedOut: false }],
+    ]);
+    const files = [...outcomes.keys()];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const outcome = outcomes.get(args[1] ?? "");
+      if (outcome === undefined) {
+        throw new Error(`missing outcome for ${args[1] ?? ""}`);
+      }
+      return { ...outcome, stdout: "", stderr: "" };
+    };
+
+    await runSliceTestFiles("agent", files, spawn, "agent", files.length, "ready-3.1");
+
+    const records = stderr.mock.calls
+      .map(([chunk]) => String(chunk))
+      .filter((chunk) => chunk.startsWith(FAILING_TEST_FILE_MARKER));
+    expect(records).toEqual(files.slice(0, -1).map((file) => failingTestFileRecord(file, "ready-3.1")));
+  });
+
+  test.each([
+    {
+      name: "non-zero",
+      outcome: { status: 1, signal: null, timedOut: false },
+    },
+    {
+      name: "timed-out",
+      outcome: { status: null, signal: "SIGKILL" as const, timedOut: true },
+    },
+    {
+      name: "signal",
+      outcome: { status: 143, signal: "SIGTERM" as const, timedOut: false },
+    },
+    {
+      name: "null-status",
+      outcome: { status: null, signal: null, timedOut: false },
+    },
+  ])("emits one correlated record for a $name isolated settlement", async ({ outcome }) => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const healthy = "v2/healthy.sandbox-unrunnable.test.ts";
+    const failing = "v2/failing.sandbox-unrunnable.test.ts";
+    const spawn = async (_cmd: string, args: string[]) => ({
+      ...(args[1] === failing ? outcome : { status: 0, signal: null, timedOut: false }),
+      stdout: "",
+      stderr: "",
+    });
+
+    await runSliceTestFiles("agent", [healthy, failing], spawn, "agent", 2, "ready-4.2");
+
+    const records = stderr.mock.calls
+      .map(([chunk]) => String(chunk))
+      .filter((chunk) => chunk.startsWith(FAILING_TEST_FILE_MARKER));
+    expect(records).toEqual([failingTestFileRecord(failing, "ready-4.2")]);
+  });
+
+  test("a healthy-only run emits no failing-file records", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const spawn = async () => ({ status: 0, signal: null, stdout: "", stderr: "", timedOut: false });
+
+    await runSliceTestFiles("agent", ["v2/healthy.test.ts"], spawn, "agent", 1, "ready-2.1");
+
+    expect(stderr.mock.calls.some(([chunk]) => String(chunk).startsWith(FAILING_TEST_FILE_MARKER))).toBe(false);
+  });
+
+  test("emitFailingTestFileRecords false suppresses failing-file records on a non-zero settlement", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const spawn = async () => ({ status: 1, signal: null, stdout: "", stderr: "", timedOut: false });
+
+    await runSliceTestFiles("agent", ["probe-target.test.ts"], spawn, "agent", 1, "ready-3.1", {
+      emitFailingTestFileRecords: false,
+    });
+
+    expect(stderr.mock.calls.some(([chunk]) => String(chunk).startsWith(FAILING_TEST_FILE_MARKER))).toBe(false);
+  });
+
+  test("uses the forwarded ready attempt identity when no explicit correlation is supplied", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const previous = process.env[READY_ATTEMPT_ENV];
+    process.env[READY_ATTEMPT_ENV] = "ready-5.2";
+    const spawn = async () => ({ status: 1, signal: null, stdout: "", stderr: "", timedOut: false });
+
+    try {
+      await runSliceTestFiles("agent", ["v2/failing.test.ts"], spawn, "agent", 1);
+    } finally {
+      if (previous === undefined) {
+        delete process.env[READY_ATTEMPT_ENV];
+      } else {
+        process.env[READY_ATTEMPT_ENV] = previous;
+      }
+    }
+
+    expect(stderr).toHaveBeenCalledWith(failingTestFileRecord("v2/failing.test.ts", "ready-5.2"));
+  });
+
+  test("emits a timed-out file's output captured before the kill instead of dropping it", async () => {
+    const stdout = spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const spawn = async () => ({
+      status: null,
+      signal: "SIGKILL" as const,
+      stdout: "partial output before kill\n",
+      stderr: "",
+      timedOut: true,
+    });
+
+    await runSliceTestFiles("agent", ["hung.test.ts"], spawn, "agent", 1);
+
+    expect(stdout).toHaveBeenCalledWith(`${fileOutputHeader("hung.test.ts")}partial output before kill\n`);
+  });
+
+  test("classifies a non-timeout SIGKILL as an ordinary failure, not a timeout", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const spawn = async () => ({
+      status: null,
+      signal: "SIGKILL" as const,
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    });
+
+    const results = await runSliceTestFiles("agent", ["killed.test.ts", "ok.test.ts"], spawn, "agent", 1);
+
+    expect(stderr).not.toHaveBeenCalledWith(spawnTimeoutMessage("agent", "killed.test.ts"));
+    expect(results).toEqual([{ file: "killed.test.ts", timedOut: false, status: null }]);
+  });
+
+  test("overlaps files up to the concurrency limit and no further", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const spawn = async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      inFlight -= 1;
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+    const files = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts", "e.test.ts", "f.test.ts"];
+
+    await runSliceTestFiles("agent", files, spawn, "agent", 3);
+
+    expect(maxInFlight).toBe(3);
+  });
+
+  test("a non-finite concurrency never yields a zero-worker pool that reports success without running files", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const spawn = async () => ({ status: 0, signal: null, stdout: "", stderr: "", timedOut: false });
+
+    const results = await runSliceTestFiles("agent", ["a.test.ts", "b.test.ts"], spawn, "agent", Number.NaN);
+
+    expect(results.map((r) => r.file).sort()).toEqual(["a.test.ts", "b.test.ts"]);
+  });
+
+  test("a spawn error is reported as a failure for that file, and other pooled files still complete", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      if (file === "enoent.test.ts") {
+        return {
+          status: 1,
+          signal: null,
+          stdout: "",
+          stderr: 'error: failed to spawn "bun": Error: spawn ENOENT\n',
+          timedOut: false,
+        };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", ["enoent.test.ts", "ok.test.ts"], spawn, "agent", 2);
+
+    expect(results.find((r) => r.file === "enoent.test.ts")).toEqual({
+      file: "enoent.test.ts",
+      timedOut: false,
+      status: 1,
+    });
+  });
+
+  test("a concurrency limit of 1 reproduces serial execution and roster-order settlement", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const files = ["a.test.ts", "b.test.ts", "c.test.ts"];
+    const spawn = async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", files, spawn, "agent", 1);
+
+    expect(maxInFlight).toBe(1);
+    expect(results.map((r) => r.file)).toEqual(files);
+  });
+
+  test("arms each pooled child with the full per-file timeout independent of sibling runtime", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const timeouts: number[] = [];
+    const spawn = async (_cmd: string, args: string[], options: { timeout: number }) => {
+      timeouts.push(options.timeout);
+      if (args[1] === "slow.test.ts") {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    await runSliceTestFiles("agent", ["slow.test.ts", "fast.test.ts"], spawn, "agent", 2);
+
+    expect(timeouts).toEqual([SUPPORTED_HEALTHY_FILE_BUDGET_MS, SUPPORTED_HEALTHY_FILE_BUDGET_MS]);
+  });
+
+  test("a timed-out file is killed and reported by name while pooled co-runners keep running to completion", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const files = ["hung.test.ts", "ok-1.test.ts", "ok-2.test.ts"];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      if (file === "hung.test.ts") {
+        return { status: null, signal: "SIGKILL" as const, stdout: "", stderr: "", timedOut: true };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", files, spawn, "agent", 3);
+
+    expect(stderr).toHaveBeenCalledWith(spawnTimeoutMessage("agent", "hung.test.ts"));
+    expect(results.map((r) => r.file).sort()).toEqual([...files].sort());
+    expect(results.find((r) => r.file === "hung.test.ts")?.timedOut).toBe(true);
+  });
+
+  test("agent mode reports every timed-out file across concurrent workers and keeps admitting", async () => {
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const files = ["hung-1.test.ts", "hung-2.test.ts", "ok.test.ts"];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      if (file.startsWith("hung")) {
+        return { status: null, signal: "SIGKILL" as const, stdout: "", stderr: "", timedOut: true };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", files, spawn, "agent", 2);
+
+    expect(results.map((r) => r.file).sort()).toEqual([...files].sort());
+    expect(
+      results
+        .filter((r) => r.timedOut)
+        .map((r) => r.file)
+        .sort(),
+    ).toEqual(["hung-1.test.ts", "hung-2.test.ts"]);
+  });
+
+  test("in-flight pooled files complete and report even after a sibling failure stops admission", async () => {
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const files = ["failing.test.ts", "slow-ok.test.ts", "never.test.ts"];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      if (file === "failing.test.ts") {
+        return { status: 1, signal: null, stdout: "", stderr: "", timedOut: false };
+      }
+      if (file === "slow-ok.test.ts") {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", files, spawn, "agent", 2);
+
+    expect(results.map((r) => r.file).sort()).toEqual(["failing.test.ts", "slow-ok.test.ts"]);
+  });
+
+  test("declared poll and subprocess suites are never in flight together", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const inFlight = new Set<string>();
+    let overlapped = false;
+    let releaseGate = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      inFlight.add(file);
+      overlapped ||= inFlight.has(POLL_UNTIL_DONE_FILE) && inFlight.has(SUBPROCESS_SPAWNING_FILE);
+      await gate;
+      inFlight.delete(file);
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const run = runSliceTestFiles("agent", [POLL_UNTIL_DONE_FILE, SUBPROCESS_SPAWNING_FILE], spawn, "agent", 2);
+    releaseGate();
+    await run;
+
+    expect(overlapped).toBeFalse();
+  });
+
+  test("stop-admitting state carries across declared and load-sensitive batches", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const isolated = "later.sandbox-unrunnable.test.ts";
+    const nonAgentCalls: string[] = [];
+    const nonAgentSpawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      nonAgentCalls.push(file);
+      return { status: file === POLL_UNTIL_DONE_FILE ? 1 : 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    await runSliceTestFiles("integration", [POLL_UNTIL_DONE_FILE, SUBPROCESS_SPAWNING_FILE], nonAgentSpawn, "v2", 2);
+
+    expect(nonAgentCalls).toEqual([POLL_UNTIL_DONE_FILE]);
+
+    const agentCalls: string[] = [];
+    const agentSpawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      agentCalls.push(file);
+      if (file === POLL_UNTIL_DONE_FILE) {
+        return { status: null, signal: "SIGKILL" as const, stdout: "", stderr: "", timedOut: true };
+      }
+      return {
+        status: file === SUBPROCESS_SPAWNING_FILE ? 1 : 0,
+        signal: null,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+      };
+    };
+
+    await runSliceTestFiles("agent", [POLL_UNTIL_DONE_FILE, SUBPROCESS_SPAWNING_FILE, isolated], agentSpawn, "v2", 2);
+
+    expect(agentCalls).toEqual([POLL_UNTIL_DONE_FILE, SUBPROCESS_SPAWNING_FILE]);
+  });
+});
+
+describe("load-sensitive isolation", () => {
+  afterEach(() => {
+    // biome-ignore lint/suspicious/noExplicitAny: bun:test mock restore is untyped
+    (process.stderr.write as any).mockRestore?.();
+    // biome-ignore lint/suspicious/noExplicitAny: bun:test mock restore is untyped
+    (process.stdout.write as any).mockRestore?.();
+  });
+
+  test("isolated files observe exactly one concurrent runner for their whole window while pooled files overlap up to the limit", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    let inFlight = 0;
+    let maxDuringIsolated = 0;
+    let maxDuringPool = 0;
+    const files = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts", "iso.sandbox-unrunnable.test.ts"];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      inFlight += 1;
+      if (file.endsWith(".sandbox-unrunnable.test.ts")) {
+        maxDuringIsolated = Math.max(maxDuringIsolated, inFlight);
+      } else {
+        maxDuringPool = Math.max(maxDuringPool, inFlight);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      inFlight -= 1;
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", files, spawn, "agent", 3);
+
+    expect(maxDuringIsolated).toBe(1);
+    expect(maxDuringPool).toBe(3);
+    expect(results.map((r) => r.file).sort()).toEqual([...files].sort());
+  });
+
+  test("no isolated file starts while a pooled file is in flight", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    let poolInFlight = 0;
+    let isolatedStartedWhilePoolInFlight = false;
+    const files = ["a.test.ts", "b.test.ts", "iso.sandbox-unrunnable.test.ts"];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      if (file.endsWith(".sandbox-unrunnable.test.ts")) {
+        if (poolInFlight > 0) {
+          isolatedStartedWhilePoolInFlight = true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+      }
+      poolInFlight += 1;
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      poolInFlight -= 1;
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    await runSliceTestFiles("agent", files, spawn, "agent", 2);
+
+    expect(isolatedStartedWhilePoolInFlight).toBe(false);
+  });
+
+  test("agent mode continues past a timed-out isolated file and keeps running later isolated files", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const files = ["hung.sandbox-unrunnable.test.ts", "ok.sandbox-unrunnable.test.ts"];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      if (file === "hung.sandbox-unrunnable.test.ts") {
+        return { status: null, signal: "SIGKILL" as const, stdout: "", stderr: "", timedOut: true };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", files, spawn, "agent", 1);
+
+    expect(stderr).toHaveBeenCalledWith(spawnTimeoutMessage("agent", "hung.sandbox-unrunnable.test.ts"));
+    expect(results.map((r) => r.file).sort()).toEqual([...files].sort());
+  });
+
+  test("non-agent mode stops after an isolated file times out and never runs the next isolated file", async () => {
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const calls: string[] = [];
+    const files = ["hung.sandbox-unrunnable.test.ts", "ok.sandbox-unrunnable.test.ts"];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      calls.push(file);
+      if (file === "hung.sandbox-unrunnable.test.ts") {
+        return { status: null, signal: "SIGKILL" as const, stdout: "", stderr: "", timedOut: true };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("integration", files, spawn, "agent", 1);
+
+    expect(calls).toEqual(["hung.sandbox-unrunnable.test.ts"]);
+    expect(results).toEqual([{ file: "hung.sandbox-unrunnable.test.ts", timedOut: true, status: null }]);
+  });
+
+  test("a plain failure in an isolated file stops every mode from admitting further isolated files, and is reported by name", async () => {
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const calls: string[] = [];
+    const files = ["failing.sandbox-unrunnable.test.ts", "ok.sandbox-unrunnable.test.ts"];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      calls.push(file);
+      if (file === "failing.sandbox-unrunnable.test.ts") {
+        return { status: 1, signal: null, stdout: "", stderr: "", timedOut: false };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", files, spawn, "agent", 1);
+
+    expect(calls).toEqual(["failing.sandbox-unrunnable.test.ts"]);
+    expect(results.find((r) => r.file === "failing.sandbox-unrunnable.test.ts")?.status).toBe(1);
+  });
+
+  test("every audited heavy file runs with no co-runner in either direction", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const auditedFiles = [
+      "src/daemon/daemon-workflow-start.test.ts",
+      "src/execution/runtime-smoke-verifier.test.ts",
+      "src/daemon/daemon-resume.test.ts",
+    ];
+    const pooledFillers = ["filler-a.test.ts", "filler-b.test.ts", "filler-c.test.ts", "filler-d.test.ts"];
+    let seq = 0;
+    const windows = new Map<string, [number, number]>();
+    const recordingSpawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      const start = seq++;
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      const end = seq++;
+      windows.set(file, [start, end]);
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runSliceTestFiles("agent", [...auditedFiles, ...pooledFillers], recordingSpawn, "v2", 3);
+
+    expect(results).toHaveLength(auditedFiles.length + pooledFillers.length);
+    const intersects = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
+    for (const auditedFile of auditedFiles) {
+      const auditedWindow = windows.get(auditedFile);
+      if (auditedWindow === undefined) {
+        throw new Error(`missing recorded window for ${auditedFile}`);
+      }
+      for (const [otherFile, otherWindow] of windows) {
+        if (otherFile !== auditedFile) {
+          expect(intersects(auditedWindow, otherWindow)).toBe(false);
+        }
+      }
+    }
+
+    let maxFillerOverlap = 0;
+    for (const fillerA of pooledFillers) {
+      const windowA = windows.get(fillerA);
+      if (windowA === undefined) {
+        throw new Error(`missing recorded window for ${fillerA}`);
+      }
+      const overlap = pooledFillers.filter((fillerB) => {
+        const windowB = windows.get(fillerB);
+        return windowB !== undefined && (fillerB === fillerA || intersects(windowA, windowB));
+      }).length;
+      maxFillerOverlap = Math.max(maxFillerOverlap, overlap);
+    }
+    expect(maxFillerOverlap).toBeGreaterThan(1);
+  });
+});
+
+describe("aggregateExitCode", () => {
+  test("is non-zero when any result failed or timed out regardless of settle order", () => {
+    const results = [
+      { file: "a.test.ts", timedOut: false, status: 1 },
+      { file: "b.test.ts", timedOut: false, status: 0 },
+    ];
+
+    expect(aggregateExitCode(results)).not.toBe(0);
+  });
+
+  test("is zero when every result is a clean pass", () => {
+    const results = [
+      { file: "a.test.ts", timedOut: false, status: 0 },
+      { file: "b.test.ts", timedOut: false, status: 0 },
+    ];
+
+    expect(aggregateExitCode(results)).toBe(0);
+  });
+});
+
+describe("validatePerFileTimeout", () => {
+  test.each([
+    { name: "below the supported healthy file budget", timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS - 1, throws: true },
+    { name: "equal to the supported healthy file budget", timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS, throws: false },
+    { name: "above the supported healthy file budget", timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS + 1, throws: false },
+  ])("$name", ({ timeout, throws }) => {
+    const call = () => validatePerFileTimeout(timeout);
+    if (throws) {
+      expect(call).toThrow();
+    } else {
+      expect(call).not.toThrow();
+    }
+  });
+});

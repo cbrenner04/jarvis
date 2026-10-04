@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { findUnboundedSubprocessViolations } from "./guard-unbounded-subprocess.ts";
 
-function violations(source: string, file = "v2/src/example.ts") {
+function violations(source: string, file = "src/example.ts") {
   return findUnboundedSubprocessViolations([{ file, source }]);
 }
 
@@ -39,14 +39,14 @@ describe("unbounded subprocess guard", () => {
       'spawn("bash", ["-c", cmd]);',
       'spawn("git", ["fetch"]);',
     ].join("\n");
-    expect(violations(source)).toEqual([{ file: "v2/src/example.ts", line: 4, name: "spawn" }]);
+    expect(violations(source)).toEqual([{ file: "src/example.ts", line: 4, name: "spawn" }]);
   });
 
   test("ignores type-only imports, tests, docs, and non-production files", () => {
     const source = 'import { spawn } from "node:child_process";\nspawn("bash", ["-c", cmd]);';
     expect(violations('import type { spawn } from "node:child_process";')).toEqual([]);
-    expect(violations(source, "v2/src/example.test.ts")).toEqual([]);
-    expect(violations(source, "v2/docs/research/example.ts")).toEqual([]);
+    expect(violations(source, "src/example.test.ts")).toEqual([]);
+    expect(violations(source, "docs/research/example.ts")).toEqual([]);
     expect(violations(source, "scripts/example.ts")).toEqual([]);
   });
 });

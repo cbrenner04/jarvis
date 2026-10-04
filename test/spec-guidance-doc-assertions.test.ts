@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readSpecGuidance } from "../v2/src/shared/spec-guidance-path.ts";
+import { readSpecGuidance } from "../src/shared/spec-guidance-path.ts";
 
 const SPEC_GUIDANCE = readSpecGuidance();
 const RULE_OUT_GUIDANCE =

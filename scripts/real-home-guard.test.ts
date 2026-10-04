@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../v2/src/shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../src/shared/tracked-temp-dir.test-support.ts";
 import {
   diffRealHomeSnapshots,
   type RealHomeSnapshot,

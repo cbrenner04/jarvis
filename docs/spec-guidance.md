@@ -1,0 +1,92 @@
+# Spec Guidance for Operators
+
+Stable guidance for operators authoring and running Jarvis specs. Agent contracts (index shape, subspec sections, acceptance-criteria rules): [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md), which the harness injects into plan and intent prompts.
+
+## Spec location conventions
+
+### In-repo specs (committed)
+
+Specs authored by `jarvis run workflow plan` under `projects.<key>.specs: "repo"` live inside the target repository under the configured **target directory** with a filesystem-safe UTC timestamp prefix and a descriptive slug:
+
+`<targetDir>/<UTC-timestamp>-<slug>/`
+
+For the jarvis project `<targetDir>` is `spec` (project `plan.targetDir`); per-run `--target-dir` has highest precedence, then the seed's or ready-intent's canonical parent, then project config, then `spec`. Precedence detail: [`workflow-runner.md`](./workflow-runner.md#authoring-helper-and-presets). Plan branches stay untimestamped (`plan/<name>` under `~/.jarvis/worktrees`) even though files land under the timestamped directory.
+
+### External specs (no-commit)
+
+Projects with `specs: "external"` (the default) keep planning artifacts in Jarvis-owned storage: `~/.jarvis/specs/<project-safe-id>/` (seeds, ready-intents, `plans/<name>/`, `plans/completed/<name>/`). These specs are not committed to the target directory; they are ready to run immediately and remain for reference and re-runs. Home layout: [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
+
+### Index-routed shape
+
+```text
+<targetDir>/<UTC-timestamp>-<slug>/index.md
+<targetDir>/<UTC-timestamp>-<slug>/00-first-task.md
+<targetDir>/<UTC-timestamp>-<slug>/01-second-task.md
+```
+
+`index.md` is the routing file: a GitHub-style task list whose items link to atomic subspec files. An optional `repo: owner/target-repo` line names the target repository portably (HTTPS URL, SSH URL, or slug); the harness resolves the project from the registry (`jarvis init`), so the line is metadata, not routing.
+
+```md
+# <Feature>
+
+repo: owner/target-repo
+
+- [ ] [00 - First task](./00-first-task.md)
+- [ ] [01 - Second task](./01-second-task.md)
+```
+
+Index links may carry trailing annotations, such as `- [ ] [Work](./00-work.md) (after 00)`. Publication extracts the checkbox link and ignores the annotation; leading prose before the checkbox remains invalid. Missing-link failures distinguish absent file references from mentions without a parseable checkbox link.
+
+During plan-draft the agent writes to `.jarvis-plan-stage/` in the worktree before landing to the durable path; staging accepts flat files or exactly one nested `spec/<name>/` tree, flattened before normalization. Implement runs target `index.md` (`jarvis run workflow implement --spec <index.md>`), never a subspec directly.
+
+## Land the spec before implementing it
+
+New specs must be merged to `main` before implementation begins. Jarvis runs against the spec on disk, so a spec that exists only on a feature branch drifts from whatever the implementation branch does:
+
+1. Create the spec on a branch and open a PR with **only** the spec files.
+2. Merge the spec PR.
+3. Start a separate implement run for the implementation work.
+
+Do not bundle spec authoring and implementation in one PR. The merge-first rule applies to plan-generated specs the same as hand-written ones.
+
+## Plan same-seam siblings serially
+
+Sibling seeds/intents that edit the same code seam must be planned (and implemented) one at a time, each against the merged result of the previous one — never fanned out in parallel off a shared base. Parallel-planned siblings encode the pre-fix vocabulary of that base; the first to land reshapes the seam and stales every other spec (observed on the publication/ready-finalize cluster, PR #1620). Parallel fan-out is fine across disjoint seams.
+
+## Authoring with `jarvis run workflow intent` and `plan`
+
+`intent` splits one seed into reviewed, one-per-surface ready-intents under `<targetDir>/ready-intents/` and opens a draft PR. `plan` consumes one ready-intent into a spec tree conforming to the agent core (index with H1 and task list, numbered subspecs each with an exact `## Acceptance criteria` section), runs its review passes, and opens a draft PR. The plan agent authors the numbered subspecs; Jarvis validates their shape and index links but runs no post-hoc surface split. Both commands accept `--target-dir <dir>`. Preset contracts and flags: [`workflow-runner.md`](./workflow-runner.md).
+
+For an independent intent with no prerequisites, leave the `## Prerequisites` body empty or write `none`; landing normalizes a `none`/`None.` body to empty. Split landing requires every other prerequisite bullet to end with `(delivered by: <name>)` (another intent in the same split) or `(already true: <reason>)`; see [workflow-runner.md](./workflow-runner.md). Pipeline fan-out derives lane order from those markers: lanes linked by `(delivered by: …)` serial-chain providers-first, the rest run concurrently off `main`; ready-intent frontmatter `independent: true|false` overrides the inference ([pipeline-execution.md § Fan-out lanes](./pipeline-execution.md#fan-out-lanes)).
+
+### Seed ratings
+
+A seed's frontmatter carries `name:` plus `risk:` and `effort:` ratings. New seeds should include both; each is a separate judgment and neither substitutes for the other. One closed scale serves both dimensions (`src/shared/seed-metadata.ts`: `RATING_LEVELS`, `parseSeedMetadata`). The same vocabulary is what project minimums and `jarvis pipeline start --risk` / `--effort` use.
+
+```markdown
+---
+name: seed-frontmatter-carries-risk-and-effort
+risk: medium
+effort: low
+---
+```
+
+`risk` — consequences of getting the change wrong:
+
+- `low` — contained; a wrong change is caught by scoped tests or reverted trivially (a doc section, a log line, a test fixture).
+- `medium` — a wrong change degrades one workflow or surface until fixed (a CLI flag, a parser, one stage's dispatch rule).
+- `high` — a wrong change corrupts durable state, loses work, or stalls every run (state-store migration, daemon dispatch, git publication).
+
+`effort` — expected size of the change:
+
+- `low` — one surface, a handful of files, one sitting (add a frontmatter field).
+- `medium` — one surface with several linked edits and tests across a seam (a new subcommand with persistence).
+- `high` — multiple surfaces or a cross-stage protocol change; expect several subspecs (a new pipeline stage).
+
+Values are exact lowercase; `intent` refuses a seed whose supplied rating is off the scale, naming the field (`effort:` must be one of low, medium, high; got "extreme"). Parsing alone does not satisfy pipeline admission: `parseSeedMetadata` accepts omitted ratings, but rating-based `pipeline start` (no explicit `projects.<key>.pipeline.name`) refuses with `unresolved-rating` when neither frontmatter nor `--risk` / `--effort` supplies a dimension — project `minimumRisk` / `minimumEffort` are floors at admission, not defaults. Legacy seeds without ratings must pass `--risk` and/or `--effort` at `pipeline start` until frontmatter is migrated (or set `pipeline.name` to bypass rating selection). Inline `--seed-text` is parsed the same way as a file seed; each CLI flag overrides only its dimension's seed value when present.
+
+The `## Decisions` section is authored as a Markdown bullet list (`- entry`), one entry per bullet — bare consecutive lines soft-wrap into a single paragraph and fail the `no-hard-wrap` lint.
+
+Review the generated index and subspecs on the PR; edit the files directly if needed, then merge. Once merged, the spec is available to `implement`. Plan-generated specs follow the same merge-first rule.
+
+When work starts from a structured index (a feature checklist, a work queue): treat the item plus matching context docs as source input, write a concise build brief, draft with `intent`/`plan`, implement with `implement`. Do not frame work-start prompts as "draft a spec" — done is merged implementation code, not generated spec artifacts.

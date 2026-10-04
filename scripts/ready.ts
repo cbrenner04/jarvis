@@ -2,10 +2,10 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { gitDir } from "../v2/src/shared/git.ts";
-import { realSubprocessRunner, type SubprocessRunner } from "../v2/src/shared/subprocess.ts";
+import { gitDir } from "../src/shared/git.ts";
+import { realSubprocessRunner, type SubprocessRunner } from "../src/shared/subprocess.ts";
 import type { ScopedTests } from "./ci-test-scope.ts";
-import { READY_ATTEMPT_ENV } from "./run-v2-tests.ts";
+import { READY_ATTEMPT_ENV } from "./run-slice-tests.ts";
 
 // 30 minutes — run ceiling (JARVIS_READY_TIMEOUT_MS), a backstop rather than the normal bound.
 // Sized so a flake-retry still arms a fresh full test budget on a *measured* run: aggregate
@@ -14,7 +14,7 @@ import { READY_ATTEMPT_ENV } from "./run-v2-tests.ts";
 // It does not cover the budget worst case (every step consuming its full budget plus a retry, ~38
 // min) — if the suite ever grows into that range the retry's budget gets clamped by the ceiling and
 // the kill is attributed to "run ceiling" in stderr. Raise this constant (or cut suite duration —
-// see the process-spawn seed) if that starts happening. See v2/docs/test-writing.md.
+// see the process-spawn seed) if that starts happening. See docs/test-writing.md.
 export const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 export const GRACE_PERIOD_MS = 5000; // 5 seconds for SIGTERM before SIGKILL
 export const TIMEOUT_EXIT_CODE = 124; // Matches GNU timeout(1)
@@ -25,14 +25,14 @@ export const READY_STEP_COMPLETION_MARKER = "JARVIS_READY_STEP_COMPLETED ";
 export const READY_STEP_START_MARKER = "JARVIS_READY_STEP_STARTED ";
 
 // Per-step budgets: sized to what each step does, armed fresh per step (not shrunk by prior
-// steps' consumption). See v2/docs/test-writing.md for the aggregate test-step measurement.
+// steps' consumption). See docs/test-writing.md for the aggregate test-step measurement.
 export const INSTALL_STEP_BUDGET_MS = 3 * 60 * 1000; // 3 minutes
 export const CHECK_STEP_BUDGET_MS = 2 * 60 * 1000; // 2 minutes
 export const TYPECHECK_STEP_BUDGET_MS = 2 * 60 * 1000; // 2 minutes
 // 15 minutes — the aggregate `bun run test` has been observed to take ~9 minutes on operator
-// hardware (v2/spec/20260725T140129Z-ready-gate-per-step-budgets/intent.md); this budget carries
+// hardware (spec/20260725T140129Z-ready-gate-per-step-budgets/intent.md); this budget carries
 // ~65% headroom above that measurement. Raise this constant if measured full-suite duration drifts
-// closer to it. See v2/docs/test-writing.md.
+// closer to it. See docs/test-writing.md.
 export const TEST_STEP_BUDGET_MS = 15 * 60 * 1000;
 export const LINT_MD_STEP_BUDGET_MS = 60 * 1000; // 1 minute
 export const DEFAULT_STEP_BUDGET_MS = 2 * 60 * 1000; // fallback for unrecognized steps

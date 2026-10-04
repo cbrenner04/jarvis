@@ -16,7 +16,7 @@ import { chmodSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { diffRealHomeSnapshots, shouldGuardRealHome, snapshotRealHome } from "../scripts/real-home-guard.ts";
-import { removeTrackedTempDirs, trackedMkdtempSync } from "../v2/src/shared/tracked-temp-dir.test-support.ts";
+import { removeTrackedTempDirs, trackedMkdtempSync } from "../src/shared/tracked-temp-dir.test-support.ts";
 
 // Enforce the per-test timeout. bun 1.3.x ignores `[test] timeout` in
 // bunfig.toml (only `--timeout` is honored), so without this the suite falls

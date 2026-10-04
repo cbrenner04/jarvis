@@ -39,9 +39,9 @@ export function findTestSupportImportViolations(files: readonly SourceFile[]): G
   return violations;
 }
 
-/** The v2 typecheck project excludes test-support files from its production compilation glob. */
+/** The engine typecheck project excludes test-support files from its production compilation glob. */
 export function tsconfigExcludesTestSupport(cwd: string): boolean {
-  const config = JSON.parse(readFileSync(join(cwd, "v2/tsconfig.json"), "utf8")) as { exclude?: unknown };
+  const config = JSON.parse(readFileSync(join(cwd, "tsconfig.json"), "utf8")) as { exclude?: unknown };
   return Array.isArray(config.exclude) && config.exclude.includes(`src/**/*${TEST_SUPPORT_SUFFIX}`);
 }
 
@@ -56,7 +56,7 @@ if (import.meta.main) {
     console.error(`${violation.file}:${violation.line}: production import of ${violation.specifier}`);
   }
   if (!tsconfigExcludesTestSupport(cwd)) {
-    console.error(`v2/tsconfig.json: missing exclude for src/**/*${TEST_SUPPORT_SUFFIX}`);
+    console.error(`tsconfig.json: missing exclude for src/**/*${TEST_SUPPORT_SUFFIX}`);
     process.exitCode = 1;
   }
   if (violations.length > 0) process.exitCode = 1;

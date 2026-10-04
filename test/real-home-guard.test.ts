@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { diffRealHomeSnapshots, snapshotRealHome } from "../scripts/real-home-guard.ts";
-import { trackedMkdtempSync } from "../v2/src/shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../src/shared/tracked-temp-dir.test-support.ts";
 
 function makeTempDir(): string {
   return trackedMkdtempSync(join(tmpdir(), "jarvis-real-home-guard-test-"));

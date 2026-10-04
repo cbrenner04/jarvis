@@ -9,11 +9,11 @@ import {
   shouldScanFile,
 } from "./guard-production-test-flags.ts";
 
-function violations(source: string, file = "v2/src/example.ts") {
+function violations(source: string, file = "src/example.ts") {
   return findProductionInvertHookViolations([{ file, source }]);
 }
 
-const ROOTS = ["v2/src"] as const;
+const ROOTS = ["src"] as const;
 
 describe("production invert-hook guard", () => {
   describe("set*ForTest exports", () => {
@@ -32,7 +32,7 @@ describe("production invert-hook guard", () => {
     });
 
     test("rejects setFooForTest export in production .tsx", () => {
-      expect(violations("export function setFooForTest() {}", "v2/src/tui/Panel.tsx")).toMatchObject([
+      expect(violations("export function setFooForTest() {}", "src/tui/Panel.tsx")).toMatchObject([
         { shape: "set*ForTest export" },
       ]);
     });
@@ -54,7 +54,7 @@ describe("production invert-hook guard", () => {
     });
 
     test("rejects setInvertFooForTest export in production .tsx", () => {
-      expect(violations("export function setInvertFooForTest() {}", "v2/src/tui/Panel.tsx")).toMatchObject([
+      expect(violations("export function setInvertFooForTest() {}", "src/tui/Panel.tsx")).toMatchObject([
         { shape: "setInvert*ForTest export" },
       ]);
     });
@@ -76,7 +76,7 @@ describe("production invert-hook guard", () => {
     });
 
     test("rejects fooForTest module variable in production .tsx", () => {
-      expect(violations("let fooForTest = false;", "v2/src/tui/Panel.tsx")).toMatchObject([
+      expect(violations("let fooForTest = false;", "src/tui/Panel.tsx")).toMatchObject([
         { shape: "*ForTest module variable" },
       ]);
     });
@@ -98,7 +98,7 @@ describe("production invert-hook guard", () => {
     });
 
     test("rejects invertFooForTest module variable in production .tsx", () => {
-      expect(violations("let invertFooForTest = false;", "v2/src/tui/Panel.tsx")).toMatchObject([
+      expect(violations("let invertFooForTest = false;", "src/tui/Panel.tsx")).toMatchObject([
         { shape: "invert*ForTest module variable" },
       ]);
     });
@@ -111,7 +111,7 @@ describe("production invert-hook guard", () => {
       ["fooForTest arrow", "const run = (fooForTest) => fooForTest;"],
       ["fooForTest constructor", "class C { constructor(fooForTest: boolean) {} }"],
     ])("rejects %s parameter in production file", (_label, source) => {
-      expect(violations(source, "v2/src/example.ts")).toMatchObject([{ shape: "*ForTest parameter" }]);
+      expect(violations(source, "src/example.ts")).toMatchObject([{ shape: "*ForTest parameter" }]);
     });
 
     test.each(ROOTS)("rejects fooForTest parameter under %s", (root) => {
@@ -124,18 +124,18 @@ describe("production invert-hook guard", () => {
       ["fooForTest", "function run(fooForTest: boolean) {}"],
       ["fooForTest optional", "function run(fooForTest?: boolean) {}"],
     ])("allows %s parameter in .test.ts", (_label, source) => {
-      expect(violations(source, "v2/src/example.test.ts")).toEqual([]);
+      expect(violations(source, "src/example.test.ts")).toEqual([]);
     });
 
     test.each([
       ["fooForTest", "function run(fooForTest: boolean) {}"],
       ["fooForTest optional", "function run(fooForTest?: boolean) {}"],
     ])("allows %s parameter in .test.tsx", (_label, source) => {
-      expect(violations(source, "v2/src/tui/View.test.tsx")).toEqual([]);
+      expect(violations(source, "src/tui/View.test.tsx")).toEqual([]);
     });
 
     test("rejects fooForTest parameter in production .tsx", () => {
-      expect(violations("function run(fooForTest: boolean) {}", "v2/src/tui/Panel.tsx")).toMatchObject([
+      expect(violations("function run(fooForTest: boolean) {}", "src/tui/Panel.tsx")).toMatchObject([
         { shape: "*ForTest parameter" },
       ]);
     });
@@ -149,25 +149,25 @@ describe("production invert-hook guard", () => {
       ["invertFoo arrow", "const run = (invertFoo) => invertFoo;"],
       ["invertFoo constructor", "class C { constructor(invertFoo: boolean) {} }"],
     ])("rejects %s parameter in production file", (_label, source) => {
-      expect(violations(source, "v2/src/example.ts")).toMatchObject([{ shape: "invert* parameter" }]);
+      expect(violations(source, "src/example.ts")).toMatchObject([{ shape: "invert* parameter" }]);
     });
 
     test.each([
       ["invertFoo", "function run(invertFoo: boolean) {}"],
       ["invertFooForTest", "function run(invertFooForTest?: boolean) {}"],
     ])("allows %s parameter in .test.ts", (_label, source) => {
-      expect(violations(source, "v2/src/example.test.ts")).toEqual([]);
+      expect(violations(source, "src/example.test.ts")).toEqual([]);
     });
 
     test.each([
       ["invertFoo", "function run(invertFoo: boolean) {}"],
       ["invertFooForTest", "function run(invertFooForTest?: boolean) {}"],
     ])("allows %s parameter in .test.tsx", (_label, source) => {
-      expect(violations(source, "v2/src/tui/View.test.tsx")).toEqual([]);
+      expect(violations(source, "src/tui/View.test.tsx")).toEqual([]);
     });
 
     test("rejects invertFoo parameter in production .tsx", () => {
-      expect(violations("function run(invertFoo: boolean) {}", "v2/src/tui/Panel.tsx")).toMatchObject([
+      expect(violations("function run(invertFoo: boolean) {}", "src/tui/Panel.tsx")).toMatchObject([
         { shape: "invert* parameter" },
       ]);
     });
@@ -185,7 +185,7 @@ describe("production invert-hook guard", () => {
       ["type alias property", "type Options = { fooForTest: boolean; };"],
       ["type parameter", "type Options<T extends { fooForTest: boolean }> = T;"],
     ])("rejects %s in production file", (_label, source) => {
-      expect(violations(source, "v2/src/example.ts")).toMatchObject([{ shape: "*ForTest type member" }]);
+      expect(violations(source, "src/example.ts")).toMatchObject([{ shape: "*ForTest type member" }]);
     });
 
     test.each(ROOTS)("rejects fooForTest type member under %s", (root) => {
@@ -203,7 +203,7 @@ describe("production invert-hook guard", () => {
     });
 
     test("rejects fooForTest type member in production .tsx", () => {
-      expect(violations("interface Options { fooForTest?: boolean; }", "v2/src/tui/Panel.tsx")).toMatchObject([
+      expect(violations("interface Options { fooForTest?: boolean; }", "src/tui/Panel.tsx")).toMatchObject([
         { shape: "*ForTest type member" },
       ]);
     });
@@ -215,7 +215,7 @@ describe("production invert-hook guard", () => {
       ["type alias property", "type Options = { invertFooForTest: boolean; };"],
       ["type parameter", "type Options<T extends { invertFooForTest: boolean }> = T;"],
     ])("rejects %s in production file", (_label, source) => {
-      expect(violations(source, "v2/src/example.ts")).toMatchObject([{ shape: "invert*ForTest type member" }]);
+      expect(violations(source, "src/example.ts")).toMatchObject([{ shape: "invert*ForTest type member" }]);
     });
 
     test.each(ROOTS)("rejects invertFooForTest type member under %s", (root) => {
@@ -233,22 +233,22 @@ describe("production invert-hook guard", () => {
     });
 
     test("rejects invertFooForTest type member in production .tsx", () => {
-      expect(violations("interface Options { invertFooForTest?: boolean; }", "v2/src/tui/Panel.tsx")).toMatchObject([
+      expect(violations("interface Options { invertFooForTest?: boolean; }", "src/tui/Panel.tsx")).toMatchObject([
         { shape: "invert*ForTest type member" },
       ]);
     });
   });
 
   describe("scope and skips", () => {
-    test("skips v2/src/shared/prompts/step-rules.ts", () => {
+    test("skips src/shared/prompts/step-rules.ts", () => {
       const source =
         'export const DEFAULT_WRITE_STEP_RULES = "Do not add `*ForTest`/`*ForTests` type members, function parameters, module variables, or exported functions/variables, nor `invert*` function parameters, in production code.";';
-      expect(violations(source, "v2/src/shared/prompts/step-rules.ts")).toEqual([]);
+      expect(violations(source, "src/shared/prompts/step-rules.ts")).toEqual([]);
     });
 
     test("does not scan paths outside scan roots", () => {
       expect(violations("export function setInvertFooForTest() {}", "scripts/example.ts")).toEqual([]);
-      expect(violations("export function setInvertFooForTest() {}", "v2/spec/example.ts")).toEqual([]);
+      expect(violations("export function setInvertFooForTest() {}", "spec/example.ts")).toEqual([]);
     });
   });
 
@@ -257,12 +257,12 @@ describe("production invert-hook guard", () => {
       // Inversion target: `isTestFile` in scripts/guard-production-test-flags.ts —
       // flipping the `.test.` basename exclusion to scan test paths makes this subcase RED.
       const source = "export function setInvertFooForTest() {}";
-      expect(isTestFile("v2/src/module.test.ts")).toBe(true);
-      expect(isTestFile("v2/src/tui/View.test.tsx")).toBe(true);
-      expect(shouldScanFile("v2/src/module.test.ts")).toBe(false);
-      expect(shouldScanFile("v2/src/tui/View.test.tsx")).toBe(false);
-      expect(violations(source, "v2/src/module.test.ts")).toEqual([]);
-      expect(violations(source, "v2/src/tui/View.test.tsx")).toEqual([]);
+      expect(isTestFile("src/module.test.ts")).toBe(true);
+      expect(isTestFile("src/tui/View.test.tsx")).toBe(true);
+      expect(shouldScanFile("src/module.test.ts")).toBe(false);
+      expect(shouldScanFile("src/tui/View.test.tsx")).toBe(false);
+      expect(violations(source, "src/module.test.ts")).toEqual([]);
+      expect(violations(source, "src/tui/View.test.tsx")).toEqual([]);
     });
   });
 
@@ -278,8 +278,8 @@ describe("production invert-hook guard", () => {
         "  landingContractReprompt?: { violation: string; offendingFile: string };",
         "};",
       ].join("\n");
-      expect(violations(source, "v2/src/execution/write-loop.ts")).toEqual([
-        { file: "v2/src/execution/write-loop.ts", line: 6, shape: "*ForTest type member" },
+      expect(violations(source, "src/execution/write-loop.ts")).toEqual([
+        { file: "src/execution/write-loop.ts", line: 6, shape: "*ForTest type member" },
       ]);
     });
 
@@ -293,11 +293,11 @@ describe("production invert-hook guard", () => {
         "type A = B & { fooForTest?: boolean };",
         "type U = C | { barForTests: number };",
       ].join("\n");
-      expect(violations(source, "v2/src/execution/workflow-runner-resume.ts")).toEqual([
-        { file: "v2/src/execution/workflow-runner-resume.ts", line: 3, shape: "*ForTest type member" },
-        { file: "v2/src/execution/workflow-runner-resume.ts", line: 4, shape: "*ForTest type member" },
-        { file: "v2/src/execution/workflow-runner-resume.ts", line: 6, shape: "*ForTest type member" },
-        { file: "v2/src/execution/workflow-runner-resume.ts", line: 7, shape: "*ForTest type member" },
+      expect(violations(source, "src/execution/workflow-runner-resume.ts")).toEqual([
+        { file: "src/execution/workflow-runner-resume.ts", line: 3, shape: "*ForTest type member" },
+        { file: "src/execution/workflow-runner-resume.ts", line: 4, shape: "*ForTest type member" },
+        { file: "src/execution/workflow-runner-resume.ts", line: 6, shape: "*ForTest type member" },
+        { file: "src/execution/workflow-runner-resume.ts", line: 7, shape: "*ForTest type member" },
       ]);
     });
 
@@ -314,12 +314,12 @@ describe("production invert-hook guard", () => {
         "function helper() {}",
         "export { helper as helperForTest };",
       ].join("\n");
-      expect(violations(source, "v2/src/execution/diff-derived-mutation-verifier.ts")).toEqual([
-        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 2, shape: "*ForTest export" },
-        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 5, shape: "*ForTest export" },
-        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 8, shape: "*ForTest export" },
-        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 8, shape: "*ForTest module variable" },
-        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 10, shape: "*ForTest export" },
+      expect(violations(source, "src/execution/diff-derived-mutation-verifier.ts")).toEqual([
+        { file: "src/execution/diff-derived-mutation-verifier.ts", line: 2, shape: "*ForTest export" },
+        { file: "src/execution/diff-derived-mutation-verifier.ts", line: 5, shape: "*ForTest export" },
+        { file: "src/execution/diff-derived-mutation-verifier.ts", line: 8, shape: "*ForTest export" },
+        { file: "src/execution/diff-derived-mutation-verifier.ts", line: 8, shape: "*ForTest module variable" },
+        { file: "src/execution/diff-derived-mutation-verifier.ts", line: 10, shape: "*ForTest export" },
       ]);
     });
 
@@ -343,8 +343,8 @@ describe("production invert-hook guard", () => {
       ].join("\n");
       // Only the parameter declaration on line 3 is a seam; the type argument, property access,
       // local binding, and condition are mentions.
-      expect(violations(source, "v2/src/example.ts")).toEqual([
-        { file: "v2/src/example.ts", line: 3, shape: "*ForTest parameter" },
+      expect(violations(source, "src/example.ts")).toEqual([
+        { file: "src/example.ts", line: 3, shape: "*ForTest parameter" },
       ]);
     });
 

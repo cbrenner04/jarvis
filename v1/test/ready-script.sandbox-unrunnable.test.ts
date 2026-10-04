@@ -325,7 +325,7 @@ describe("ready tier parsing and step lists", () => {
     };
     // `check` also carries repository guards; biome still runs via bun's binary.
     expect(pkg.scripts?.check).toBe(
-      "bun biome check . && bun run scripts/guard-sync-child-processes.ts && bun run scripts/guard-deterministic-daemon-tests.ts && bun run scripts/guard-test-double-production-calls.ts && bun run scripts/guard-production-test-flags.ts && bun run scripts/guard-lossless-git-status-inventory.ts",
+      "bun biome check . && bun run scripts/guard-sync-child-processes.ts && bun run scripts/guard-production-test-support-imports.ts && bun run scripts/guard-dead-exports.ts && bun run scripts/guard-deterministic-daemon-tests.ts && bun run scripts/guard-test-double-production-calls.ts && bun run scripts/guard-production-test-flags.ts && bun run scripts/guard-lossless-git-status-inventory.ts && bun run scripts/guard-unbounded-subprocess.ts && bun run scripts/guard-real-lint-in-unit-tests.ts && bun run scripts/guard-test-temp-dir-cleanup.ts && bun run scripts/guard-git-spawn-bypass.ts",
     );
     expect(pkg.scripts?.["check:fix"]).toBe("bun biome check --write .");
     expect(pkg.scripts?.["check:fix:unsafe"]).toBe("bun biome check --write --unsafe .");

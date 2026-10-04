@@ -1,8 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { basename, join } from "node:path";
-import { sharedTests } from "../scripts/run-shared-tests.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { aggregateTestFiles } from "../scripts/run-tests.ts";
 import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
 import {
@@ -14,53 +13,12 @@ import {
 } from "../scripts/test-slice.ts";
 
 describe("Test slice boundaries", () => {
-  it("test files are scoped to owner directories", () => {
-    const getTestFiles = (dir: string): { logical: string; real: string }[] => {
-      const files: { logical: string; real: string }[] = [];
-      const walk = (current: string, prefix: string) => {
-        try {
-          const entries = readdirSync(current, { withFileTypes: true });
-          for (const entry of entries) {
-            const fullPath = join(current, entry.name);
-            const rel = `${prefix}${entry.name}`;
-            if (entry.isDirectory()) {
-              walk(fullPath, `${rel}/`);
-            } else if (entry.name.endsWith(".test.ts")) {
-              files.push({ logical: rel, real: realpathSync(fullPath) });
-            }
-          }
-        } catch {
-          // Directory doesn't exist, skip
-        }
-      };
-      walk(dir, "");
-      return files;
-    };
-
-    const filesByOwner = {
-      v2: getTestFiles("v2")
-        .filter((file) => !file.logical.startsWith("src/shared/"))
-        .map((file) => ({
-          ...file,
-          logical: `v2/${file.logical}`,
-        })),
-      shared: getTestFiles("v2/src/shared").map((file) => ({
-        ...file,
-        logical: `v2/src/shared/${file.logical}`,
-      })),
-    };
-
-    expect(filesByOwner.v2.length).toBeGreaterThan(0);
-    expect(filesByOwner.shared.length).toBeGreaterThan(0);
-
-    const seen = new Map<string, string>();
-    for (const [owner, files] of Object.entries(filesByOwner)) {
-      for (const file of files) {
-        const previousOwner = seen.get(file.real);
-        expect(previousOwner).toBeUndefined();
-        seen.set(file.real, owner);
-      }
-    }
+  it("unified v2 discovery includes v2, shared runtime, test harness, and scripts roots", () => {
+    const files = walkV2TestFiles();
+    expect(files.some((file) => file.startsWith("v2/src/") && !file.startsWith("v2/src/shared/"))).toBeTrue();
+    expect(files.some((file) => file.startsWith("v2/src/shared/"))).toBeTrue();
+    expect(files.some((file) => file.startsWith("test/"))).toBeTrue();
+    expect(files.some((file) => file.startsWith("scripts/"))).toBeTrue();
   });
 
   it("test:* scripts route sandbox-unrunnable files to integration slices", async () => {
@@ -181,9 +139,9 @@ describe("Test slice boundaries", () => {
     ).toThrow("unrecognized TEST_ISOLATION_CLASS");
   });
 
-  it("shared integration slice includes preload real-process test", () => {
-    expect(sharedTests("integration")).toEqual(["v2/src/shared/preload.sandbox-unrunnable.test.ts"]);
-    expect(sharedTests("agent").some((file) => file.endsWith("git.test.ts"))).toBeTrue();
+  it("v2 integration slice includes shared preload real-process test", () => {
+    expect(v2Tests("integration")).toContain("v2/src/shared/preload.sandbox-unrunnable.test.ts");
+    expect(v2Tests("agent").some((file) => file.endsWith("git.test.ts"))).toBeTrue();
   });
 
   it("bunfig.toml preload points to relocated setup file", async () => {
@@ -213,13 +171,12 @@ describe("Test slice boundaries", () => {
     expect(readyScript).not.toContain("test:shared");
   });
 
-  it("aggregate roster is exactly the union of four scoped rosters", () => {
+  it("aggregate roster matches unified v2 slice rosters", () => {
     const aggregate = aggregateTestFiles();
-    const expectedAgent = [...v2Tests("agent"), ...sharedTests("agent")].sort();
-    const expectedIntegration = [...v2Tests("integration"), ...sharedTests("integration")].sort();
-
-    expect(aggregate.agent.sort()).toEqual(expectedAgent);
-    expect(aggregate.integration.sort()).toEqual(expectedIntegration);
+    expect(aggregate).toEqual({
+      agent: v2Tests("agent"),
+      integration: v2Tests("integration"),
+    });
   });
 
   it("policy parity: aggregate and v2 files share per-file timeout and subprocess isolation", async () => {

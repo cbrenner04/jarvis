@@ -12,7 +12,7 @@ The review-debate step passes the assembled prompt, including the full lane diff
 
 ## Decisions
 
-- The invocation layer never places the prompt body in argv; it streams on stdin for every vendor whose CLI accepts prompt input that way (claude `-p` and codex `exec` already do; cursor-agent: plan verifies the stdin form or falls back to a temp file passed by path; opencode only if its CLI supports stdin — otherwise document argv and defer).
+- The invocation layer never places the prompt body in argv. Claude `-p` and codex `exec` already stream on stdin. Cursor-agent: plan verifies whether the CLI accepts stdin; implement uses stdin when verified, otherwise a temp file referenced by bounded argv — plan locks which before implement. Opencode only if its CLI supports stdin — otherwise document argv and defer.
 - Argv carries only flags and bounded identifiers; update pinned default-argv expectations once, and add a regression test that a multi-megabyte prompt spawns without `E2BIG`.
 - No truncation of the diff as a substitute: review quality must not silently degrade on large changes.
 
@@ -20,9 +20,9 @@ The review-debate step passes the assembled prompt, including the full lane diff
 
 ## Acceptance criteria
 
-- [ ] `agents.test.ts`: cursor binding spawns with a bounded argv (no prompt positional) and pipes a multi-megabyte prompt on stdin without spawn `E2BIG`; fails against current code.
+- [ ] `agents.test.ts`: cursor binding spawns with bounded argv (no prompt body in argv) and delivers a multi-megabyte prompt without spawn `E2BIG` via stdin or temp-file path per plan-verified mechanism; fails against current code.
 - [ ] `agents.test.ts`: `default and explicit unrestricted policy yield today's argv for claude, codex, and cursor` reflects the new cursor argv shape while claude and codex argv stay byte-identical aside from any shared test harness path.
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:agent` pass.
+- [ ] `bun run typecheck` and `bun run test:agent` pass.
 
 ## Documentation updates
 
@@ -32,4 +32,4 @@ The review-debate step passes the assembled prompt, including the full lane diff
 
 ## Primary implementation surface
 
-- `shared/invocation/agents.ts`
+- `src/shared/invocation/agents.ts`

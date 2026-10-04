@@ -3,24 +3,24 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RoutingInvocationResult } from "../../../shared/invocation/agents.ts";
 import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
-import { ROUTING_ACTION_CATALOG } from "../cli/free-text-routing-actions.ts";
 import type { CliDeps } from "../cli/deps.ts";
+import { ROUTING_ACTION_CATALOG } from "../cli/free-text-routing-actions.ts";
 import type { Io } from "../cli/io.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import {
+  FREE_TEXT_ROUTING_STDERR_PREFIX,
+  type FreeTextRoutingSeams,
+  routingCatalogExcerpt,
+  runFreeTextRouting,
+} from "./free-text-routing.ts";
+import { type RoutingAuditLine, routingAuditFilePath } from "./free-text-routing-audit.ts";
+import {
   admitPipelineStart,
   type PipelineStartAdmissionDeps,
   type PipelineStartAdmissionInput,
 } from "./pipeline-start-admission.ts";
-import { type RoutingAuditLine, routingAuditFilePath } from "./free-text-routing-audit.ts";
-import {
-  FREE_TEXT_ROUTING_STDERR_PREFIX,
-  routingCatalogExcerpt,
-  runFreeTextRouting,
-  type FreeTextRoutingSeams,
-} from "./free-text-routing.ts";
 
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
   claude: {

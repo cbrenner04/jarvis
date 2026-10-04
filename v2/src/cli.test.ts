@@ -19,6 +19,7 @@ import {
   HELP_USAGE,
   INIT_USAGE,
   NOTIFICATIONS_USAGE,
+  PIPELINE_START_USAGE,
   PIPELINE_USAGE,
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
@@ -37,7 +38,6 @@ import {
   resolveHelpFlagAlias,
   main as runtimeMain,
 } from "./cli.ts";
-import { PIPELINE_START_USAGE } from "./cli/usage.ts";
 import { DAEMON_SOCKET_PATH } from "./paths.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 

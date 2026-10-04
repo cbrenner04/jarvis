@@ -1,33 +1,27 @@
 import { createRoutingAgentBinding, type RoutingInvocationResult } from "../../../shared/invocation/agents.ts";
 import { executeWithQuotaFallback } from "../../../shared/invocation/execute.ts";
 import { routingFailureOf } from "../../../shared/invocation/routing.ts";
-import { buildRoutingTranslatePrompt } from "../../../shared/prompts/routing-translate.ts";
 import { findProjectMatch } from "../../../shared/project-registry.ts";
+import { buildRoutingTranslatePrompt } from "../../../shared/prompts/routing-translate.ts";
+import type { CliDeps } from "../cli/deps.ts";
 import {
   ROUTING_ACTION_CATALOG,
   type RoutingAction,
   validateRoutingRequest,
 } from "../cli/free-text-routing-actions.ts";
-import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { request } from "../cli/ipc.ts";
 import { connectWithAutoStart } from "../cli/stale-dispatch.ts";
 import {
-  isLoadError,
-  resolveRoutingBindings,
   type AgentModelConfig,
+  isLoadError,
   type LoadError,
+  resolveRoutingBindings,
 } from "../config/agent-model-config.ts";
 import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
-import {
-  admitPipelineStart,
-  type PipelineStartAdmissionDeps,
-  type PipelineStartAdmissionInput,
-  type PipelineStartAdmissionResult,
-} from "./pipeline-start-admission.ts";
 import {
   appendRoutingAuditLine,
   normalizedRequestDigest,
@@ -35,6 +29,12 @@ import {
   type RoutingAuditOutcome,
 } from "./free-text-routing-audit.ts";
 import { runPipelineCommand } from "./pipeline.ts";
+import {
+  admitPipelineStart,
+  type PipelineStartAdmissionDeps,
+  type PipelineStartAdmissionInput,
+  type PipelineStartAdmissionResult,
+} from "./pipeline-start-admission.ts";
 import { runRunCommand } from "./run.ts";
 
 export const FREE_TEXT_ROUTING_STDERR_PREFIX = "free-text-routing:";

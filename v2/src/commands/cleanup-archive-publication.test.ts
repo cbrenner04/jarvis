@@ -215,6 +215,46 @@ describe("cleanup archive publication session", () => {
     expect(authorEmail).toBe("test@test.com");
   });
 
+  test("archive publish commit passes jarvis cleanup identity when worktree user.email is unset", async () => {
+    const { spec } = inRepoSpec("20261004T100000Z-archive-fallback-identity", "[x] Done");
+    await commitFixtures(projectRoot);
+    const archiveCommitArgs: string[][] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (
+          cmd === "git" &&
+          args[0] === "config" &&
+          args[1] === "--get" &&
+          args[2] === "user.email" &&
+          typeof cwd === "string" &&
+          cwd.includes("worktrees")
+        ) {
+          throw new AsyncSubprocessError("not set", 1, "", "has no value", undefined);
+        }
+        if (cmd === "git" && args.includes("commit")) {
+          archiveCommitArgs.push([...args]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    const session = createArchivePublicationSession({
+      runner,
+      projectRoot,
+      jarvisRoot,
+      project: "project",
+      stamp: "20261004T100000Z",
+    });
+    expect(await session.publish(spec)).toMatchObject({ status: "archived" });
+    const archiveCommit = archiveCommitArgs.find((commitArgs) => {
+      const messageIndex = commitArgs.indexOf("-m");
+      const message = messageIndex >= 0 ? commitArgs[messageIndex + 1] : undefined;
+      return typeof message === "string" && message.startsWith("spec: archive");
+    });
+    expect(archiveCommit).toBeDefined();
+    expect(archiveCommit).toContain("user.name=jarvis cleanup");
+    expect(archiveCommit).toContain("user.email=jarvis-cleanup@localhost");
+  });
+
   test("archive worktree add starts from local default branch when it resolves, not HEAD", async () => {
     const specName = "20261003T220000Z-archive-base-ref";
     const { spec } = inRepoSpec(specName, "[x] Done");

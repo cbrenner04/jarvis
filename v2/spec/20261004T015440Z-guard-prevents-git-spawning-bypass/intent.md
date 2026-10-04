@@ -27,11 +27,11 @@ After migrating Git and GitHub operations to typed boundaries in `shared/git.ts`
 
 ## Acceptance criteria
 
-- [ ] A guard script or linter rule detects `runAsync("git"` and `runAsync("gh"` patterns in `v2/src/**/*.ts` production code (not tests).
-- [ ] Running the guard on current main fails (pre-migration code has bypasses); after all migration intents land, the guard passes.
-- [ ] Guard rejects new `runAsync("git"` or `runAsync("gh"` additions in v2 production files (test verified with a deliberate violation).
-- [ ] The guard runs from `package.json` `check` like the other `scripts/guard-*.ts` guards.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A guard script or linter rule detects `runAsync("git"` and `runAsync("gh"` patterns in `v2/src/**/*.ts` production code (not tests).
+- [x] Running the guard on current main fails (pre-migration code has bypasses); after all migration intents land, the guard passes.
+- [x] Guard rejects new `runAsync("git"` or `runAsync("gh"` additions in v2 production files (test verified with a deliberate violation).
+- [x] The guard runs from `package.json` `check` like the other `scripts/guard-*.ts` guards.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -41,6 +41,7 @@ import {
   listRecursivePathsAtRef,
   listTreeChildrenAtRef,
   listWorktrees,
+  lsRemoteRef,
   logPatchForPathInRange,
   mergeBase,
   mergeTreeWriteTree,
@@ -1025,6 +1026,33 @@ describe("pushBranch", () => {
     }
     const timeout = fakeAsync({ "git push origin feature": timeoutFailure() });
     expectFailure(await rejection(pushBranch("/repo", { branch: "feature" }, timeout)), "push", "timeout", true);
+  });
+});
+
+describe("lsRemoteRef", () => {
+  test("returns the tip sha when ls-remote reports the ref, undefined when absent", async () => {
+    const present = fakeAsync({ "git ls-remote origin refs/heads/feature": "abc123def\trefs/heads/feature\n" });
+    expect(await lsRemoteRef("/repo", "origin", "refs/heads/feature", present)).toBe("abc123def");
+    expect(present.calls[0]).toMatchObject({
+      args: ["git", "ls-remote", "origin", "refs/heads/feature"],
+      cwd: "/repo",
+    });
+    expect(present.calls[0]?.options?.timeoutMs).toBe(NETWORK_SUBPROCESS_TIMEOUT_MS);
+
+    const absent = fakeAsync({ "git ls-remote origin refs/heads/missing": "" });
+    expect(await lsRemoteRef("/repo", "origin", "refs/heads/missing", absent)).toBeUndefined();
+  });
+
+  test("ls-remote failures are ref-query errors", async () => {
+    const failed = fakeAsync({
+      "git ls-remote origin refs/heads/x": gitFailure("fatal: could not read from remote\n"),
+    });
+    expectFailure(
+      await rejection(lsRemoteRef("/repo", "origin", "refs/heads/x", failed)),
+      "ref-query",
+      "failed",
+      false,
+    );
   });
 });
 

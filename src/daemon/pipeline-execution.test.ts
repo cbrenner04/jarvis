@@ -11348,6 +11348,8 @@ describe("fan-out serial chained lanes", () => {
       notStacked?: string[];
       ancestryError?: string[];
       remoteMissing?: string[];
+      /** Alpha's branch is gone (deleted on merge): it resolves absent and names no object. */
+      retiredTip?: boolean;
     } = {},
   ): { runner: AsyncSubprocessRunner; calls: GitCall[] } {
     const calls: GitCall[] = [];
@@ -11360,9 +11362,13 @@ describe("fan-out serial chained lanes", () => {
           if (args.includes("FETCH_HEAD")) {
             return options.diverged?.includes(cwd) ? "remotetip\n" : "headtip\n";
           }
+          if (options.retiredTip) throw gitExit("", 1);
           return `${TIP}\n`;
         }
         if (args[0] === "rev-parse" && args[1] === "HEAD") return "headtip\n";
+        if (args[0] === "merge-base" && options.retiredTip) {
+          throw gitExit(`fatal: Not a valid object name ${args[2]}`, 128);
+        }
         if (args[0] === "merge-base" && options.notStacked?.includes(cwd)) throw gitExit("", 1);
         if (args[0] === "merge-base" && options.ancestryError?.includes(cwd)) {
           throw gitExit(`fatal: Not a valid commit name ${TIP}`, 128);
@@ -11746,6 +11752,34 @@ describe("fan-out serial chained lanes", () => {
     expect(observation).toContain("Not a valid commit name");
     expect(detail).toMatchObject({ retryable: true, code: "chained_lane_rebase_refused" });
     expect(rebaseStamp(stages(), "plan")).toBeUndefined();
+  });
+
+  test("a dependent lane admitted after its predecessor merged never forked stacked: no rebase, no refusal, even with the predecessor branch retired", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const { deps, dispatched } = capturingLaneDeps(store);
+    // Alpha's PR merged (and GitHub deleted its branch) before beta's first dispatch.
+    const { gh } = alphaMergedGh(() => true);
+    const { runner, calls } = recordingGitRunner({ retiredTip: true });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner, supersedeGh: gh });
+
+    expect(dispatched).toEqual([
+      { stageId: "plan", branchKey: "alpha", forkRef: undefined },
+      { stageId: "implement", branchKey: "alpha", forkRef: undefined },
+      { stageId: "plan", branchKey: "beta", forkRef: undefined },
+      { stageId: "implement", branchKey: "beta", forkRef: undefined },
+    ]);
+    // No SHA was ever recorded; the retired name resolves absent once and no lane worktree is touched.
+    expect(calls).toEqual([RESOLVE_TIP]);
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "implement", "beta")?.failureDetail).toBeNull();
+    expect(rebaseStamp(stages(), "plan")).toMatchObject({ predecessor: "alpha", predecessorTip: "never-stacked" });
+    expect(
+      (stageRecord(stages(), "implement", "alpha")?.artifact as { forkTipSha?: string } | null)?.forkTipSha,
+    ).toBeUndefined();
   });
 
   test("a lane branch with no remote refuses at dispatch as remote_missing, not as divergence", async () => {

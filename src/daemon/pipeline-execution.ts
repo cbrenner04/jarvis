@@ -2238,8 +2238,8 @@ function chainPredecessorTip(
 /**
  * The SHA every dependent dispatch forks from and every rebase replays past. Read once from the
  * branch while it exists (the name is mutable and gone once cleanup retires the lane) and persisted
- * on the predecessor's stage artifact (`forkTipSha`). Needed only while the predecessor is unmerged
- * and a dependent stage is about to fork from it.
+ * on the predecessor's stage artifact (`forkTipSha`): at the first unmerged dependent fork, or past
+ * the merge for rows dispatched before the SHA was recorded, while the name still resolves.
  */
 async function recordPredecessorForkSha(
   git: ChainedLaneGitDeps,
@@ -2267,6 +2267,9 @@ async function recordPredecessorForkSha(
   });
   return sha;
 }
+
+/** `predecessorTip` stamp for a lane that never forked stacked: nothing to rebase past the merge. */
+const NEVER_STACKED = "never-stacked";
 
 /** Durable `rebasedAfterPredecessorMerge` stamp on a lane stage artifact. */
 type PredecessorRebaseStamp = { predecessor: string; predecessorTip: string; at: number };
@@ -2553,8 +2556,14 @@ async function rebaseLaneBranchesNow(
     const sha = await recordPredecessorForkSha(git, pipelineId, tip, predecessor, cwd);
     return typeof sha === "string" ? { ok: true, merged: false, forkRef: sha } : sha;
   }
-  // Rows dispatched before the SHA was recorded replay from the branch name; a retired name refuses by ancestry check.
-  const tipRef = tip.sha ?? tip.run.branch;
+  if (branches.length === 0) return { ok: true, merged: true };
+  // No recorded SHA and a retired name: no dependent stage ever forked stacked (the lane was admitted
+  // after the merge), so there is nothing to replay past; the rows are stamped as they are.
+  const tipRef = await recordPredecessorForkSha(git, pipelineId, tip, predecessor, cwd);
+  if (typeof tipRef !== "string") {
+    for (const branch of branches) stampLaneBranch(git.store, pipelineId, lane, branch, predecessor, NEVER_STACKED);
+    return { ok: true, merged: true };
+  }
   const pr = tip.prNumber === undefined ? "" : ` (#${tip.prNumber})`;
   const fetchBase = baseFetcher(git.runner, cwd);
   for (const branch of branches) {

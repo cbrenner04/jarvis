@@ -79,7 +79,7 @@ describe("implement-owned prompt artifacts", () => {
 
 describe("implement prompt id wiring", () => {
   test("execution-loop and review-implement production paths carry no retired patch ids", () => {
-    const root = new URL("../../", import.meta.url).pathname;
+    const root = new URL("../../../", import.meta.url).pathname;
     const executionDir = join(root, "src/execution");
     const production = readdirSync(executionDir)
       .filter((name) => name.endsWith(".ts") && !name.includes(".test.") && !name.endsWith(".test-support.ts"))

@@ -24,6 +24,7 @@ import {
   diffNameOnlyRevision,
   diffStat,
   diffUnified,
+  fetchRemoteRef,
   type GitFailureReason,
   type GitOperation,
   GitOperationError,
@@ -923,6 +924,26 @@ describe("resolveRef", () => {
     expectFailure(await rejection(resolveRef("/repo", "broken", runner)), "ref-query", "failed", false);
     expectFailure(await rejection(resolveRef("/repo", "slow", runner)), "ref-query", "timeout", true);
     expect(runner.calls[0]?.args).toEqual(["git", "rev-parse", "--verify", "--quiet", "feature"]);
+  });
+});
+
+describe("fetchRemoteRef", () => {
+  test("returns FETCH_HEAD OID after fetch; absent FETCH_HEAD is a ref-query failure", async () => {
+    const resolved = fakeAsync({
+      "git fetch origin main": "",
+      "git rev-parse --verify --quiet FETCH_HEAD": `${OID_A}\n`,
+    });
+    expect(await fetchRemoteRef("/repo", "origin", "main", resolved)).toBe(OID_A);
+    expect(resolved.calls.map((call) => call.args)).toEqual([
+      ["git", "fetch", "origin", "main"],
+      ["git", "rev-parse", "--verify", "--quiet", "FETCH_HEAD"],
+    ]);
+
+    const absent = fakeAsync({
+      "git fetch origin gone": "",
+      "git rev-parse --verify --quiet FETCH_HEAD": gitFailure("", 1),
+    });
+    expectFailure(await rejection(fetchRemoteRef("/repo", "origin", "gone", absent)), "ref-query", "failed", false);
   });
 });
 

@@ -198,6 +198,23 @@ describe("cleanup archive publication session", () => {
     expect(session.commits()).toBe(0);
   });
 
+  test("archive commit keeps configured user.email instead of jarvis cleanup fallback", async () => {
+    const { spec } = inRepoSpec("20261004T000000Z-archive-identity", "[x] Done");
+    await commitFixtures(projectRoot);
+    const session = createArchivePublicationSession({
+      runner: realAsyncSubprocessRunner,
+      projectRoot,
+      jarvisRoot,
+      project: "project",
+      stamp: "20261004T000000Z",
+    });
+    expect(await session.publish(spec)).toMatchObject({ status: "archived" });
+    const authorEmail = (
+      await realAsyncSubprocessRunner.runAsync("git", ["log", "-1", "--format=%ae", session.branch], projectRoot)
+    ).trim();
+    expect(authorEmail).toBe("test@test.com");
+  });
+
   test("archive worktree add starts from local default branch when it resolves, not HEAD", async () => {
     const specName = "20261003T220000Z-archive-base-ref";
     const { spec } = inRepoSpec(specName, "[x] Done");

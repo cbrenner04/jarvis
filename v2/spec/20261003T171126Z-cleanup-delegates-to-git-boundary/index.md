@@ -14,7 +14,7 @@
 - [x] [03-shared-git-graph-reads-for-stale-reset.md](./03-shared-git-graph-reads-for-stale-reset.md) — ancestor, merge-tree, conflict-path listing, tick-backing `git log -p` reads in `shared/git.ts`
 - [x] [04-cleanup-delegates-stale-reset-rewrites.md](./04-cleanup-delegates-stale-reset-rewrites.md) — stale-reset rebase/merge rewrites through typed worktree git operations
 - [x] [05-cleanup-archive-publication-git-adapter.md](./05-cleanup-archive-publication-git-adapter.md) — replace `applyEndArchivePublication`'s inline `git` callback with typed git exports (push stays on the boundary)
-- [ ] [06-cleanup-operation-errors-and-docs.md](./06-cleanup-operation-errors-and-docs.md) — operator-facing `GitOperationError`/`GitHubOperationError` wording, durable docs, full `cleanup.ts` spawn invariant
+- [x] [06-cleanup-operation-errors-and-docs.md](./06-cleanup-operation-errors-and-docs.md) — operator-facing `GitOperationError`/`GitHubOperationError` wording, durable docs, full `cleanup.ts` spawn invariant
 
 ## Prerequisites
 

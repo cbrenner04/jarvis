@@ -562,7 +562,7 @@ export async function diffNameOnlyRevision(
   return output
     .split("\n")
     .filter((line) => line.length > 0)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); // @mutate-equivalent mutation="operator-flip: > → <=" reason="Flipping the a>b branch to a<=b yields an invalid comparator (ties return 1, strict greater returns 0), but exhaustive Array.sort trials over path-shaped UTF-16 strings still match canonical code-unit order; diffNameOnlyRevision output is unchanged."
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /** Unmerged paths in the index/worktree (`git diff --name-only --diff-filter=U`). */

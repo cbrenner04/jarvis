@@ -32,6 +32,7 @@ import {
   isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
   isAncestor,
+  type LocalBranchHead,
   listLocalBranchHeads,
   listRecursivePathsAtRef,
   listTreeChildrenAtRef,
@@ -493,18 +494,6 @@ export type DiscoverMergedBranchRefCandidatesOptions = {
   retiredBranches?: ReadonlySet<string>;
 };
 
-type LocalHead = {
-  branch: string;
-  oid: string;
-};
-
-type GhPrHeadRecord = {
-  number?: number;
-  state?: string;
-  mergedAt?: string | null;
-  headRefOid?: string;
-};
-
 /** Parse `git worktree list --porcelain` for checked-out branch short names. */
 export function parseCheckedOutBranchesFromWorktreePorcelain(porcelain: string): Set<string> {
   const checkedOut = new Set<string>();
@@ -525,23 +514,9 @@ function checkedOutBranchesFromWorktreeEntries(entries: ReadonlyArray<{ branch?:
   return checkedOut;
 }
 
-async function listLocalHeads(repoRoot: string, runner: AsyncSubprocessRunner): Promise<LocalHead[]> {
-  return listLocalBranchHeads(repoRoot, runner);
-}
-
-async function ghPrHeadRecordsForBranch(
-  branch: string,
-  repoRoot: string,
-  runner: AsyncSubprocessRunner,
-): Promise<GhPrHeadRecord[] | undefined> {
+async function ghPrHeadRecordsForBranch(branch: string, repoRoot: string, runner: AsyncSubprocessRunner) {
   try {
-    const rows = await listPrs(runner, repoRoot, { branch, state: "all" }, networkSubprocessOptions());
-    return rows.map((row) => ({
-      number: row.number,
-      ...(row.state !== undefined ? { state: row.state } : {}),
-      ...(row.mergedAt !== undefined ? { mergedAt: row.mergedAt } : {}),
-      ...(row.headRefOid !== undefined ? { headRefOid: row.headRefOid } : {}),
-    }));
+    return await listPrs(runner, repoRoot, { branch, state: "all" }, networkSubprocessOptions());
   } catch {
     return undefined;
   }
@@ -569,11 +544,7 @@ async function listGhPrCommentBodies(
   try {
     const activity = await viewPrReviewActivity(runner, repoRoot, prNumber, networkSubprocessOptions());
     if (!Array.isArray(activity.comments)) return undefined;
-    const bodies: string[] = [];
-    for (const comment of activity.comments) {
-      if (typeof comment.body === "string") bodies.push(comment.body);
-    }
-    return bodies;
+    return activity.comments.flatMap((comment) => (typeof comment.body === "string" ? [comment.body] : []));
   } catch {
     return undefined;
   }
@@ -790,7 +761,7 @@ async function evaluatePlanLaneSubsumedEligibility(
 }
 
 function shouldSkipLocalHeadForRefPrune(
-  head: LocalHead,
+  head: LocalBranchHead,
   baseBranch: string,
   currentBranch: string,
   checkedOut: ReadonlySet<string>,
@@ -850,7 +821,7 @@ async function discoverMergedBranchRefCandidatesForRepo(
     getBaseBranch(root, runner),
     getCurrentBranchAsync(root, runner),
     listWorktrees(root, runner),
-    listLocalHeads(root, runner),
+    listLocalBranchHeads(root, runner),
   ]);
   const checkedOut = checkedOutBranchesFromWorktreeEntries(worktrees);
   const candidates: MergedBranchRefCandidate[] = [];
@@ -1507,7 +1478,6 @@ async function runArchivePublicationGit(
   cwd: string,
   args: readonly string[],
   runner: AsyncSubprocessRunner,
-  env?: Record<string, string>,
 ): Promise<string> {
   const command = args[0];
   if (command === "rev-parse" && args[1] === "HEAD") {
@@ -1550,23 +1520,6 @@ async function runArchivePublicationGit(
   throw new Error(`unsupported archive publication git argv: ${args.join(" ")}`);
 }
 
-function archivePublicationGitSeam(
-  runner: AsyncSubprocessRunner,
-  onPush: () => void,
-  onError: (error: unknown) => void,
-): (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string> {
-  return async (cwd, args, env) => {
-    try {
-      const out = await runArchivePublicationGit(cwd, args, runner, env);
-      if (args[0] === "push") onPush();
-      return out;
-    } catch (error) {
-      onError(error);
-      throw error;
-    }
-  };
-}
-
 async function applyEndArchivePublication(
   sessions: ArchivePublicationSessions,
   runner: AsyncSubprocessRunner,
@@ -1580,19 +1533,15 @@ async function applyEndArchivePublication(
     const title = archivePublicationTitle(target.project);
     const body = `Branch ${target.branch} at ${target.worktreePath}.`;
     let pastPush = false;
-    const failureForStep = (error: unknown): ArchivePublicationStepFailure => ({
-      step: pastPush ? "pr" : "push",
-      error,
-    });
-    const git = archivePublicationGitSeam(
-      runner,
-      () => {
-        pastPush = true;
-      },
-      (error) => {
-        throw failureForStep(error);
-      },
-    );
+    const git = async (cwd: string, args: readonly string[]) => {
+      try {
+        const out = await runArchivePublicationGit(cwd, args, runner);
+        if (args[0] === "push") pastPush = true;
+        return out;
+      } catch (error) {
+        throw { step: pastPush ? "pr" : "push", error } satisfies ArchivePublicationStepFailure;
+      }
+    };
     try {
       const result = await publishArchiveReady(
         { worktreePath: target.worktreePath, branch: target.branch, baseRef, title, body },

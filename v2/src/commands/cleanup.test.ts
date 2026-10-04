@@ -129,6 +129,10 @@ function cleanupFunctionBody(functionHead: string): string {
   throw new Error(`unclosed ${functionHead}`);
 }
 
+function expectCleanupFunctionNoSpawn(functionHead: string, pattern: RegExp): void {
+  expect(cleanupFunctionBody(functionHead)).not.toMatch(pattern);
+}
+
 function ghPrListProbeFailureRunner(projectRoot: string, teardownCalls: string[]): AsyncSubprocessRunner {
   return {
     runAsync: async (cmd, args, cwd) => {
@@ -298,9 +302,7 @@ describe("cleanup: GitHub operations boundary", () => {
     };
     expect(await planSubsumedPrGateAllows("plan/x", projectRoot, runner)).toBe(true);
     expect(calls).toEqual([{ branch: "plan/x", state: "all" }]);
-    expect(cleanupFunctionBody("export async function planSubsumedPrGateAllows")).not.toMatch(
-      /runAsync\(\s*["']gh["']/,
-    );
+    expectCleanupFunctionNoSpawn("export async function planSubsumedPrGateAllows", /runAsync\(\s*["']gh["']/);
   });
 
   test("listOpenPrsForBranch delegates listPrs", async () => {
@@ -320,32 +322,34 @@ describe("cleanup: GitHub operations boundary", () => {
     const gate = await gateOnOpenPrs("feat/x", runner, projectRoot);
     expect(calls).toEqual([{ branch: "feat/x", state: "open" }]);
     expect(gate.status).toBe("ok");
-    expect(cleanupFunctionBody("async function listOpenPrsForBranch")).not.toMatch(/runAsync\(\s*["']gh["']/);
+    expectCleanupFunctionNoSpawn("async function listOpenPrsForBranch", /runAsync\(\s*["']gh["']/);
   });
 
-  test("delegates spec-at-ref reads to shared git tree/blob operations", () => {
-    expect(cleanupFunctionBody("async function openInRepoSpecDirNamesOnRef")).not.toMatch(
+  test("delegates spec-at-ref and stale-reset git reads to shared boundary", () => {
+    expectCleanupFunctionNoSpawn(
+      "async function openInRepoSpecDirNamesOnRef",
       /runAsync\(\s*["']git["'],\s*\[["']ls-tree["']/,
     );
-    const specTreeBody = cleanupFunctionBody("async function specTreeFsAtRef");
-    expect(specTreeBody).not.toMatch(/runAsync\(\s*["']git["'],\s*\[["']ls-tree["']/);
-    expect(specTreeBody).not.toMatch(/runAsync\(\s*["']git["'],\s*\[["']show["']/);
-  });
-
-  test("tick-backing delegates log-patch read to shared git", () => {
-    expect(cleanupFunctionBody("async function checkedCriterionBackedByCommit")).not.toMatch(
+    expectCleanupFunctionNoSpawn("async function specTreeFsAtRef", /runAsync\(\s*["']git["'],\s*\[["']ls-tree["']/);
+    expectCleanupFunctionNoSpawn("async function specTreeFsAtRef", /runAsync\(\s*["']git["'],\s*\[["']show["']/);
+    expectCleanupFunctionNoSpawn(
+      "async function checkedCriterionBackedByCommit",
       /runAsync\(\s*["']git["'],\s*\[["']log["']/,
     );
-    expect(cleanupFunctionBody("export async function isDescendantOfBase")).not.toMatch(
+    expectCleanupFunctionNoSpawn(
+      "export async function isDescendantOfBase",
       /runAsync\(\s*["']git["'],\s*\[["']merge-base["'],\s*\[["']--is-ancestor["']/,
     );
-    expect(cleanupFunctionBody("async function evaluateCommittedLaneContinuation")).not.toMatch(
+    expectCleanupFunctionNoSpawn(
+      "async function evaluateCommittedLaneContinuation",
       /runAsync\(\s*["']git["'],\s*\[["']rebase["']/,
     );
-    expect(cleanupFunctionBody("async function evaluateCommittedLaneContinuation")).not.toMatch(
+    expectCleanupFunctionNoSpawn(
+      "async function evaluateCommittedLaneContinuation",
       /runAsync\(\s*["']git["'],\s*\[["']merge["'],\s*\[["']--no-edit["']/,
     );
-    expect(cleanupFunctionBody("async function carriesNoUnlandedCommits")).not.toMatch(
+    expectCleanupFunctionNoSpawn(
+      "async function carriesNoUnlandedCommits",
       /runAsync\(\s*["']git["'],\s*\[["']merge-tree["']/,
     );
   });
@@ -369,7 +373,7 @@ describe("cleanup: GitHub operations boundary", () => {
     };
     expect(await mergedPrHeadAuthorityMatches("branch", oid, projectRoot, runner)).toBe(true);
     expect(calls).toEqual([{ branch: "branch", state: "all" }]);
-    expect(cleanupFunctionBody("async function ghPrHeadRecordsForBranch")).not.toMatch(/runAsync\(\s*["']gh["']/);
+    expectCleanupFunctionNoSpawn("async function ghPrHeadRecordsForBranch", /runAsync\(\s*["']gh["']/);
   });
 });
 

@@ -18,9 +18,9 @@
 
 ## Acceptance criteria
 
-- [ ] `docs/daemon-host.md` documents unconditional `resume` for terminal `iteration_timeout` on `list`/`wait` and states that in-loop `iteration_timeout_continued` leaves the run `in-progress` without terminal error projection.
-- [ ] `docs/v1-behaviors.md` records list/wait/TUI/log-follow projection for rollover and unconditional terminal-stall resume (sources cite `src/daemon/run-operator-error.ts`, `src/daemon/workflow-list-snapshot.ts`, and log-follow formatters as applicable).
-- [ ] `docs/operator-runbook.md` triage for terminal stall vs in-loop rollover matches subspecs 00–01 (resume on terminal stall; no operator action required for rollover).
+- [x] `docs/daemon-host.md` documents unconditional `resume` for terminal `iteration_timeout` on `list`/`wait` and states that in-loop `iteration_timeout_continued` leaves the run `in-progress` without terminal error projection.
+- [x] `docs/v1-behaviors.md` records list/wait/TUI/log-follow projection for rollover and unconditional terminal-stall resume (sources cite `src/daemon/run-operator-error.ts`, `src/daemon/workflow-list-snapshot.ts`, and log-follow formatters as applicable).
+- [x] `docs/operator-runbook.md` triage for terminal stall vs in-loop rollover matches subspecs 00–01 (resume on terminal stall; no operator action required for rollover).
 
 ## Documentation updates
 

@@ -49,6 +49,10 @@ New specs must be merged to `main` before implementation begins. Jarvis runs aga
 
 Do not bundle spec authoring and implementation in one PR. The merge-first rule applies to plan-generated specs the same as hand-written ones.
 
+## Subspec sizing and iteration timeout
+
+- A subspec rewriting more than a few hundred lines in one file, or with an open-ended touched-file list, is an implement iteration-timeout hazard and must be split or explicitly sized before implement dispatch.
+
 ## Plan same-seam siblings serially
 
 Sibling seeds/intents that edit the same code seam must be planned (and implemented) one at a time, each against the merged result of the previous one — never fanned out in parallel off a shared base. Parallel-planned siblings encode the pre-fix vocabulary of that base; the first to land reshapes the seam and stales every other spec (observed on the publication/ready-finalize cluster, PR #1620). Parallel fan-out is fine across disjoint seams.

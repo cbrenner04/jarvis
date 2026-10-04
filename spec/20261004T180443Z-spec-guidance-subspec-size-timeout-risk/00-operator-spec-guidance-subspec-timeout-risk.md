@@ -17,8 +17,8 @@ Implement runs hit the 45-minute iteration wall mid-subspec while still making p
 
 ## Acceptance criteria
 
-- [ ] `docs/spec-guidance.md` contains `## Subspec sizing and iteration timeout` and prose that a subspec rewriting more than a few hundred lines in one file, or with an open-ended touched-file list, is an implement iteration-timeout hazard and must be split or explicitly sized before implement dispatch.
-- [ ] `bun run lint:md` passes.
+- [x] `docs/spec-guidance.md` contains `## Subspec sizing and iteration timeout` and prose that a subspec rewriting more than a few hundred lines in one file, or with an open-ended touched-file list, is an implement iteration-timeout hazard and must be split or explicitly sized before implement dispatch.
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

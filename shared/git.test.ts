@@ -39,6 +39,7 @@ import {
   isRetryableGitError,
   isWorktreeDirty,
   listLocalBranchHeads,
+  listRecursiveBlobOidsAtRef,
   listRecursivePathsAtRef,
   listTreeChildrenAtRef,
   listWorktrees,
@@ -822,6 +823,23 @@ describe("ref object reads at commits", () => {
       "git show main:gone": gitFailure("error: path 'gone' does not exist in 'main'\n", 1),
     });
     expect(await readBlobAtRef("/repo", "main", "gone", runner)).toBeUndefined();
+  });
+
+  test("listRecursiveBlobOidsAtRef returns without git when relPaths is empty", async () => {
+    const runner = fakeAsyncRunner("");
+    expect(await listRecursiveBlobOidsAtRef("/repo", "main", [], runner)).toEqual([]);
+    expect(runner.calls).toEqual([]);
+  });
+
+  test("listRecursiveBlobOidsAtRef parses blob oids from recursive ls-tree", async () => {
+    const listing = `100644 blob ${OID_A}\tpath/a.md\0` + `100644 blob ${OID_B}\tpath/b.md\0`;
+    const runner = fakeAsync({
+      "git ls-tree -r -z main -- path/a.md path/b.md": listing,
+    });
+    expect(await listRecursiveBlobOidsAtRef("/repo", "main", ["path/a.md", "path/b.md"], runner)).toEqual([
+      { path: "path/a.md", oid: OID_A },
+      { path: "path/b.md", oid: OID_B },
+    ]);
   });
 
   test("listTreeChildrenAtRef keeps blob tree and commit entries only", async () => {

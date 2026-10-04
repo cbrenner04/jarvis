@@ -172,11 +172,7 @@ describe("Test slice boundaries", () => {
   });
 
   it("aggregate roster matches unified v2 slice rosters", () => {
-    const aggregate = aggregateTestFiles();
-    expect(aggregate).toEqual({
-      agent: v2Tests("agent"),
-      integration: v2Tests("integration"),
-    });
+    expect(aggregateTestFiles()).toEqual({ agent: v2Tests("agent"), integration: v2Tests("integration") });
   });
 
   it("policy parity: aggregate and v2 files share per-file timeout and subprocess isolation", async () => {

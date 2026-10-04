@@ -33,24 +33,12 @@ export function classifyChangedPaths(paths: string[]): ScopedTests {
     return [];
   }
 
-  let needsV2 = false;
-
   for (const path of filtered) {
-    if (path.startsWith("v2/src/shared/")) {
-      needsV2 = true;
-    } else if (path.startsWith("v2/")) {
-      needsV2 = true;
-    } else if (path.startsWith("test/")) {
-      needsV2 = true;
-    } else {
+    if (!path.startsWith("v2/") && !path.startsWith("test/")) {
       return "full";
     }
   }
-
-  if (needsV2) {
-    return ["test:v2", "test:integration:v2"];
-  }
-  return "full";
+  return ["test:v2", "test:integration:v2"];
 }
 
 /** Entry point: falls back to `full` whenever the base SHA didn't resolve. */

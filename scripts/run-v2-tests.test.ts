@@ -18,9 +18,10 @@ import {
 } from "./run-v2-tests.ts";
 import { sliceTestFiles, walkTestFiles } from "./test-slice.ts";
 
+const formerSharedRoster = [...walkTestFiles("v2/src/shared"), ...walkTestFiles("test"), ...walkTestFiles("scripts")];
+
 function formerSharedTests(mode: "agent" | "integration"): string[] {
-  const roster = [...walkTestFiles("v2/src/shared"), ...walkTestFiles("test"), ...walkTestFiles("scripts")];
-  return sliceTestFiles(roster, mode);
+  return sliceTestFiles(formerSharedRoster, mode);
 }
 
 const POLL_UNTIL_DONE_FILE = "v2/src/commands/workflow.test.ts";
@@ -29,18 +30,14 @@ const SUBPROCESS_SPAWNING_FILE = "v2/src/execution/diff-derived-mutation-verifie
 describe("walkV2TestFiles", () => {
   test("v2 discovery includes former shared slice roster", () => {
     const expected = [...walkTestFiles("v2"), ...walkTestFiles("test"), ...walkTestFiles("scripts")].sort();
-    expect(walkV2TestFiles().sort()).toEqual(expected);
+    expect(walkV2TestFiles()).toEqual(expected);
   });
 
   test("v2 discovery roster matches former sharedTests baseline", () => {
-    const all = walkV2TestFiles();
     const baselineAgent = formerSharedTests("agent");
     const baselineIntegration = formerSharedTests("integration");
     const v2Agent = v2Tests("agent");
     const v2Integration = v2Tests("integration");
-    for (const file of [...baselineAgent, ...baselineIntegration]) {
-      expect(all).toContain(file);
-    }
     for (const file of baselineAgent) {
       expect(v2Agent).toContain(file);
       expect(v2Integration).not.toContain(file);

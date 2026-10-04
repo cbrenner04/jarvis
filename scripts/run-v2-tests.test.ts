@@ -12,8 +12,8 @@ import {
   runV2TestFiles,
   SUPPORTED_HEALTHY_FILE_BUDGET_MS,
   spawnTimeoutMessage,
-  validatePerFileTimeout,
   v2Tests,
+  validatePerFileTimeout,
   walkV2TestFiles,
 } from "./run-v2-tests.ts";
 import { sliceTestFiles, walkTestFiles } from "./test-slice.ts";

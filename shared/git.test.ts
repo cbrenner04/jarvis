@@ -37,6 +37,8 @@ import {
   type PushResult,
   pruneWorktrees,
   pushBranch,
+  remoteUrl,
+  type RemoteUrlResult,
   type RefDeleteResult,
   type RefResolution,
   removeWorktree,
@@ -850,6 +852,28 @@ describe("pushBranch", () => {
     }
     const timeout = fakeAsync({ "git push origin feature": timeoutFailure() });
     expectFailure(await rejection(pushBranch("/repo", { branch: "feature" }, timeout)), "push", "timeout", true);
+  });
+});
+
+describe("remoteUrl", () => {
+  test("returns the trimmed URL and absent when the remote is missing", async () => {
+    const runner = fakeAsync({
+      "git remote get-url origin": "https://github.com/o/r.git\n",
+      "git remote get-url upstream": gitFailure("fatal: No such remote 'upstream'\n", 2),
+    });
+    const resolved: RemoteUrlResult = await remoteUrl("/repo", "origin", runner);
+    expect(resolved).toEqual({ status: "resolved", url: "https://github.com/o/r.git" });
+    expect(await remoteUrl("/repo", "upstream", runner)).toEqual({ status: "absent" });
+    expect(runner.calls[0]).toEqual({
+      args: ["git", "remote", "get-url", "origin"],
+      cwd: "/repo",
+      options: {},
+    });
+  });
+
+  test("other failures are remote-url errors", async () => {
+    const failed = fakeAsync({ "git remote get-url origin": gitFailure("fatal: not a git repository\n") });
+    expectFailure(await rejection(remoteUrl("/nowhere", "origin", failed)), "remote-url", "failed", false);
   });
 });
 

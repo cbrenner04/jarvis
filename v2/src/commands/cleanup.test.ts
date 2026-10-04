@@ -3368,7 +3368,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
           return ghPrViewStateJson("MERGED", "2026-01-01T00:00:00Z");
         }
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
-          throw new Error("git worktree remove failed");
+          throw new AsyncSubprocessError(
+            "Command failed: git",
+            1,
+            "",
+            "fatal: simulated worktree remove failure",
+            undefined,
+          );
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
       },
@@ -4093,7 +4099,7 @@ describe("cleanup: runAbandonCommand", () => {
     const removeInvocation = invocations.find(
       (i) => i.cmd === "git" && i.args[0] === "worktree" && i.args[1] === "remove",
     );
-    expect(removeInvocation?.args).toEqual(["worktree", "remove", "--force", worktreePath]);
+    expect(removeInvocation?.args).toEqual(["worktree", "remove", "--force", "--force", worktreePath]);
 
     const branchDeleteInvocation = invocations.find(
       (i) => i.cmd === "git" && i.args[0] === "branch" && i.args[1] === "-D",
@@ -4101,7 +4107,7 @@ describe("cleanup: runAbandonCommand", () => {
     expect(branchDeleteInvocation?.args).toEqual(["branch", "-D", branch]);
 
     const pushDeleteInvocation = invocations.find(
-      (i) => i.cmd === "git" && i.args[0] === "push" && i.args[1] === "origin",
+      (i) => i.cmd === "git" && i.args[0] === "push" && i.args[1] === "origin" && i.args[2] === "--delete",
     );
     expect(pushDeleteInvocation?.args).toEqual(["push", "origin", "--delete", branch]);
 

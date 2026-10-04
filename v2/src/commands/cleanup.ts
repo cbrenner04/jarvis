@@ -15,12 +15,23 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { gzipSync } from "node:zlib";
 import { errorMessage } from "../../../shared/error-message.ts";
 import {
+  deleteBranch,
+  deleteRef,
   getBaseBranch,
   getCurrentBranchAsync,
   getGitStatusInventory,
+  gitCommonDir,
   isGitRepoAsync,
+  isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
+  listWorktrees,
+  mergeBase,
   originTrackingRefResolvesAsync,
+  pruneWorktrees,
+  pushBranch,
+  remoteUrl,
+  removeWorktree,
+  resolveRef,
 } from "../../../shared/git.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
@@ -192,8 +203,7 @@ async function resolveWorktreeBranch(worktreePath: string, runner: AsyncSubproce
 async function isValidGitWorktree(worktreePath: string, runner: AsyncSubprocessRunner): Promise<boolean> {
   if (!existsSync(worktreePath)) return false;
   try {
-    const result = await runner.runAsync("git", ["rev-parse", "--is-inside-work-tree"], worktreePath);
-    return result.trim() === "true";
+    return await isInsideWorkTree(worktreePath, runner);
   } catch {
     return false;
   }
@@ -492,10 +502,12 @@ export function parseCheckedOutBranchesFromWorktreePorcelain(porcelain: string):
   return checkedOut;
 }
 
-async function resolveGitCommonDir(repoRoot: string, runner: AsyncSubprocessRunner): Promise<string> {
-  return resolve(
-    (await runner.runAsync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], repoRoot)).trim(),
-  );
+function checkedOutBranchesFromWorktreeEntries(entries: ReadonlyArray<{ branch?: string }>): Set<string> {
+  const checkedOut = new Set<string>();
+  for (const entry of entries) {
+    if (entry.branch !== undefined) checkedOut.add(entry.branch);
+  }
+  return checkedOut;
 }
 
 async function listLocalHeads(repoRoot: string, runner: AsyncSubprocessRunner): Promise<LocalHead[]> {
@@ -572,7 +584,7 @@ async function ghSuccessorPrMergedInRepo(
 ): Promise<boolean> {
   try {
     const view = await viewPrState(runner, repoRoot, successorPrNumber, networkSubprocessOptions());
-    if (view.isCrossRepository !== true) return false;
+    if (view.isCrossRepository === true) return false;
     return view.state === "MERGED" && Boolean(view.mergedAt);
   } catch {
     return false;
@@ -809,7 +821,7 @@ async function mapRegisteredProjectsToDistinctRepos(
     }
     let commonDir: string;
     try {
-      commonDir = await resolveGitCommonDir(root, runner);
+      commonDir = await gitCommonDir(root, runner);
     } catch (err) {
       unusableProjects.push({
         project,
@@ -832,13 +844,13 @@ async function discoverMergedBranchRefCandidatesForRepo(
   retiredBranches: ReadonlySet<string>,
   runner: AsyncSubprocessRunner,
 ): Promise<MergedBranchRefCandidate[]> {
-  const [baseBranch, currentBranch, worktreePorcelain, localHeads] = await Promise.all([
+  const [baseBranch, currentBranch, worktrees, localHeads] = await Promise.all([
     getBaseBranch(root, runner),
     getCurrentBranchAsync(root, runner),
-    runner.runAsync("git", ["worktree", "list", "--porcelain"], root),
+    listWorktrees(root, runner),
     listLocalHeads(root, runner),
   ]);
-  const checkedOut = parseCheckedOutBranchesFromWorktreePorcelain(worktreePorcelain);
+  const checkedOut = checkedOutBranchesFromWorktreeEntries(worktrees);
   const candidates: MergedBranchRefCandidate[] = [];
 
   for (const head of localHeads) {
@@ -979,9 +991,7 @@ export async function revalidateMergedBranchRefCandidate(
   const [baseBranch, currentBranch, checkedOut] = await Promise.all([
     getBaseBranch(root, runner),
     getCurrentBranchAsync(root, runner),
-    runner
-      .runAsync("git", ["worktree", "list", "--porcelain"], root)
-      .then(parseCheckedOutBranchesFromWorktreePorcelain),
+    listWorktrees(root, runner).then(checkedOutBranchesFromWorktreeEntries),
   ]);
   if (branch === baseBranch) return { status: "ineligible", reason: "base branch" };
   if (currentBranch !== "HEAD" && branch === currentBranch) {
@@ -1020,8 +1030,8 @@ async function deleteExactRef(
   runner: AsyncSubprocessRunner,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    await runner.runAsync("git", ["update-ref", "-d", ref], repoRoot);
-    if ((await resolveExactRefOid(repoRoot, ref, runner)) !== undefined) {
+    await deleteRef(repoRoot, ref, runner);
+    if ((await resolveRef(repoRoot, ref, runner)).status === "resolved") {
       return { ok: false, message: "ref still resolves after deletion" };
     }
     return { ok: true };
@@ -3193,14 +3203,11 @@ async function removeWorktreeAndPruneRefs(
     const plan = await planMergedWorktreeRemoval(candidate, projectRoot, runner, preflight.store, preflight.registry);
     forceRemove = plan.action === "force-remove";
   }
-  const removeArgs = forceRemove
-    ? ["worktree", "remove", "--force", worktree.path]
-    : ["worktree", "remove", worktree.path];
-  await runner.runAsync("git", removeArgs, projectRoot);
+  await removeWorktree(projectRoot, worktree.path, runner, { force: forceRemove });
   io.stdout(`Removed worktree: ${worktree.path}\n`);
 
   try {
-    await runner.runAsync("git", ["worktree", "prune"], projectRoot);
+    await pruneWorktrees(projectRoot, runner);
   } catch {
     // Prune may fail but shouldn't block the operation
   }
@@ -3537,7 +3544,7 @@ async function hasCommonAncestor(
   runner: AsyncSubprocessRunner,
 ): Promise<boolean> {
   try {
-    await runner.runAsync("git", ["merge-base", a, b], projectRoot);
+    await mergeBase(projectRoot, a, b, runner);
     return true;
   } catch {
     return false;
@@ -4385,7 +4392,7 @@ async function pruneStaleOriginRemoteTrackingRef(
     return { ok: true };
   }
   try {
-    await runner.runAsync("git", ["update-ref", "-d", `refs/remotes/origin/${branch}`], cwd);
+    await deleteRef(cwd, `refs/remotes/origin/${branch}`, runner);
     if (await originTrackingRefResolvesAsync(cwd, branch, runner)) {
       return { ok: false, message: "remote-tracking ref still resolves after prune" };
     }
@@ -4395,20 +4402,6 @@ async function pruneStaleOriginRemoteTrackingRef(
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }
-}
-
-/**
- * True when `git push origin --delete` failed because the remote branch is
- * already gone — the goal state, not a failure.
- */
-function isRemoteRefAlreadyAbsent(err: unknown): boolean {
-  const text =
-    err instanceof AsyncSubprocessError
-      ? `${err.message}\n${err.stderr}`
-      : err instanceof Error
-        ? err.message
-        : String(err);
-  return /remote ref does not exist/i.test(text);
 }
 
 /**
@@ -4422,22 +4415,20 @@ async function deleteRemoteBranch(
   runner: AsyncSubprocessRunner,
   io: { stdout: (s: string) => void },
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    await runner.runAsync("git", ["remote", "get-url", "origin"], cwd);
-  } catch {
+  if ((await remoteUrl(cwd, "origin", runner)).status === "absent") {
     io.stdout(`No origin remote; remote branch ${branch} already absent\n`);
     return { ok: true };
   }
 
   try {
-    await runner.runAsync("git", ["push", "origin", "--delete", branch], cwd, networkSubprocessOptions());
-    io.stdout(`Deleted remote branch: ${branch}\n`);
+    const push = await pushBranch(cwd, { branch, delete: true }, runner);
+    if (push.status === "pushed") {
+      io.stdout(`Deleted remote branch: ${branch}\n`);
+    } else {
+      io.stdout(`Remote branch ${branch} already absent\n`);
+    }
     return { ok: true };
   } catch (err) {
-    if (isRemoteRefAlreadyAbsent(err)) {
-      io.stdout(`Remote branch ${branch} already absent\n`);
-      return { ok: true };
-    }
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -4454,7 +4445,7 @@ async function performAbandonmentSteps(
   const destroyed: DestroyedArtifacts = {};
 
   try {
-    await runner.runAsync("git", ["worktree", "remove", "--force", worktreePath], cwd);
+    await removeWorktree(cwd, worktreePath, runner, { force: true });
     io.stdout(`Removed worktree: ${worktreePath}\n`);
     destroyed.worktreePath = worktreePath;
   } catch (err) {
@@ -4463,13 +4454,13 @@ async function performAbandonmentSteps(
   }
 
   try {
-    await runner.runAsync("git", ["worktree", "prune"], cwd);
+    await pruneWorktrees(cwd, runner);
   } catch {
     // Prune may fail but shouldn't block the operation
   }
 
   try {
-    await runner.runAsync("git", ["branch", "-D", branch], cwd);
+    await deleteBranch(cwd, branch, runner, { force: true });
     io.stdout(`Deleted local branch: ${branch}\n`);
     destroyed.localBranch = branch;
   } catch (err) {

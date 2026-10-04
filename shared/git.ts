@@ -302,6 +302,7 @@ export type GitOperation =
   | "ref-query"
   | "update-ref"
   | "push"
+  | "remote-url"
   | "git-dir"
   | "work-tree-query";
 
@@ -835,6 +836,24 @@ export async function pushBranch(
   } catch (error) {
     if (target.delete && failureMatches(error, /remote ref does not exist/i)) return { status: "already-absent" };
     throw gitError("push", error, PUSH_RULES, options);
+  }
+}
+
+export type RemoteUrlResult = { status: "resolved"; url: string } | { status: "absent" };
+
+/** `git remote get-url <name>`; `absent` when the remote is missing or git reports no URL. */
+export async function remoteUrl(
+  cwd: string,
+  remote: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<RemoteUrlResult> {
+  try {
+    const url = (await runner.runAsync("git", ["remote", "get-url", remote], cwd, runOptions(options))).trim();
+    return url.length > 0 ? { status: "resolved", url } : { status: "absent" };
+  } catch (error) {
+    if (failureMatches(error, /No such remote/i)) return { status: "absent" };
+    throw gitError("remote-url", error, [], options);
   }
 }
 

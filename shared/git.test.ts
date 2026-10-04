@@ -30,6 +30,7 @@ import {
   gitCommonDir,
   gitDir,
   isInsideWorkTree,
+  isAncestor,
   isNotGitRepositoryDiagnostic,
   isRetryableGitError,
   isWorktreeDirty,
@@ -37,7 +38,9 @@ import {
   listRecursivePathsAtRef,
   listTreeChildrenAtRef,
   listWorktrees,
+  logPatchForPathInRange,
   mergeBase,
+  mergeTreeWriteTree,
   type PushResult,
   pruneWorktrees,
   pushBranch,
@@ -48,6 +51,7 @@ import {
   type RefResolution,
   removeWorktree,
   resolveRef,
+  unmergedPathNames,
   updateRef,
   type WorktreeAddResult,
   type WorktreeEntry,
@@ -710,6 +714,49 @@ describe("deleteBranch", () => {
       ["git", "branch", "-d", "nope"],
       ["git", "branch", "-d", "unmerged"],
       ["git", "branch", "-D", "live"],
+    ]);
+  });
+});
+
+describe("graph reads for stale-reset", () => {
+  test("isAncestor, merge-tree write-tree, unmerged paths, and log patch for path", async () => {
+    const runner = fakeAsync({
+      "git merge-base --is-ancestor main feature": "",
+      "git merge-base --is-ancestor main stale": gitFailure("", 1),
+      [`git merge-tree --write-tree main feature`]: `${OID_A}\n`,
+      "git merge-tree --write-tree main broken": gitFailure("fatal: bad revision\n", 128),
+      "git diff --name-only --diff-filter=U": "a.txt\nb.txt\n",
+      "git diff --name-only --diff-filter=U empty": "",
+      [`git log main..feature -p --format=%H -- v2/spec/task.md`]: `${OID_A}\n+tick\n`,
+      "git log main..feature -p --format=%H -- missing": gitFailure("fatal: bad revision\n", 128),
+    });
+    expect(await isAncestor("/repo", "main", "feature", runner)).toBe(true);
+    expect(await isAncestor("/repo", "main", "stale", runner)).toBe(false);
+    expect(await mergeTreeWriteTree("/repo", "main", "feature", runner)).toBe(OID_A);
+    expectFailure(
+      await rejection(mergeTreeWriteTree("/repo", "main", "broken", runner)),
+      "merge-tree",
+      "failed",
+      false,
+    );
+    expect(await unmergedPathNames("/repo", runner)).toEqual(["a.txt", "b.txt"]);
+    expect(await logPatchForPathInRange("/repo", "main", "feature", "v2/spec/task.md", runner)).toBe(
+      `${OID_A}\n+tick\n`,
+    );
+    expectFailure(
+      await rejection(logPatchForPathInRange("/repo", "main", "feature", "missing", runner)),
+      "ref-query",
+      "failed",
+      false,
+    );
+    expect(runner.calls.map((call) => call.args)).toEqual([
+      ["git", "merge-base", "--is-ancestor", "main", "feature"],
+      ["git", "merge-base", "--is-ancestor", "main", "stale"],
+      ["git", "merge-tree", "--write-tree", "main", "feature"],
+      ["git", "merge-tree", "--write-tree", "main", "broken"],
+      ["git", "diff", "--name-only", "--diff-filter=U"],
+      ["git", "log", "main..feature", "-p", "--format=%H", "--", "v2/spec/task.md"],
+      ["git", "log", "main..feature", "-p", "--format=%H", "--", "missing"],
     ]);
   });
 });

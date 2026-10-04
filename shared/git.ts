@@ -292,6 +292,7 @@ export async function getCurrentHeadAsync(
 
 export type GitOperation =
   | "merge-base"
+  | "merge-tree"
   | "diff"
   | "worktree-add"
   | "worktree-remove"
@@ -471,6 +472,48 @@ export async function mergeBase(
   return oid;
 }
 
+/** Soft boolean matching `git merge-base --is-ancestor` (exit 1 → false; stdio ignored). */
+export async function isAncestor(
+  cwd: string,
+  ancestor: string,
+  descendant: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<boolean> {
+  try {
+    await runner.runAsync(
+      "git",
+      ["merge-base", "--is-ancestor", ancestor, descendant],
+      cwd,
+      runOptions(options, { stdio: "ignore" }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** First-line tree OID from `git merge-tree --write-tree base head`. */
+export async function mergeTreeWriteTree(
+  cwd: string,
+  baseRef: string,
+  headRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  let output: string;
+  try {
+    output = await runner.runAsync("git", ["merge-tree", "--write-tree", baseRef, headRef], cwd, runOptions(options));
+  } catch (error) {
+    throw gitError("merge-tree", error, [], options);
+  }
+  const oid = output.split("\n")[0]?.trim() ?? "";
+  if (!OID_PATTERN.test(oid)) {
+    throw new GitOperationError("merge-tree", "failed", `unexpected merge-tree output ${JSON.stringify(oid)}`, "", 0);
+  }
+  return oid;
+}
+
 async function runDiff(
   cwd: string,
   args: string[],
@@ -506,6 +549,19 @@ export async function diffNameOnly(
     .split("\n")
     .filter((line) => line.length > 0)
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** Unmerged paths in the index/worktree (`git diff --name-only --diff-filter=U`). */
+export async function unmergedPathNames(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[]> {
+  const output = await runDiff(cwd, ["--name-only", "--diff-filter=U"], runner, options);
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }
 
 /** Raw unified diff between `from` and `to` (not trimmed: the trailing newline is part of the patch). */
@@ -868,6 +924,27 @@ export async function countCommitsBetween(
       runOptions(options),
     );
     return Number.parseInt(output.trim(), 10);
+  } catch (error) {
+    throw gitError("ref-query", error, [], options);
+  }
+}
+
+/** `git log base..head -p --format=%H -- path` for path-scoped patch history (tick-backing). */
+export async function logPatchForPathInRange(
+  cwd: string,
+  baseRef: string,
+  headRef: string,
+  path: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string> {
+  try {
+    return await runner.runAsync(
+      "git",
+      ["log", `${baseRef}..${headRef}`, "-p", "--format=%H", "--", path],
+      cwd,
+      runOptions(options, { maxBuffer: DIFF_MAX_BUFFER }),
+    );
   } catch (error) {
     throw gitError("ref-query", error, [], options);
   }

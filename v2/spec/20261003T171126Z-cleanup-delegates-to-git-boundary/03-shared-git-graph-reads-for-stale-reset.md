@@ -17,10 +17,10 @@ Stale-reset logic in `cleanup.ts` uses inline `merge-base --is-ancestor`, `merge
 
 ## Acceptance criteria
 
-- [ ] `shared/git.test.ts` covers ancestor, merge-tree, conflict-path, and log-patch helpers; fails against pre-fix missing exports.
-- [ ] `cleanup.test.ts` adds `tick-backing delegates log-patch read to shared git` asserting `commitBacksCheckedCriterion` no longer uses `runAsync("git", ["log"`; fails against pre-fix inline spawn (~line 3502).
-- [ ] `cleanup.ts` contains no `runAsync("git", ["merge-base", "--is-ancestor"` or `["merge-tree"` or `["log",` with `-p` for tick-backing — staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:v2` pass.
+- [x] `shared/git.test.ts` covers ancestor, merge-tree, conflict-path, and log-patch helpers; fails against pre-fix missing exports.
+- [x] `cleanup.test.ts` adds `tick-backing delegates log-patch read to shared git` asserting `commitBacksCheckedCriterion` no longer uses `runAsync("git", ["log"`; fails against pre-fix inline spawn (~line 3502).
+- [x] `cleanup.ts` contains no `runAsync("git", ["merge-base", "--is-ancestor"` or `["merge-tree"` or `["log",` with `-p` for tick-backing — staging slice only; full-file invariant is [06](./06-cleanup-operation-errors-and-docs.md).
+- [x] `bun run typecheck`, `bun run test:shared`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

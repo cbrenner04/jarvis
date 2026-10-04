@@ -26,11 +26,14 @@ import {
   isGitRepoAsync,
   isInsideWorkTree,
   isNotGitRepositoryDiagnostic,
+  isAncestor,
   listLocalBranchHeads,
   listRecursivePathsAtRef,
   listTreeChildrenAtRef,
   listWorktrees,
+  logPatchForPathInRange,
   mergeBase,
+  mergeTreeWriteTree,
   originTrackingRefResolvesAsync,
   pruneWorktrees,
   pushBranch,
@@ -38,6 +41,7 @@ import {
   remoteUrl,
   removeWorktree,
   resolveRef,
+  unmergedPathNames,
 } from "../../../shared/git.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
@@ -3288,14 +3292,7 @@ export async function isDescendantOfBase(
   projectRoot: string,
   runner: AsyncSubprocessRunner,
 ): Promise<boolean> {
-  try {
-    await runner.runAsync("git", ["merge-base", "--is-ancestor", baseRef, worktreeHead], projectRoot, {
-      stdio: "ignore",
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return isAncestor(projectRoot, baseRef, worktreeHead, runner);
 }
 
 /** True when `head` carries nothing unlanded: an ancestor of base, or every `base..head` commit patch-equivalent in base (squash-merged). */
@@ -3310,10 +3307,11 @@ async function carriesNoUnlandedCommits(
     // Merging the lane into base changes nothing: every lane change already landed, including a
     // multi-commit lane squash-merged into one base commit (which `git cherry` reports as unlanded).
     const [mergedTree, baseTree] = await Promise.all([
-      runner.runAsync("git", ["merge-tree", "--write-tree", baseRef, head], projectRoot),
-      runner.runAsync("git", ["rev-parse", `${baseRef}^{tree}`], projectRoot),
+      mergeTreeWriteTree(projectRoot, baseRef, head, runner),
+      resolveRef(projectRoot, `${baseRef}^{tree}`, runner),
     ]);
-    return mergedTree.split("\n")[0]?.trim() === baseTree.trim();
+    if (baseTree.status === "absent") return false;
+    return mergedTree === baseTree.oid;
   } catch {
     return false;
   }
@@ -3457,11 +3455,7 @@ async function checkedCriterionBackedByCommit(
 ): Promise<boolean> {
   let log: string;
   try {
-    log = await runner.runAsync(
-      "git",
-      ["log", `${baseRef}..${branch}`, "-p", "--format=%H", "--", relPath],
-      projectRoot,
-    );
+    log = await logPatchForPathInRange(projectRoot, baseRef, branch, relPath, runner);
   } catch {
     return false;
   }
@@ -3538,11 +3532,7 @@ async function hasCommonAncestor(
 
 async function listRebaseConflictPaths(worktreePath: string, runner: AsyncSubprocessRunner): Promise<string[]> {
   try {
-    const output = await runner.runAsync("git", ["diff", "--name-only", "--diff-filter=U"], worktreePath);
-    return output
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+    return await unmergedPathNames(worktreePath, runner);
   } catch {
     return [];
   }

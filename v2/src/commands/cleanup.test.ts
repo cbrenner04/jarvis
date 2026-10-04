@@ -331,6 +331,21 @@ describe("cleanup: GitHub operations boundary", () => {
     expect(specTreeBody).not.toMatch(/runAsync\(\s*["']git["'],\s*\[["']show["']/);
   });
 
+  test("tick-backing delegates log-patch read to shared git", () => {
+    expect(cleanupFunctionBody("async function checkedCriterionBackedByCommit")).not.toMatch(
+      /runAsync\(\s*["']git["'],\s*\[["']log["']/,
+    );
+    expect(cleanupFunctionBody("export async function isDescendantOfBase")).not.toMatch(
+      /runAsync\(\s*["']git["'],\s*\[["']merge-base["'],\s*\[["']--is-ancestor["']/,
+    );
+    expect(cleanupFunctionBody("async function listRebaseConflictPaths")).not.toMatch(
+      /runAsync\(\s*["']git["'],\s*\[["']diff["'],\s*\[["']--name-only["'],\s*\[["']--diff-filter=U["']/,
+    );
+    expect(cleanupFunctionBody("async function carriesNoUnlandedCommits")).not.toMatch(
+      /runAsync\(\s*["']git["'],\s*\[["']merge-tree["']/,
+    );
+  });
+
   test("mergedPrHeadAuthorityMatches delegates listPrs for head authority", async () => {
     const oid = "deadbeef";
     const calls: Array<{ branch: string; state: string }> = [];

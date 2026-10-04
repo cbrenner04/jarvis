@@ -10,7 +10,7 @@
 
 - [x] [00-cleanup-delegates-github-pr.md](./00-cleanup-delegates-github-pr.md) — all `gh` in `cleanup.ts` (probes, gates, open-PR listing, archive publication `gh` seam, abandon `closePr`)
 - [x] [01-cleanup-delegates-worktree-branch-ref-push.md](./01-cleanup-delegates-worktree-branch-ref-push.md) — discovery, retirement, abandon teardown, merged-ref pruning, origin probe before remote delete
-- [ ] [02-shared-git-reads-for-cleanup.md](./02-shared-git-reads-for-cleanup.md) — extend `shared/git.ts` for ref tree/blob reads and counts; migrate cleanup spec-at-ref and diff-name probes
+- [x] [02-shared-git-reads-for-cleanup.md](./02-shared-git-reads-for-cleanup.md) — extend `shared/git.ts` for ref tree/blob reads and counts; migrate cleanup spec-at-ref and diff-name probes
 - [ ] [03-shared-git-graph-reads-for-stale-reset.md](./03-shared-git-graph-reads-for-stale-reset.md) — ancestor, merge-tree, conflict-path listing, tick-backing `git log -p` reads in `shared/git.ts`
 - [ ] [04-cleanup-delegates-stale-reset-rewrites.md](./04-cleanup-delegates-stale-reset-rewrites.md) — stale-reset rebase/merge rewrites through typed worktree git operations
 - [ ] [05-cleanup-archive-publication-git-adapter.md](./05-cleanup-archive-publication-git-adapter.md) — replace `applyEndArchivePublication`'s inline `git` callback with typed git exports (push stays on the boundary)

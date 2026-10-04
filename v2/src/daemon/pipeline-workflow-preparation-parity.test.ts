@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
   type BaseWorkflowName,
   prepareWorkflowStart,
@@ -19,6 +18,7 @@ import {
   type WorkflowPresetBuilderInput,
 } from "../execution/workflow-presets.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createChainedStageProjectMatch } from "./pipeline-stage-resolve.ts";
 import { preparePipelineStageWorkflow, resolvePipelinePresetBuilder } from "./pipeline-workflow-preparation.ts";

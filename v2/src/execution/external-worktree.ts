@@ -10,6 +10,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { jarvisHome, managedWorktreePath } from "../paths.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import {
   addWorktree,
@@ -25,7 +26,6 @@ import {
 } from "../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { acquireLock, releaseLock, type WorktreeLock } from "../shared/worktree-lock.ts";
-import { jarvisHome, managedWorktreePath } from "../paths.ts";
 import { throwIfAborted } from "./throw-if-aborted.ts";
 
 export const MATERIALIZED_NODE_MODULES_PATH = "node_modules";

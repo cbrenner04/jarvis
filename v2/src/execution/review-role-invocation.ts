@@ -1,3 +1,4 @@
+import { DEFAULT_REVIEW_ROLE_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import {
   executeWithQuotaFallback,
   type InvocationAttempt,
@@ -6,7 +7,6 @@ import {
   type InvocationTelemetryContext,
   type InvocationTelemetryFailure,
 } from "../shared/invocation/execute.ts";
-import { DEFAULT_REVIEW_ROLE_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import type { BindingAttemptSummary, InvocationFailureDetail, InvocationFailureKind } from "./invocation-failure.ts";
 
 const DEFAULT_IDLE_OUTPUT_TIMEOUT_MS = 90_000;

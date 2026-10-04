@@ -1,14 +1,4 @@
 import { dirname, join } from "node:path";
-import { getExecutableTreeDigest } from "../shared/executable-tree.ts";
-import { getCurrentHeadAsync } from "../shared/git.ts";
-import {
-  createResolvedAgentBinding,
-  type ResolvedAgentBinding,
-  type ResolvedAgentBindingOptions,
-} from "../shared/invocation/agents.ts";
-import type { InvocationBinding } from "../shared/invocation/execute.ts";
-import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   type AgentModelConfig,
   isLoadError,
@@ -46,6 +36,16 @@ import {
   openLogSink,
 } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import { getExecutableTreeDigest } from "../shared/executable-tree.ts";
+import { getCurrentHeadAsync } from "../shared/git.ts";
+import {
+  createResolvedAgentBinding,
+  type ResolvedAgentBinding,
+  type ResolvedAgentBindingOptions,
+} from "../shared/invocation/agents.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { DEFAULT_HANDOFF_FALLBACK_MS, DEFAULT_SELF_HANDOFF_READINESS_TIMEOUT_MS } from "./daemon-changeover.ts";
 import {
   type DrainObserver,

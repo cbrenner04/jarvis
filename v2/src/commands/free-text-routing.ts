@@ -1,8 +1,3 @@
-import { createRoutingAgentBinding, type RoutingInvocationResult } from "../shared/invocation/agents.ts";
-import { executeWithQuotaFallback } from "../shared/invocation/execute.ts";
-import { routingFailureOf } from "../shared/invocation/routing.ts";
-import { findProjectMatch } from "../shared/project-registry.ts";
-import { buildRoutingTranslatePrompt } from "../shared/prompts/routing-translate.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import {
   ROUTING_ACTION_CATALOG,
@@ -22,6 +17,11 @@ import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-co
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
+import { createRoutingAgentBinding, type RoutingInvocationResult } from "../shared/invocation/agents.ts";
+import { executeWithQuotaFallback } from "../shared/invocation/execute.ts";
+import { routingFailureOf } from "../shared/invocation/routing.ts";
+import { findProjectMatch } from "../shared/project-registry.ts";
+import { buildRoutingTranslatePrompt } from "../shared/prompts/routing-translate.ts";
 import {
   appendRoutingAuditLine,
   normalizedRequestDigest,

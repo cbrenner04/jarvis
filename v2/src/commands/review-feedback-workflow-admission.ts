@@ -1,5 +1,3 @@
-import { findProjectMatch } from "../shared/project-registry.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, request } from "../cli/ipc.ts";
@@ -22,6 +20,8 @@ import {
   resolveReviewFeedbackLane,
 } from "../persistence/review-feedback-lane-resolution.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { findProjectMatch } from "../shared/project-registry.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 import type { ReviewFeedbackWorkflowCliInput } from "./workflow-args.ts";
 import { prepareWorkflowStart, type WorkflowStartPreparationResult } from "./workflow-start-preparation.ts";

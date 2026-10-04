@@ -1,6 +1,5 @@
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
-import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
 import {
   PIPELINE_LIST_PARSE_ARG_OPTIONS,
   PIPELINE_RECOVER_PARSE_ARG_OPTIONS,
@@ -43,6 +42,7 @@ import { resolveProjectPipeline } from "../execution/project-pipeline-resolution
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { AdmittedPipelineSelection } from "../persistence/state-store.ts";
+import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
 import { type DismissalMode, type DismissalRow, parseDismissalArgs, reportDismissalOutcome } from "./dismissal.ts";
 import { admitPipelineStart, type PipelineStartAdmissionInput } from "./pipeline-start-admission.ts";
 

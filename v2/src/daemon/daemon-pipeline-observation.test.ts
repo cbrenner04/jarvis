@@ -3,7 +3,6 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InvocationResult } from "../shared/invocation/execute.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import {
@@ -12,6 +11,7 @@ import {
   type PipelineStageRecord,
   type StateStore,
 } from "../persistence/state-store.ts";
+import type { InvocationResult } from "../shared/invocation/execute.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
   createBindingFactory,

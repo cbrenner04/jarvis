@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import { getGitStatusInventory } from "../shared/git.ts";
 import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../shared/prompts/review-feedback-write.ts";
 import {
@@ -10,7 +11,6 @@ import {
   DEFAULT_SUBPROCESS_TIMEOUT_MS,
   realAsyncSubprocessRunner,
 } from "../shared/subprocess.ts";
-import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import { isMaterializedNodeModulesPath, MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
 import { HARNESS_TEST_SLICE_REQUEST_FILE } from "./harness-test-slice.ts";

@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { isRecord } from "../shared/is-record.ts";
 import type { CompletionCommitter } from "../execution/completion-commit.ts";
 import type { PipelineStage } from "../execution/pipeline-definition.ts";
 import type { PublicationInputs } from "../execution/publication-landing.ts";
@@ -17,6 +16,7 @@ import type {
   PipelineStageRecord,
   StateStore,
 } from "../persistence/state-store.ts";
+import { isRecord } from "../shared/is-record.ts";
 import type { PipelineExecutionDeps } from "./pipeline-execution.ts";
 import { continuePipeline, findStageRecord } from "./pipeline-execution.ts";
 import { stageArtifactFromEntryRun } from "./pipeline-stage-dispatch.ts";

@@ -1,8 +1,8 @@
 // Settlement inventory keys: terminal writes file:writer:functionName; nonterminal setRunStatus file:setRunStatus:status:functionName.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { locateSymbolSlice } from "../shared/structural-test-locator.ts";
 import { type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
+import { locateSymbolSlice } from "../shared/structural-test-locator.ts";
 
 const DAEMON_DIR = import.meta.dir;
 const NONTERMINAL_RUN_STATUSES = new Set<RunStatus>(["in-progress", "paused", "queued", "budget-soft-stopped"]);

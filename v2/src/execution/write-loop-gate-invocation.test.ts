@@ -3,9 +3,9 @@ import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
+import { openStateStore } from "../persistence/state-store.ts";
 import { createResolvedAgentBinding } from "../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../shared/invocation/execute.ts";
-import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome } from "../testing/write-fixtures.ts";
 import { isReadyTestCommand, ReadyGateError } from "./ready-finalize.ts";
 import {

@@ -9,7 +9,6 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { createCompletionPublisher } from "../execution/completion-publisher.ts";
 import { getExternalWorktreePath, withExternalWorktree } from "../execution/external-worktree.ts";
 import { createReadyFinalizer } from "../execution/ready-finalize.ts";
@@ -17,6 +16,7 @@ import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.t
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createHoldableAsyncFn } from "../testing/holdable-async-subprocess-runner.ts";
 import { listRuns, mockWriteLoopInput, toIpcHandlers } from "../testing/run-control.ts";

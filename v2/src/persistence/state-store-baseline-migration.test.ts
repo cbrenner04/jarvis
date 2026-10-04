@@ -2,8 +2,8 @@ import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
 import { openStateStore, type Pipeline, type Run, type StateStore } from "./state-store.ts";
 import { removeOrchestrationStore } from "./state-store-on-disk.ts";
 

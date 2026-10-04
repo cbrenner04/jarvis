@@ -1,4 +1,3 @@
-import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import { readProjectRegistry } from "../config/machine-config-loader.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
@@ -16,6 +15,7 @@ import {
   type Pipeline,
   type PipelineStageRecord,
 } from "../persistence/state-store.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { ActiveRun, OwnershipKey } from "./daemon.ts";
 import { ownershipKeyString, type RunControlHandlerContext } from "./daemon-run-control-context.ts";
 import type { WorkflowStartAdmission, WorkflowStartResult } from "./daemon-workflow-admission-handlers.ts";

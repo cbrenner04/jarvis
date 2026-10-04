@@ -6,11 +6,11 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import type { IpcFrame } from "../ipc/types";
 import { orchestrationStorePath } from "../paths";
 import { openStateStore } from "../persistence/state-store";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { canUseUnixSockets } from "../testing/unix-socket";
 
 const socketTest = test.skipIf(!canUseUnixSockets());

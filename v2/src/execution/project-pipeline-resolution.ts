@@ -1,3 +1,6 @@
+import { isWorkflowReviewPosture, WORKFLOW_REVIEW_POSTURES } from "../commands/workflow-start-preparation.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import type { ProjectPipelineConfig } from "../config/machine-config-loader.ts";
 import { isRecord } from "../shared/is-record.ts";
 import {
   parseRatingLevel,
@@ -6,9 +9,6 @@ import {
   type RatingDimension,
   type RatingLevel,
 } from "../shared/seed-metadata.ts";
-import { isWorkflowReviewPosture, WORKFLOW_REVIEW_POSTURES } from "../commands/workflow-start-preparation.ts";
-import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import type { ProjectPipelineConfig } from "../config/machine-config-loader.ts";
 import {
   PIPELINE_SUPERSEDE_POLICIES,
   PIPELINE_TERMINAL_ACTIONS,

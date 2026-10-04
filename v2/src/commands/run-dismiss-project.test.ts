@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 
 let store: StateStore;

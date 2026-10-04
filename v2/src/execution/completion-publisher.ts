@@ -1,3 +1,4 @@
+import type { StateStore } from "../persistence/state-store.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import { branchExistsOnOriginAsync, getBaseBranch } from "../shared/git.ts";
 import {
@@ -6,7 +7,6 @@ import {
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../shared/subprocess.ts";
-import type { StateStore } from "../persistence/state-store.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import {
   createPr,

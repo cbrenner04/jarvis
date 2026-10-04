@@ -3,9 +3,9 @@ import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { createRuntimeDeps } from "../cli/deps.ts";
 import { startIpcServer } from "../ipc/server.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { captureIo, cliMain as main, tempPaths } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { reapLegacyDaemonArtifacts, runDaemonCommand } from "./daemon.ts";

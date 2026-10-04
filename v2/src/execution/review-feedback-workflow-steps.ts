@@ -1,13 +1,13 @@
+import type {
+  ReviewFeedbackLaneKind,
+  ReviewFeedbackLaneTarget,
+} from "../persistence/review-feedback-lane-resolution.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import {
   REVIEW_FEEDBACK_RESPONSE_SIDECAR,
   REVIEW_FEEDBACK_WRITE_PROMPT_ID,
   resolveReviewFeedbackStepRules,
 } from "../shared/prompts/review-feedback-write.ts";
-import type {
-  ReviewFeedbackLaneKind,
-  ReviewFeedbackLaneTarget,
-} from "../persistence/review-feedback-lane-resolution.ts";
 import { loadWorkflowSteps, type WriteWorkflowSourceStep } from "./workflow-loader.ts";
 import type { WriteWorkflowStep } from "./workflow-runner.ts";
 

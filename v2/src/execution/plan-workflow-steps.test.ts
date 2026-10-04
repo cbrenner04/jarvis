@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { jarvisHome } from "../paths.ts";
 import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import type { ProjectMatch } from "../shared/project-registry.ts";
 import { projectSafeId } from "../shared/project-safe-id.ts";
@@ -10,7 +11,6 @@ import { planReviewPromptProfile } from "../shared/prompts/review-plan.ts";
 import { readSpecGuidance } from "../shared/spec-guidance-path.ts";
 import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
-import { jarvisHome } from "../paths.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   buildPlanWorkflowSteps,

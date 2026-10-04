@@ -17,6 +17,7 @@ import {
   runV2TestFiles,
   type SpawnOutcome,
 } from "../../../scripts/run-v2-tests.ts";
+import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import {
   addWorktreeDetach,
@@ -34,7 +35,6 @@ import {
   isSubprocessTimeout,
   realAsyncSubprocessRunner,
 } from "../shared/subprocess.ts";
-import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import { MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
 import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 import { runHarnessFullSuiteGateWithSlot } from "./gate-invocation-lease.ts";

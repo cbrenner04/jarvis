@@ -1,5 +1,4 @@
 import { parseArgs } from "node:util";
-import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { CLEANUP_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -7,6 +6,7 @@ import { formatConnectionError } from "../cli/ipc.ts";
 import { CLEANUP_USAGE } from "../cli/usage.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   createBulkCleanupDaemonClient,
   createStaleResetDaemonClient,

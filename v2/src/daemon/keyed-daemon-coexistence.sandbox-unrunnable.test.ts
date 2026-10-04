@@ -4,13 +4,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { getInvokingExecutableDigest } from "../cli/dispatch-revision";
 import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { daemonPathsByDigest } from "../paths";
 import { openStateStore } from "../persistence/state-store";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { createCommittedGitFixtureTemplate } from "../testing/git-fixture-template";
 import { withHandoffIdentity } from "../testing/handoff-identity";
 import {

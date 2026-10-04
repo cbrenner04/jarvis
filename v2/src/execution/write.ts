@@ -11,6 +11,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import {
+  type DraftContractRepromptContext,
+  dualConstraintRepromptDetail,
+  type SurvivingMutationRepromptContext,
+} from "../persistence/log-stream.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import type {
   InvocationBinding,
@@ -35,11 +40,6 @@ import {
 } from "../shared/prompts/review-feedback-write.ts";
 import { readSpecGuidance } from "../shared/spec-guidance-path.ts";
 import { hasGenuineBlocker, parseSpec, RESERVED_HARNESS_BLOCKER_MARKER } from "../shared/spec-parser.ts";
-import {
-  type DraftContractRepromptContext,
-  dualConstraintRepromptDetail,
-  type SurvivingMutationRepromptContext,
-} from "../persistence/log-stream.ts";
 import { mutationCoverageFixDetail } from "./diff-derived-mutation-verifier.ts";
 import {
   type ExternalWorktreeInput,

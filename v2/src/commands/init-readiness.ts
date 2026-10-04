@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { remoteUrl } from "../shared/git.ts";
-import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { LoadError } from "../config/agent-model-config.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { getDaemonStatus } from "../daemon/daemon-lifecycle.ts";
 import { checkAuthStatus } from "../execution/github-operations.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
+import { remoteUrl } from "../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 
 /** Fixed, single-line readiness report: identifiers, statuses, requiredness, and rendering. */
 export const READINESS_CHECK_ORDER = [

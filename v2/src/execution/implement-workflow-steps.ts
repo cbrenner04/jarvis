@@ -1,5 +1,14 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
+import {
+  readProjectConfigRecord,
+  readProjectImplementReviewBehavior,
+  readProjectImplementReviewPasses,
+  readProjectRegistry,
+} from "../config/machine-config-loader.ts";
+import { resolveSpecsHome } from "../config/specs-home.ts";
+import { jarvisHome, MACHINE_CONFIG_PATH, specsRoot } from "../paths.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import {
   blobExistsAtRef,
@@ -26,15 +35,6 @@ import {
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
 } from "../shared/subprocess.ts";
-import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import {
-  readProjectConfigRecord,
-  readProjectImplementReviewBehavior,
-  readProjectImplementReviewPasses,
-  readProjectRegistry,
-} from "../config/machine-config-loader.ts";
-import { resolveSpecsHome } from "../config/specs-home.ts";
-import { jarvisHome, MACHINE_CONFIG_PATH, specsRoot } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import {

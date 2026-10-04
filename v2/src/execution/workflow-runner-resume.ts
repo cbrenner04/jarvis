@@ -1,6 +1,25 @@
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
+import {
+  type IntentFinalizationEvent,
+  type LogSink,
+  type LoopFinishedEvent,
+  type PersistedRecord,
+  priorLogRecordsFromSink,
+  type RunExecutionFailedEvent,
+  truncateLogText,
+} from "../persistence/log-stream.ts";
+import type {
+  Attempt,
+  OutcomeKind,
+  Run,
+  StateStore,
+  WorkflowSnapshot,
+  WorkflowSnapshotStep,
+} from "../persistence/state-store.ts";
+import { RunAdmissionRefusedError } from "../persistence/state-store.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import type { RunFixCommandOpts } from "../shared/fix-command.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../shared/invocation/agents.ts";
@@ -23,25 +42,6 @@ import {
   LINK_STEP_ID_INFIX,
   matchesLinkedSiblingStepId,
 } from "../shared/write-sibling-step-id.ts";
-import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
-import {
-  type IntentFinalizationEvent,
-  type LogSink,
-  type LoopFinishedEvent,
-  type PersistedRecord,
-  priorLogRecordsFromSink,
-  type RunExecutionFailedEvent,
-  truncateLogText,
-} from "../persistence/log-stream.ts";
-import type {
-  Attempt,
-  OutcomeKind,
-  Run,
-  StateStore,
-  WorkflowSnapshot,
-  WorkflowSnapshotStep,
-} from "../persistence/state-store.ts";
-import { RunAdmissionRefusedError } from "../persistence/state-store.ts";
 import {
   type CompletionCommitter,
   type CompletionStepMetadata,

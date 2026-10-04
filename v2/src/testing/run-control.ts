@@ -1,7 +1,6 @@
 import { expect } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationResult } from "../shared/invocation/execute.ts";
 import type { ListRpcParams } from "../commands/run-list-rpc.ts";
 import type { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
@@ -10,6 +9,7 @@ import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import type { StateStore } from "../persistence/state-store.ts";
+import type { InvocationResult } from "../shared/invocation/execute.ts";
 import {
   createBindingFactory,
   DEFAULT_AGENT_MODEL_CONFIG,

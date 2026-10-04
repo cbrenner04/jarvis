@@ -12,30 +12,6 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
-import { errorMessage } from "../shared/error-message.ts";
-import { FixCommandError, type RunFixCommandOpts, runFixCommand } from "../shared/fix-command.ts";
-import {
-  diffNameOnly,
-  getCurrentHeadAsync,
-  getGitStatusInventory,
-  logSubjectsInRange,
-  runGitArgv,
-} from "../shared/git.ts";
-import {
-  executeWithQuotaFallback,
-  type InvocationBinding,
-  type InvocationExecution,
-  invocationDiagnosticText,
-} from "../shared/invocation/execute.ts";
-import { openSessionLog, type SessionLog } from "../shared/invocation/session-log.ts";
-import { hasUncheckedNonHumanOnlyCriteria } from "../shared/linked-subspec-routing.ts";
-import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
-import { renderPromptForStep } from "../shared/prompts/assemble.ts";
-import { INTENT_SPLIT_PROMPT_ID } from "../shared/prompts/intent-split.ts";
-import { PLAN_DRAFT_PROMPT_ID } from "../shared/prompts/plan-draft.ts";
-import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../shared/prompts/review-feedback-write.ts";
-import { isHumanOnlyCriterion, parseSpec } from "../shared/spec-parser.ts";
-import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type DraftContractRepromptContext,
@@ -63,6 +39,30 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import { FixCommandError, type RunFixCommandOpts, runFixCommand } from "../shared/fix-command.ts";
+import {
+  diffNameOnly,
+  getCurrentHeadAsync,
+  getGitStatusInventory,
+  logSubjectsInRange,
+  runGitArgv,
+} from "../shared/git.ts";
+import {
+  executeWithQuotaFallback,
+  type InvocationBinding,
+  type InvocationExecution,
+  invocationDiagnosticText,
+} from "../shared/invocation/execute.ts";
+import { openSessionLog, type SessionLog } from "../shared/invocation/session-log.ts";
+import { hasUncheckedNonHumanOnlyCriteria } from "../shared/linked-subspec-routing.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
+import { renderPromptForStep } from "../shared/prompts/assemble.ts";
+import { INTENT_SPLIT_PROMPT_ID } from "../shared/prompts/intent-split.ts";
+import { PLAN_DRAFT_PROMPT_ID } from "../shared/prompts/plan-draft.ts";
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../shared/prompts/review-feedback-write.ts";
+import { isHumanOnlyCriterion, parseSpec } from "../shared/spec-parser.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   biomeEligiblePaths,
   type CompletionCommitter,

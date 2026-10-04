@@ -1,8 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
-import { resolveRef } from "../shared/git.ts";
-import { findProjectMatch } from "../shared/project-registry.ts";
-import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, request } from "../cli/ipc.ts";
@@ -33,6 +30,9 @@ import type {
 import { IMPLEMENT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
+import { resolveRef } from "../shared/git.ts";
+import { findProjectMatch } from "../shared/project-registry.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { classifyNeverLandedLane, type DestroyedArtifacts } from "./cleanup.ts";
 import { runReviewFeedbackWorkflowCommand } from "./review-feedback-workflow-admission.ts";
 import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";

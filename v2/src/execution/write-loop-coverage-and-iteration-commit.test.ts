@@ -13,12 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
-import * as sharedGit from "../shared/git.ts";
-import * as realInvocationExecute from "../shared/invocation/execute.ts";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type StateStore } from "../persistence/state-store.ts";
+import * as sharedGit from "../shared/git.ts";
+import * as realInvocationExecute from "../shared/invocation/execute.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";

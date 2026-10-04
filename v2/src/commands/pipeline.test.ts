@@ -2,7 +2,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { chmodSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
   PIPELINE_APPROVE_USAGE,
   PIPELINE_DISMISS_USAGE,
@@ -29,6 +28,7 @@ import { resolveProjectPipeline } from "../execution/project-pipeline-resolution
 import type { IpcClient } from "../ipc/client.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { type AdmittedPipelineSelection, openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
   type CliRepoFixture,
   captureIo,

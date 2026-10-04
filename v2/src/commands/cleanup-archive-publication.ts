@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { managedWorktreePath } from "../paths.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import {
   addWorktreeWithNewBranch,
@@ -18,7 +19,6 @@ import {
   stagePathRemove,
 } from "../shared/git.ts";
 import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
-import { managedWorktreePath } from "../paths.ts";
 import { type ArtifactFs, type ArtifactSpec, resolveConsumedReadyIntent } from "./cleanup-artifacts.ts";
 
 type ArchivePublicationStep = "worktree add" | "git mv" | "ready-intent prune" | "commit";

@@ -3,8 +3,6 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
@@ -28,6 +26,8 @@ import type { IpcFrame } from "../ipc/types.ts";
 import type { LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import {
   createHeldWorkflowBindings,

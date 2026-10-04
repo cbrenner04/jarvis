@@ -10,15 +10,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { errorMessage } from "../shared/error-message.ts";
-import { isRecord } from "../shared/is-record.ts";
-import { resolvePlanTargetDir } from "../shared/plan-target-dir.ts";
-import { DEFAULT_SUBPROCESS_TIMEOUT_MS } from "../shared/subprocess.ts";
 import type { Io } from "../cli/io.ts";
 import type { LoadError } from "../config/agent-model-config.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { MACHINE_CONFIG_PATH } from "../paths.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import { isRecord } from "../shared/is-record.ts";
+import { resolvePlanTargetDir } from "../shared/plan-target-dir.ts";
+import { DEFAULT_SUBPROCESS_TIMEOUT_MS } from "../shared/subprocess.ts";
 import { type DaemonCheck, evaluateReadiness, readinessExitCode, renderReadinessReport } from "./init-readiness.ts";
 
 const DEFAULT_AGENT_CANDIDATES = ["claude", "codex", "cursor"] as const;

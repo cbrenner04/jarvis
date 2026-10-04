@@ -1,14 +1,5 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import {
-  addWorktreeCheckout,
-  blobExistsAtRef,
-  getBaseBranch,
-  isGitRepoAsync,
-  listWorktrees,
-  pruneWorktrees,
-} from "../shared/git.ts";
-import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import {
@@ -24,6 +15,15 @@ import type { IpcClient } from "../ipc/client.ts";
 import { specsHome, specsRoot } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
+import {
+  addWorktreeCheckout,
+  blobExistsAtRef,
+  getBaseBranch,
+  isGitRepoAsync,
+  listWorktrees,
+  pruneWorktrees,
+} from "../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   chainedStageSpecsHome,
   createChainedStageProjectMatch,

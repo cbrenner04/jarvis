@@ -13,9 +13,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import type { LogEvent } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome } from "../testing/write-fixtures.ts";
 import {

@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
+import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
+import { resolveSpecsHome } from "../config/specs-home.ts";
+import { intentWorkRoot, jarvisHome, managedWorktreePath, specsHome } from "../paths.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import { getBaseBranch } from "../shared/git.ts";
 import type { ResolvedAgentBinding } from "../shared/invocation/agents.ts";
@@ -10,10 +14,6 @@ import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "
 import { INTENT_REVIEW_DEBATE_ROLE_PROMPT_IDS, intentReviewPromptProfile } from "../shared/prompts/review-intent.ts";
 import { planReviewPromptProfile } from "../shared/prompts/review-plan.ts";
 import { parseSeedMetadata } from "../shared/seed-metadata.ts";
-import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
-import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
-import { resolveSpecsHome } from "../config/specs-home.ts";
-import { intentWorkRoot, jarvisHome, managedWorktreePath, specsHome } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import {

@@ -1,5 +1,22 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  type AgentModelConfig,
+  resolveExecutableRole,
+  resolveInvocationBindings,
+} from "../config/agent-model-config.ts";
+import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
+import { type IntentFinalizationEvent, type LogSink, priorLogRecordsFromSink } from "../persistence/log-stream.ts";
+import {
+  type Attempt,
+  type OutcomeKind,
+  openStateStore,
+  type ReviewFeedbackLaneSnapshot,
+  type RunStatus,
+  type StateStore,
+  type WorkflowSnapshot,
+  type WorkflowSnapshotStep,
+} from "../persistence/state-store.ts";
 import type { RunFixCommandOpts } from "../shared/fix-command.ts";
 import {
   diffNameOnly,
@@ -22,23 +39,6 @@ import type { OperatorFailureRecord, OperatorFailureReferencedPath } from "../sh
 import { extractBlockerBody } from "../shared/spec-parser.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { LINK_STEP_ID_INFIX, SHRINK_STEP_ID_SUFFIX } from "../shared/write-sibling-step-id.ts";
-import {
-  type AgentModelConfig,
-  resolveExecutableRole,
-  resolveInvocationBindings,
-} from "../config/agent-model-config.ts";
-import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import { type IntentFinalizationEvent, type LogSink, priorLogRecordsFromSink } from "../persistence/log-stream.ts";
-import {
-  type Attempt,
-  type OutcomeKind,
-  openStateStore,
-  type ReviewFeedbackLaneSnapshot,
-  type RunStatus,
-  type StateStore,
-  type WorkflowSnapshot,
-  type WorkflowSnapshotStep,
-} from "../persistence/state-store.ts";
 import {
   type CompletionCommitter,
   type CompletionStepMetadata,

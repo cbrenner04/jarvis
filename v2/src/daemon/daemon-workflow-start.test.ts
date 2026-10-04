@@ -2,10 +2,6 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { implementReviewPromptProfile } from "../shared/prompts/review-implement.ts";
-import { implementReviewProfile, intentReviewProfile, planReviewProfile } from "../shared/prompts/review-profile.ts";
-import { StructuralTestLocatorError } from "../shared/structural-test-locator.ts";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
 import type {
   AnyWorkflowStep,
@@ -15,6 +11,10 @@ import type {
 } from "../execution/workflow-runner.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { implementReviewPromptProfile } from "../shared/prompts/review-implement.ts";
+import { implementReviewProfile, intentReviewProfile, planReviewProfile } from "../shared/prompts/review-profile.ts";
+import { StructuralTestLocatorError } from "../shared/structural-test-locator.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { flushBackgroundRuns, listRunsDirect, startRunDirect, workflowWriteStep } from "../testing/run-control.ts";
 import {
   createBindingFactory,

@@ -20,10 +20,10 @@ Operator docs still describe every wall/ceiling watchdog loss as a terminal fail
 
 ## Acceptance criteria
 
-- [ ] `docs/write-behavior.md` states that wall/ceiling timeout after quiescence may commit non-terminal `iteration_timeout_continued` and continue the loop when live output and a fresh checkpoint commit exist, otherwise terminal `iteration_timeout` with `loop_finished.resumable: true` unconditionally.
-- [ ] `docs/workflow-runner.md` matches that contract without inventory-gated resumability for terminal wall timeouts.
-- [ ] `docs/operator-runbook.md` describes rollover vs terminal stall consistently with write-behavior and directs `jarvis run resume` for terminal wall timeouts (not inventory-gated non-resumability or workflow re-dispatch as the default recovery).
-- [ ] `docs/v1-behaviors.md` records the harness behavior change.
+- [x] `docs/write-behavior.md` states that wall/ceiling timeout after quiescence may commit non-terminal `iteration_timeout_continued` and continue the loop when live output and a fresh checkpoint commit exist, otherwise terminal `iteration_timeout` with `loop_finished.resumable: true` unconditionally.
+- [x] `docs/workflow-runner.md` matches that contract without inventory-gated resumability for terminal wall timeouts.
+- [x] `docs/operator-runbook.md` describes rollover vs terminal stall consistently with write-behavior and directs `jarvis run resume` for terminal wall timeouts (not inventory-gated non-resumability or workflow re-dispatch as the default recovery).
+- [x] `docs/v1-behaviors.md` records the harness behavior change.
 
 ## Documentation updates
 

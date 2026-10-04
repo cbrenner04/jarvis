@@ -22,9 +22,9 @@
 
 ## Acceptance criteria
 
-- [ ] `free-text-routing.test.ts`: a supported pipeline-start sentence reaches `admitPipelineStart` with the same `projectKey`/`seedPath` inputs and admission result as the explicit `pipeline start --seed` path under identical injected deps; fails against current code (no module).
-- [ ] Same file: ambiguity, missing or invalid targets, unsupported actions, schema violations, simulated tool execution (`routingFailure: "tool_call"`), and model failure (`malformed_output` / `timeout`) each exit `1` with no daemon RPC recorded on mocks; fails against current code.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `free-text-routing.test.ts`: a supported pipeline-start sentence reaches `admitPipelineStart` with the same `projectKey`/`seedPath` inputs and admission result as the explicit `pipeline start --seed` path under identical injected deps; fails against current code (no module).
+- [x] Same file: ambiguity, missing or invalid targets, unsupported actions, schema violations, simulated tool execution (`routingFailure: "tool_call"`), and model failure (`malformed_output` / `timeout`) each exit `1` with no daemon RPC recorded on mocks; fails against current code.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

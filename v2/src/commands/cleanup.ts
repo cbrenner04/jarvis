@@ -18,6 +18,8 @@ import {
   abortableWorktreeMergeNoEdit,
   abortableWorktreeRebase,
   deleteBranch,
+  diffNameOnly,
+  diffNameOnlyRevision,
   countCommitsBetween,
   deleteRef,
   getBaseBranch,
@@ -35,6 +37,7 @@ import {
   listTreeChildrenAtRef,
   listWorktrees,
   logPatchForPathInRange,
+  lsRemoteRef,
   mergeBase,
   mergeTreeWriteTree,
   originTrackingRefResolvesAsync,
@@ -677,11 +680,11 @@ async function inferShallowestPlanSpecDirFromDiff(
   targetDir: string,
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
-  const output = await runner.runAsync("git", ["diff", "--name-only", `${baseRef}...${branch}`], projectRoot);
+  const paths = await diffNameOnlyRevision(projectRoot, `${baseRef}...${branch}`, runner);
   const prefix = targetDir.endsWith("/") ? targetDir : `${targetDir}/`;
   let best: string | undefined;
   let bestDepth = Number.POSITIVE_INFINITY;
-  for (const line of output.split("\n")) {
+  for (const line of paths) {
     const trimmed = line.trim();
     if (!trimmed.startsWith(prefix) || !trimmed.endsWith("index.md")) continue;
     const specDir = dirname(trimmed);
@@ -915,8 +918,8 @@ export async function resolveExactRefOid(
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
   try {
-    const output = await runner.runAsync("git", ["rev-parse", "--verify", ref], repoRoot);
-    return output.trim();
+    const resolved = await resolveRef(repoRoot, ref, runner);
+    return resolved.status === "resolved" ? resolved.oid : undefined;
   } catch {
     return undefined;
   }
@@ -1065,7 +1068,7 @@ export async function pruneVerifiedMergedBranchRef(
       io.stdout(`Pruned ref: ${candidate.project} ${ref}\n`);
     } else {
       failed = true;
-      io.stderr(`Failed to prune ref ${ref} (${candidate.project}): ${result.message}\n`);
+      io.stderr(`Failed to prune ref ${ref} (${candidate.project}): ${cleanupOperationErrorMessage(result.message)}\n`);
     }
   }
   return failed ? 1 : 0;
@@ -1500,24 +1503,6 @@ async function archivePublicationCommitCount(
 
 type ArchivePublicationStepFailure = { step: "push" | "pr"; error: unknown };
 
-async function lsRemoteOriginRef(
-  cwd: string,
-  ref: string,
-  runner: AsyncSubprocessRunner,
-  env?: Record<string, string>,
-): Promise<string | undefined> {
-  const output = (
-    await runner.runAsync(
-      "git",
-      ["ls-remote", "origin", ref],
-      cwd,
-      networkSubprocessOptions({ env: { ...process.env, ...env } }),
-    )
-  ).trim();
-  const tip = output.split(/\s+/)[0];
-  return tip !== undefined && tip.length > 0 ? tip : undefined;
-}
-
 async function runArchivePublicationGit(
   cwd: string,
   args: readonly string[],
@@ -1544,17 +1529,21 @@ async function runArchivePublicationGit(
     if (ref === undefined) {
       throw new Error(`invalid ls-remote argv: ${args.join(" ")}`);
     }
-    const tip = await lsRemoteOriginRef(cwd, ref, runner, env);
+    const tip = await lsRemoteRef(cwd, "origin", ref, runner);
     return tip === undefined ? "" : `${tip}\t${ref}\n`;
   }
   if (command === "push") {
-    const networkOpts = networkSubprocessOptions({ env: { ...process.env, ...env } });
     if (args.length === 3 && args[1] === "origin" && args[2]?.startsWith("HEAD:")) {
       await pushBranch(cwd, { remote: "origin", branch: args[2] }, runner, {});
       return "";
     }
     if (args.length === 4 && args[1]?.startsWith("--force-with-lease=") && args[2] === "origin") {
-      await runner.runAsync("git", [...args], cwd, networkOpts);
+      const refspec = args[3];
+      const lease = args[1]?.slice("--force-with-lease=".length);
+      if (refspec === undefined || lease === undefined || lease.length === 0) {
+        throw new Error(`invalid push argv: ${args.join(" ")}`);
+      }
+      await pushBranch(cwd, { remote: "origin", branch: refspec, forceWithLease: lease }, runner, {});
       return "";
     }
   }
@@ -1614,7 +1603,9 @@ async function applyEndArchivePublication(
       exit = 1;
       const stepFailure = failure as Partial<ArchivePublicationStepFailure>;
       const step = failure instanceof GitHubOperationError || stepFailure.step === "pr" ? "pr" : "push";
-      io.stderr(`Archive publication failed at ${step}: ${errorMessage(stepFailure.error ?? failure)}\n`);
+      io.stderr(
+        `Archive publication failed at ${step}: ${cleanupOperationErrorMessage(stepFailure.error ?? failure)}\n`,
+      );
       const commitCount = await archivePublicationCommitCount(target, sessions, runner);
       reportArchivePublicationManualFallback(target, commitCount, io);
     }
@@ -3338,7 +3329,7 @@ export async function performWorktreeRemovals(
       if (err instanceof MergedWorktreeRetirementRefusal) {
         io.stdout(mergedWorktreeRetirementRefusalLine(worktree.path, worktree.branch, err.dirtyPaths));
       } else {
-        io.stderr(`Failed to retire ${worktree.path}: ${err instanceof Error ? err.message : String(err)}\n`);
+        io.stderr(`Failed to retire ${worktree.path}: ${cleanupOperationErrorMessage(err)}\n`);
       }
     }
   }
@@ -3364,6 +3355,16 @@ export const STALE_RESET_OVERRIDE_CLI_FLAG = "--reset-despite-dirty";
 export const STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG = "--reset-despite-landed-criteria";
 export const OPEN_PR_PROBE_UNREACHABLE_REASON =
   "could not determine open PR state: gh is unreachable from this environment; retry outside the agent sandbox";
+
+function cleanupOperationErrorMessage(error: unknown): string {
+  if (error instanceof GitOperationError) {
+    return `${error.message} (retryable: ${error.retryable})`;
+  }
+  if (error instanceof GitHubOperationError) {
+    return `gh ${error.operation} ${error.reason}: ${error.message} (retryable: ${error.retryable})`;
+  }
+  return errorMessage(error);
+}
 
 const staleResetDirtyRecovery = `commit, discard local changes, pass ${STALE_RESET_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
 const staleResetLandedCriteriaRecovery = `pass ${STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
@@ -3843,10 +3844,11 @@ async function unlandedNonStagingPaths(
 ): Promise<string[]> {
   // Plan-lane scope diffs from the merge-base (`...`) so default-branch commits after the lane cut
   // do not read as lane paths; stale-reset callers keep the tree diff (`..`).
-  const range = options?.mergeBase === true ? `${baseRef}...${branch}` : `${baseRef}..${branch}`;
-  const output = await runner.runAsync("git", ["diff", "--name-only", range], projectRoot);
-  return output
-    .split("\n")
+  const paths =
+    options?.mergeBase === true
+      ? await diffNameOnlyRevision(projectRoot, `${baseRef}...${branch}`, runner)
+      : await diffNameOnly(projectRoot, { from: baseRef, to: branch }, runner);
+  return paths
     .map((line) => line.trim())
     .filter((line) => {
       if (line.length === 0) return false;
@@ -4174,10 +4176,9 @@ async function resolveBranchTip(
   runner: AsyncSubprocessRunner,
 ): Promise<string | undefined> {
   try {
-    const sha = (
-      await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], projectRoot)
-    ).trim();
-    return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+    const resolved = await resolveRef(projectRoot, `${ref}^{commit}`, runner);
+    if (resolved.status !== "resolved") return undefined;
+    return /^[0-9a-f]{40}$/.test(resolved.oid) ? resolved.oid : undefined;
   } catch {
     return undefined;
   }
@@ -4222,7 +4223,10 @@ async function staleResetBaseRefusalReason(
     return `base '${baseRef}' names the branch '${branch}' being retired; retirement would destroy it before rematerialization`;
   }
   try {
-    await runner.runAsync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`], projectRoot);
+    const resolved = await resolveRef(projectRoot, `${baseRef}^{commit}`, runner);
+    if (resolved.status === "absent") {
+      return `base '${baseRef}' does not resolve to a commit in ${projectRoot}`;
+    }
   } catch {
     return `base '${baseRef}' does not resolve to a commit in ${projectRoot}`;
   }
@@ -4449,7 +4453,7 @@ async function performAbandonmentSteps(
     io.stdout(`Removed worktree: ${worktreePath}\n`);
     destroyed.worktreePath = worktreePath;
   } catch (err) {
-    io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);
+    io.stderr(`Failed to remove worktree: ${cleanupOperationErrorMessage(err)}\n`);
     return { ok: false, step: "worktree removal", destroyed };
   }
 
@@ -4464,7 +4468,7 @@ async function performAbandonmentSteps(
     io.stdout(`Deleted local branch: ${branch}\n`);
     destroyed.localBranch = branch;
   } catch (err) {
-    io.stderr(`Failed to delete local branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`);
+    io.stderr(`Failed to delete local branch ${branch}: ${cleanupOperationErrorMessage(err)}\n`);
     return { ok: false, step: "local branch deletion", destroyed };
   }
 
@@ -4490,7 +4494,7 @@ async function performAbandonmentSteps(
       io.stdout(`Closed PR #${prNumber}\n`);
       destroyed.closedPrNumber = prNumber;
     } catch (err) {
-      io.stderr(`Failed to close PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}\n`);
+      io.stderr(`Failed to close PR #${prNumber}: ${cleanupOperationErrorMessage(err)}\n`);
       return { ok: false, step: "PR closure", destroyed };
     }
   }

@@ -3421,6 +3421,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     expect(code).toBe(1);
     expect(stderr).toContain("Failed to retire");
+    expect(stderr).toContain("git worktree-remove");
 
     // Verify worktree still exists because removal failed
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);

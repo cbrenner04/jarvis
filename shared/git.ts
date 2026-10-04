@@ -551,6 +551,20 @@ export async function diffNameOnly(
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
+/** Changed paths for a single revision range token (e.g. `base..head` or `base...head`). */
+export async function diffNameOnlyRevision(
+  cwd: string,
+  revision: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string[]> {
+  const output = await runDiff(cwd, ["--name-only", revision], runner, options);
+  return output
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
 /** Unmerged paths in the index/worktree (`git diff --name-only --diff-filter=U`). */
 export async function unmergedPathNames(
   cwd: string,
@@ -1091,20 +1105,52 @@ const PUSH_RULES: readonly ReasonRule[] = [
  */
 export async function pushBranch(
   cwd: string,
-  target: { branch: string; remote?: string; setUpstream?: boolean; delete?: boolean },
+  target: {
+    branch: string;
+    remote?: string;
+    setUpstream?: boolean;
+    delete?: boolean;
+    forceWithLease?: string;
+  },
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
   options: OperationOptions = {},
 ): Promise<PushResult> {
   const remote = target.remote ?? "origin";
   const args = target.delete
     ? ["push", remote, "--delete", target.branch]
-    : ["push", ...(target.setUpstream ? ["-u"] : []), remote, target.branch];
+    : target.forceWithLease !== undefined
+      ? ["push", `--force-with-lease=${target.forceWithLease}`, remote, target.branch]
+      : ["push", ...(target.setUpstream ? ["-u"] : []), remote, target.branch];
   try {
     await runner.runAsync("git", args, cwd, networkSubprocessOptions({ signal: options.signal }));
     return { status: "pushed" };
   } catch (error) {
     if (target.delete && failureMatches(error, /remote ref does not exist/i)) return { status: "already-absent" };
     throw gitError("push", error, PUSH_RULES, options);
+  }
+}
+
+/** `git ls-remote <remote> <ref>`; `undefined` when the ref is absent (empty output). */
+export async function lsRemoteRef(
+  cwd: string,
+  remote: string,
+  ref: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+  options: OperationOptions = {},
+): Promise<string | undefined> {
+  try {
+    const output = (
+      await runner.runAsync(
+        "git",
+        ["ls-remote", remote, ref],
+        cwd,
+        networkSubprocessOptions({ signal: options.signal }),
+      )
+    ).trim();
+    const tip = output.split(/\s+/)[0];
+    return tip !== undefined && tip.length > 0 ? tip : undefined;
+  } catch (error) {
+    throw gitError("ref-query", error, PUSH_RULES, options);
   }
 }
 

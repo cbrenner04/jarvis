@@ -6,8 +6,9 @@
 
 ## Decisions
 
-- Document a single scoped pair (`test:v2`, `test:integration:v2`) for `v2/**`, `v2/src/shared/**`, root `test/**`, and `scripts/**/*.test.ts` — rules out documenting a parallel shared slice after subspec 01.
-- Serial in-sandbox retry for scoped failures uses `JARVIS_TEST_CONCURRENCY=1 bun run test:v2` (or `bun test <file>`) for all folded paths — rules out `test:shared`-specific parallel-runner guidance in agent and operator docs.
+- Document agent scoped runs for `v2/**`, `v2/src/shared/**`, and root `test/**` as `test:v2` + `test:integration:v2` aligned with `scripts/ci-test-scope.ts` for those paths — rules out implying script paths share that CI narrow scope.
+- Document roster membership for root `scripts/**/*.test.ts` in the v2 slices separately from CI/ready classification (`scripts/**` → `full`) — rules out conflating discovery with `classifyChangedPaths`.
+- Serial in-sandbox retry for scoped failures uses `JARVIS_TEST_CONCURRENCY=1 bun run test:v2` (or `bun test <file>`) for folded roster paths — rules out `test:shared`-specific parallel-runner guidance in agent and operator docs.
 
 ## Tasks
 
@@ -19,14 +20,14 @@
 
 - [x] `AGENTS.md` and `CLAUDE.md` contain no `test:shared` or `test:integration:shared` references.
 - [x] `v2/docs/operator-practices.md` and `v2/docs/test-writing.md` contain no `test:shared` or `test:integration:shared` references.
-- [x] `v2/docs/operator-runbook.md` ready-gate and CI-vs-aggregate prose names only `test:v2` and `test:integration:v2` for code-bearing diffs under `v2/**`, `v2/src/shared/**`, `test/**`, and `scripts/**/*.test.ts` (no shared slice scripts; aggregate roster prose matches two scoped slices).
-- [x] `AGENTS.md` scoped-test bullets map `v2/**`, `v2/src/shared/**`, `test/**`, and `scripts/**/*.test.ts` to `test:v2` + `test:integration:v2` only.
+- [x] `v2/docs/operator-runbook.md` ready-gate and CI-vs-aggregate prose matches `classifyChangedPaths`: `v2/**`, `v2/src/shared/**`, and root `test/**` → the two scoped slices; any `scripts/` diff → `full`; roster prose notes script tests run in those slices without narrowing CI.
+- [x] `AGENTS.md` and `CLAUDE.md` scoped-test bullets match that split (v2/test paths → scoped pair; script path changes → `bun run test`; no blanket “same rule as `ci-test-scope`” for `scripts/`).
 - [x] `bun run typecheck` passes.
 - [x] `bun run lint:md` passes (authored markdown touched).
 
 ## Documentation updates
 
-- `AGENTS.md` and `CLAUDE.md` — test-scope rules: no shared slice; root `test/**` and `scripts/**/*.test.ts` map to the `v2` slices.
+- `AGENTS.md` and `CLAUDE.md` — test-scope rules: no shared slice; v2/test paths → scoped pair; script roster vs CI `full`.
 - `v2/docs/operator-runbook.md` — gate and ready-check scoped script names.
 - `v2/docs/operator-practices.md` — CI path-scope table prose.
 - `v2/docs/test-writing.md` — serial retry guidance for scoped failures.

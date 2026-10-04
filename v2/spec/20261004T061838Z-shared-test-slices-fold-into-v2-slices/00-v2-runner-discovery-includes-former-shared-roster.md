@@ -13,10 +13,10 @@
 
 ## Tasks
 
-- [ ] Change `walkV2TestFiles` discovery per decisions; drop the shared exclusion filter.
-- [ ] Simplify `aggregateTestFiles` to `v2Tests` for both modes.
-- [ ] Update `scripts/run-v2-tests.test.ts` and `test/test-slices.test.ts` (owner-boundary / aggregate-roster / enumeration cases) for the unified roster; retire or rewrite `excludes v2/src/shared so shared-runtime tests stay on test:shared`, `test files are scoped to owner directories`, and `shared integration slice includes preload real-process test`.
-- [ ] Add inventory regression `v2 discovery roster matches former sharedTests baseline` (capture the `sharedTests` union before deleting `run-shared-tests.ts` in subspec 01).
+- [x] Change `walkV2TestFiles` discovery per decisions; drop the shared exclusion filter.
+- [x] Simplify `aggregateTestFiles` to `v2Tests` for both modes.
+- [x] Update `scripts/run-v2-tests.test.ts` and `test/test-slices.test.ts` (owner-boundary / aggregate-roster / enumeration cases) for the unified roster; retire or rewrite `excludes v2/src/shared so shared-runtime tests stay on test:shared`, `test files are scoped to owner directories`, and `shared integration slice includes preload real-process test`.
+- [x] Add inventory regression `v2 discovery roster matches former sharedTests baseline` (capture the `sharedTests` union before deleting `run-shared-tests.ts` in subspec 01).
 
 ## Acceptance criteria
 
@@ -29,7 +29,7 @@
 - [x] `test/test-slices.test.ts` test `test:v2 and test:integration:v2 enumerate disjoint v2 test file sets` stays green (slice partition behavior unchanged aside from roster membership).
 - [x] `scripts/run-v2-tests.test.ts` pooled-runner and isolation tests outside the renamed discovery test stay green.
 - [x] `bun run typecheck` passes.
-- [x] `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass (runners and aggregate touched).
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass (runners and aggregate touched).
 
 ## Documentation updates
 

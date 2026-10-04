@@ -12,10 +12,10 @@
 
 ## Tasks
 
-- [ ] Delete `scripts/run-shared-tests.ts`.
-- [ ] Remove shared test scripts from `package.json`.
-- [ ] Update `scripts/ci-test-scope.ts` and `scripts/ci-test-scope.test.ts`.
-- [ ] Update `test/test-slices.test.ts` cases that assert `test:shared` script wiring or four-slice aggregate unions.
+- [x] Delete `scripts/run-shared-tests.ts`.
+- [x] Remove shared test scripts from `package.json`.
+- [x] Update `scripts/ci-test-scope.ts` and `scripts/ci-test-scope.test.ts`.
+- [x] Update `test/test-slices.test.ts` cases that assert `test:shared` script wiring or four-slice aggregate unions.
 
 ## Acceptance criteria
 

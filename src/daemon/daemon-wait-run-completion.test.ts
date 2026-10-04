@@ -668,6 +668,33 @@ test("list and wait project gate refusal cause, remedy message, and slot count/b
   }
 });
 
+test("list and wait keep in-progress without error during iteration_timeout_continued rollover", async () => {
+  const runId = createImplementRun();
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "in-progress",
+    outcomeKind: "iteration_timeout_continued",
+  });
+  logSink.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: "iteration_timeout_continued",
+    runStatus: "in-progress",
+  });
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "in-progress" });
+  expect(row?.error).toBeUndefined();
+
+  expect(await expectResponse(await waitDirect("timeout-continued-rollover", runId))).toEqual({
+    runStatus: "in-progress",
+  });
+});
+
 test("list and wait project resumable iteration_timeout as resume", async () => {
   const runId = createImplementRun();
   stateStore.setRunStatus(runId, "failed");

@@ -61,6 +61,12 @@ function completedRollupStepWithoutRun(step: WorkflowSnapshot["steps"][number]):
   };
 }
 
+function isIterationTimeoutRolloverInProgress(run: LoadedRun): boolean {
+  return (
+    run.status === "in-progress" && run.attempts[run.attempts.length - 1]?.outcomeKind === "iteration_timeout_continued"
+  );
+}
+
 function workflowStepSnapshot(
   step: WorkflowSnapshot["steps"][number],
   run: LoadedRun | undefined,
@@ -117,7 +123,7 @@ function workflowStepSnapshot(
     };
   }
 
-  if (run.status === "in-progress" && liveRunIds.has(run.id)) {
+  if (run.status === "in-progress" && (liveRunIds.has(run.id) || isIterationTimeoutRolloverInProgress(run))) {
     return {
       stepId: step.stepId,
       role: step.role,

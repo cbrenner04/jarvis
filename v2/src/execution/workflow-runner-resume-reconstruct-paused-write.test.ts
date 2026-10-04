@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "./workflow-runner.test-support.ts";
 import { reconstructPausedWriteResumeInput } from "./workflow-runner-resume.ts";

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import markdownlint from "markdownlint";
-import noHardWrapRule from "../scripts/markdownlint-no-hard-wrap-rule.ts";
+import noHardWrapRule from "../../../scripts/markdownlint-no-hard-wrap-rule.ts";
 import { normalizePlanDraftSpecDir } from "./module-boundary-surfaces.ts";
 import { trackedMkdtempSync } from "./tracked-temp-dir.test-support.ts";
 
@@ -269,9 +269,9 @@ describe("plan draft normalization", () => {
       "orderModuleBoundariesForSplit",
       "splitResiduePattern",
     ];
-    const offenders = [resolve("shared"), resolve("v2/src")]
+    const offenders = [resolve("v2/src")]
       .flatMap(typescriptFiles)
-      .filter((file) => file !== resolve("shared/module-boundary-surfaces.ts"))
+      .filter((file) => file !== resolve("v2/src/shared/module-boundary-surfaces.ts"))
       .flatMap((file) => {
         const body = readFileSync(file, "utf8");
         const imports = [

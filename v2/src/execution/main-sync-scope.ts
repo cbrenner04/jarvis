@@ -1,5 +1,5 @@
-import { tryMergeBase } from "../../../shared/git.ts";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { tryMergeBase } from "../shared/git.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 
 /** Blob id placeholder for paths absent at a git object; callers and `selectMainSyncPaths` must agree. */
 export const MAIN_SYNC_ABSENT_BLOB = "jarvis:main-sync:absent";

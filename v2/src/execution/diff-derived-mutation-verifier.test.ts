@@ -3,14 +3,10 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
-import { locateMarkerSlice } from "../../../shared/structural-test-locator.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessOptions,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { resolveRenderObserverTests } from "../shared/prompts/render-observer-tests.ts";
+import { locateMarkerSlice } from "../shared/structural-test-locator.ts";
+import { AsyncSubprocessError, type AsyncSubprocessOptions, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
   createCrossFileMutantGate,
   type DiffDerivedMutationVerifierInput,
@@ -63,7 +59,7 @@ const DAEMON_RUN_CONTROL_HANDLER_GUARD_REL = "v2/src/daemon/daemon-run-control-h
 const DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT = "if (index === -1) break;";
 
 const COMMITTED_RENDER_OBSERVER_MAP_SOURCE = (() => {
-  const source = readFileSync(join(import.meta.dir, "../../../shared/prompts/render-observer-tests.ts"), "utf-8");
+  const source = readFileSync(join(import.meta.dir, "../shared/prompts/render-observer-tests.ts"), "utf-8");
   if (extractRenderObserverMapFromSource(source) === null) {
     throw new Error("committed render-observer map must parse");
   }
@@ -1129,15 +1125,15 @@ placeholders: []
 
   it("completes shared multi-candidate verification within MAX_VERIFICATION_MS", async () => {
     const diff =
-      `diff --git a/shared/fixture/a.ts b/shared/fixture/a.ts
+      `diff --git a/v2/src/shared/fixture/a.ts b/v2/src/shared/fixture/a.ts
 index 1234567..abcdefg 100644
---- a/shared/fixture/a.ts
-+++ b/shared/fixture/a.ts
+--- a/v2/src/shared/fixture/a.ts
++++ b/v2/src/shared/fixture/a.ts
 @@ -1,1 +1,2 @@
 +  if (!x0) return null;
 ` +
       Array.from({ length: 12 }, (_, index) => {
-        const file = `shared/fixture/b${index}.ts`;
+        const file = `v2/src/shared/fixture/b${index}.ts`;
         return `diff --git a/${file} b/${file}
 index 1234567..abcdefg 100644
 --- a/${file}
@@ -1176,16 +1172,16 @@ index 1234567..abcdefg 100644
   });
 
   it("invokes only the co-located killing test file per candidate", async () => {
-    const diff = `diff --git a/shared/fixture/alpha.ts b/shared/fixture/alpha.ts
+    const diff = `diff --git a/v2/src/shared/fixture/alpha.ts b/v2/src/shared/fixture/alpha.ts
 index 1234567..abcdefg 100644
---- a/shared/fixture/alpha.ts
-+++ b/shared/fixture/alpha.ts
+--- a/v2/src/shared/fixture/alpha.ts
++++ b/v2/src/shared/fixture/alpha.ts
 @@ -1,1 +1,2 @@
 +  if (!a) return null;
-diff --git a/shared/fixture/beta.ts b/shared/fixture/beta.ts
+diff --git a/v2/src/shared/fixture/beta.ts b/v2/src/shared/fixture/beta.ts
 index 1234567..abcdefg 100644
---- a/shared/fixture/beta.ts
-+++ b/shared/fixture/beta.ts
+--- a/v2/src/shared/fixture/beta.ts
++++ b/v2/src/shared/fixture/beta.ts
 @@ -1,1 +1,2 @@
 +  if (!b) return null;
 diff --git a/v2/src/other/surface.ts b/v2/src/other/surface.ts
@@ -1225,9 +1221,9 @@ index 1234567..abcdefg 100644
       expect(scope[0]).not.toContain("test:v1");
     }
     expect(invoked.map((scope) => scope[0]).sort()).toEqual([
-      "shared/fixture/alpha.test.ts",
-      "shared/fixture/beta.test.ts",
       "v2/src/other/surface.test.ts",
+      "v2/src/shared/fixture/alpha.test.ts",
+      "v2/src/shared/fixture/beta.test.ts",
     ]);
   });
 
@@ -1286,7 +1282,7 @@ index f424d7da..be281d02 100644
 
     const all = Promise.all(
       Array.from({ length: 8 }, (_, index) =>
-        runDiffDerivedScopedTests("/test/path", [`shared/fixture/p${index}.test.ts`], mockRunner),
+        runDiffDerivedScopedTests("/test/path", [`v2/src/shared/fixture/p${index}.test.ts`], mockRunner),
       ),
     );
 
@@ -4641,11 +4637,11 @@ index 1234567..abcdefg 100644
     promptSource: string,
   ): void {
     mkdirSync(join(dir, promptPath.split("/").slice(0, -1).join("/")), { recursive: true });
-    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    mkdirSync(join(dir, "v2/src/shared/prompts"), { recursive: true });
     mkdirSync(join(dir, observerRelativePath.split("/").slice(0, -1).join("/")), { recursive: true });
     writeFileSync(join(dir, promptPath), promptSource);
     writeFileSync(join(dir, "prompts", "registry.txt"), `${promptPath.slice("prompts/".length)}\n`);
-    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), renderObserverMapSource(mapEntries));
+    writeFileSync(join(dir, "v2/src/shared/prompts/render-observer-tests.ts"), renderObserverMapSource(mapEntries));
     writeFileSync(join(dir, observerRelativePath), observerSource);
   }
 
@@ -4682,7 +4678,7 @@ index 1234567..abcdefg 100644
 
   it("resolves a branch-only map entry from the worktree and runs its observer test", async () => {
     const dir = initWorktreeRepo();
-    const observerPath = "shared/prompts/branch-only-prompt.test.ts";
+    const observerPath = "v2/src/shared/prompts/branch-only-prompt.test.ts";
     writeBranchPromptFixture(
       dir,
       observerPath,
@@ -4700,7 +4696,7 @@ index 1234567..abcdefg 100644
 
   it("re-reads the worktree map on each verifier call instead of cached module state", async () => {
     const dir = initWorktreeRepo();
-    const observerPath = "shared/prompts/branch-only-prompt.test.ts";
+    const observerPath = "v2/src/shared/prompts/branch-only-prompt.test.ts";
     writeBranchPromptFixture(dir, observerPath, {}, branchObserverTestSource(branchPromptPath, branchBodyLine));
     const baseSha = commitWorktreeBase(dir);
     commitChangedBranchPrompt(dir);
@@ -4709,7 +4705,7 @@ index 1234567..abcdefg 100644
     expect(beforeRepair).toEqual(missingRenderCoverageAtPrompt(branchPromptPath));
 
     writeFileSync(
-      join(dir, "shared/prompts/render-observer-tests.ts"),
+      join(dir, "v2/src/shared/prompts/render-observer-tests.ts"),
       renderObserverMapSource({ [branchPromptPath]: [observerPath] }),
     );
 
@@ -4722,7 +4718,7 @@ index 1234567..abcdefg 100644
     const dir = initWorktreeRepo();
     const daemonMappedPrompt = "prompts/implement/review-critic.md";
     mkdirSync(join(dir, "prompts", "implement"), { recursive: true });
-    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    mkdirSync(join(dir, "v2/src/shared/prompts"), { recursive: true });
     writeFileSync(
       join(dir, daemonMappedPrompt),
       `---
@@ -4737,7 +4733,7 @@ The diff comes from git merge-base <base> HEAD.
 `,
     );
     writeFileSync(join(dir, "prompts", "registry.txt"), "implement/review-critic.md\n");
-    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), renderObserverMapSource({}));
+    writeFileSync(join(dir, "v2/src/shared/prompts/render-observer-tests.ts"), renderObserverMapSource({}));
     execFileSync("git", ["add", "-A"], { cwd: dir });
     execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
     const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
@@ -4763,7 +4759,7 @@ The diff comes from git merge-base <base> HEAD.
 
   it("returns missing-render-coverage for an empty worktree mapping", async () => {
     const dir = initWorktreeRepo();
-    const observerPath = "shared/prompts/branch-only-prompt.test.ts";
+    const observerPath = "v2/src/shared/prompts/branch-only-prompt.test.ts";
     writeBranchPromptFixture(
       dir,
       observerPath,
@@ -4780,7 +4776,7 @@ The diff comes from git merge-base <base> HEAD.
 
   it("returns missing-render-coverage when the mapped observer misses the sentinel mutation", async () => {
     const dir = initWorktreeRepo();
-    const observerPath = "shared/prompts/branch-only-prompt.test.ts";
+    const observerPath = "v2/src/shared/prompts/branch-only-prompt.test.ts";
     const permissiveObserver = `import { test } from "bun:test";\ntest("always passes", () => {});\n`;
     writeBranchPromptFixture(dir, observerPath, { [branchPromptPath]: [observerPath] }, permissiveObserver);
     const baseSha = commitWorktreeBase(dir);
@@ -4819,7 +4815,7 @@ placeholders: []
 ${keptBodyLine}
 `;
     const dir = initWorktreeRepo();
-    const observerPath = "shared/prompts/dedup-body-lines.test.ts";
+    const observerPath = "v2/src/shared/prompts/dedup-body-lines.test.ts";
     writePromptFixture(
       dir,
       dedupPromptPath,
@@ -4845,7 +4841,7 @@ ${keptBodyLine}
       "export function resolveRenderObserverTests() { return undefined; }",
       "const RENDER_OBSERVER_TESTS = initializeMap();",
       `const RENDER_OBSERVER_TESTS = { "${branchPromptPath}": "not-an-array" };`,
-      `const RENDER_OBSERVER_TESTS = { [dynamicKey]: ["shared/prompts/branch-only-prompt.test.ts"] };`,
+      `const RENDER_OBSERVER_TESTS = { [dynamicKey]: ["v2/src/shared/prompts/branch-only-prompt.test.ts"] };`,
     ];
     for (const mapSource of invalidSources) {
       const result = await verifyDiffDerivedMutations(
@@ -4865,13 +4861,13 @@ ${keptBodyLine}
   it("fails closed for absolute, traversing, non-normalized, and worktree-escaping observer paths without running them", async () => {
     const dir = initWorktreeRepo();
     mkdirSync(join(dir, "prompts", "write"), { recursive: true });
-    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    mkdirSync(join(dir, "v2/src/shared/prompts"), { recursive: true });
     writeFileSync(join(dir, branchPromptPath), branchPromptSource);
     writeFileSync(join(dir, "prompts", "registry.txt"), "write/branch-only-prompt.md\n");
     const outside = trackedMkdtempSync(join(tmpdir(), "render-observer-outside-"));
     const outsideTest = join(outside, "outside.test.ts");
     writeFileSync(outsideTest, "export {};\n");
-    const linkDir = join(dir, "shared/prompts/links");
+    const linkDir = join(dir, "v2/src/shared/prompts/links");
     mkdirSync(linkDir, { recursive: true });
     execFileSync("ln", ["-s", outsideTest, join(linkDir, "escape.test.ts")], { cwd: dir });
     const baseSha = commitWorktreeBase(dir);
@@ -4880,13 +4876,13 @@ ${keptBodyLine}
     const invalidPaths = [
       "/etc/passwd",
       "../outside.test.ts",
-      "shared/prompts/../outside.test.ts",
+      "v2/src/shared/prompts/../outside.test.ts",
       "./shared/prompts/branch-only-prompt.test.ts",
-      "shared/prompts/links/escape.test.ts",
+      "v2/src/shared/prompts/links/escape.test.ts",
     ];
     for (const invalidPath of invalidPaths) {
       writeFileSync(
-        join(dir, "shared/prompts/render-observer-tests.ts"),
+        join(dir, "v2/src/shared/prompts/render-observer-tests.ts"),
         renderObserverMapSource({ [branchPromptPath]: [invalidPath] }),
       );
       let scopedRuns = 0;
@@ -4913,8 +4909,8 @@ describe("registered prompt path discovery", () => {
     // Presence: the verifier imports the registry module's manifest surface.
     const importLine = locateMarkerSlice({
       text: source,
-      pattern: /^import \{[^}]*\} from "\.\.\/\.\.\/\.\.\/shared\/prompts\/registry\.ts";$/m,
-      searchKey: "shared/prompts/registry.ts import",
+      pattern: /^import \{[^}]*\} from "\.\.\/shared\/prompts\/registry\.ts";$/m,
+      searchKey: "v2/src/shared/prompts/registry.ts import",
     });
     expect(importLine).toContain("parsePromptRegistryManifest");
     expect(importLine).toContain("readRegisteredPromptPaths");
@@ -4943,7 +4939,7 @@ describe("verifier spawn process-group recording", () => {
     };
     const scope = Array.from(
       { length: MAX_CONCURRENT_VERIFIER_TEST_RUNS + 2 },
-      (_, i) => `shared/fixture/p${i}.test.ts`,
+      (_, i) => `v2/src/shared/fixture/p${i}.test.ts`,
     );
     const passed = await runDiffDerivedScopedTests("/test/path", scope, mockRunner, {
       processGroups: { record: (pgid) => recorded.push(pgid), clear: (pgid) => cleared.push(pgid) },
@@ -4964,7 +4960,7 @@ describe("verifier spawn process-group recording", () => {
         throw new AsyncSubprocessError("failed", 1, "", "red", undefined);
       },
     };
-    const passed = await runDiffDerivedScopedTests("/test/path", ["shared/fixture/red.test.ts"], mockRunner, {
+    const passed = await runDiffDerivedScopedTests("/test/path", ["v2/src/shared/fixture/red.test.ts"], mockRunner, {
       processGroups: { record: () => {}, clear: (pgid) => cleared.push(pgid) },
     });
     expect(passed).toBe(false);

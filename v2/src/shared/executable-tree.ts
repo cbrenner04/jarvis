@@ -4,19 +4,17 @@ import type { AsyncSubprocessRunner } from "./subprocess.ts";
 /** Git pathspecs whose tracked content defines the daemon executable tree digest. */
 export const EXECUTABLE_TREE_PATHSPECS = [
   "v2/src",
-  "shared",
   "package.json",
   "bun.lock",
   "tsconfig.json",
   "tsconfig.base.json",
   "v2/tsconfig.json",
-  "shared/tsconfig.json",
 ] as const;
 
 /** Representative changed paths and whether they require a daemon bounce when merged alone. */
 export const PATH_BOUNCE_CLASSIFICATION_FIXTURE = [
   { path: "v2/src/cli.ts", bounceRequired: true },
-  { path: "shared/git.ts", bounceRequired: true },
+  { path: "v2/src/shared/git.ts", bounceRequired: true },
   { path: "package.json", bounceRequired: true },
   { path: "bun.lock", bounceRequired: true },
   { path: "tsconfig.json", bounceRequired: true },

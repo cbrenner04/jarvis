@@ -20,7 +20,7 @@ function lineAt(source: string, index: number): number {
   return source.slice(0, index).split("\n").length;
 }
 
-// A production path escapes v2/src/testing, e.g. "../cli.ts" or "../../../shared/helpers.ts"; `*.test-support.ts` is test code
+// A production path escapes v2/src/testing, e.g. "../cli.ts" or "../../shared/helpers.ts"; `*.test-support.ts` is test code
 function isProductionPath(importPath: string): boolean {
   if (isTestSupportImport(importPath)) return false;
   const parts = importPath.split("/");

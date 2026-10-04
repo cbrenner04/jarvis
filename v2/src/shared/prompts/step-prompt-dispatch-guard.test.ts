@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
-const REPO_ROOT = join(import.meta.dir, "..", "..");
-const ASSEMBLER = "shared/prompts/assemble.ts";
-const RENDERER = "shared/prompts/render.ts";
+const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
+const ASSEMBLER = "v2/src/shared/prompts/assemble.ts";
+const RENDERER = "v2/src/shared/prompts/render.ts";
 
 /** Every way of building a step prompt other than the assembler's own entry point. */
 const PARALLEL_RENDER_CALLS = ["assemblePromptForStep(", "renderStepPrompt(", "renderArtifactTemplate("] as const;
@@ -28,7 +28,7 @@ function productionSources(root: string): Array<[string, string]> {
 }
 
 test("only the shared assembler builds step prompts", () => {
-  const sources = [...productionSources(join(REPO_ROOT, "shared")), ...productionSources(join(REPO_ROOT, "v2/src"))];
+  const sources = productionSources(join(REPO_ROOT, "v2/src"));
   expect(sources.some(([path]) => path === ASSEMBLER)).toBe(true);
   const offenders: string[] = [];
   for (const [path, source] of sources) {

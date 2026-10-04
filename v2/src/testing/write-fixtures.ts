@@ -2,10 +2,10 @@ import { afterEach } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "../execution/external-worktree.ts";
 import { orchestrationStorePath } from "../paths.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 
 /** Opens an in-memory state store for `callback`, closing it in `finally`. */
 export async function withStateStore<T>(callback: (store: StateStore) => Promise<T> | T): Promise<T> {

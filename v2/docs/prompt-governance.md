@@ -66,16 +66,16 @@ Runtime prompt lookup is by stable `id` only. File paths are implementation deta
 Validation and rendering failures are intentionally split:
 
 - Registry-load failures (metadata/relationship validation) are asserted in
-  `shared/prompts/registry.test.ts`.
+  `v2/src/shared/prompts/registry.test.ts`.
 - Render-time failures (unknown runtime ID lookup, placeholder/type checks, and
-  delimiter policy) are asserted in `shared/prompts/render.test.ts`.
+  delimiter policy) are asserted in `v2/src/shared/prompts/render.test.ts`.
 
 ## Renderer Contract
 
 Shared rendering follows this contract:
 
 - Assembly order is deterministic: `global -> behavior -> step`, gated by the step's `fragmentPolicy` (`none` skips both fragment tiers, `global` skips the behavior tier).
-- Rendering is metadata-driven by step `id` through the one entry point `renderPromptForStep` (`shared/prompts/assemble.ts`); callers do not pass explicit fragment lists or hand-roll a render path.
+- Rendering is metadata-driven by step `id` through the one entry point `renderPromptForStep` (`v2/src/shared/prompts/assemble.ts`); callers do not pass explicit fragment lists or hand-roll a render path.
 - Step definitions may explicitly add or remove named fragments.
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
@@ -116,6 +116,6 @@ TypeScript runtime code controls:
 
 ## Change Visibility
 
-The `revision` field is the change-visible marker: every prompt edit bumps it, and the mutation verifier maps a changed registered prompt to its render-observer tests (`shared/prompts/render-observer-tests.ts`), which assert the assembled output of the live renderers. Post-render string surgery on rendered prompts is forbidden by `shared/prompts/no-prompt-surgery-guard.ts`.
+The `revision` field is the change-visible marker: every prompt edit bumps it, and the mutation verifier maps a changed registered prompt to its render-observer tests (`v2/src/shared/prompts/render-observer-tests.ts`), which assert the assembled output of the live renderers. Post-render string surgery on rendered prompts is forbidden by `v2/src/shared/prompts/no-prompt-surgery-guard.ts`.
 
 Revision-keyed rendered snapshots (`<id>@r<revision>...shared.txt`, `<id>@r<revision>.wrapper.<variant>.txt`) were asserted by the frozen v1 test tree and are no longer a gate; the fixtures remain under `v1/test/fixtures/prompts/rendered/` as a historical record.

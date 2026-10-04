@@ -2,8 +2,8 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SubprocessRunner } from "../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
+import type { SubprocessRunner } from "../v2/src/shared/subprocess.ts";
+import { trackedMkdtempSync } from "../v2/src/shared/tracked-temp-dir.test-support.ts";
 import {
   INSTALL_DIGEST_FILENAME,
   READY_STEP_COMPLETION_MARKER,

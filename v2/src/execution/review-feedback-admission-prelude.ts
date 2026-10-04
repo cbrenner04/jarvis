@@ -1,5 +1,5 @@
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import type { HarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
 import { GitHubOperationError, viewPrAdmission } from "./github-operations.ts";
 import {

@@ -10,11 +10,11 @@ import {
   readyStepStartRecord,
 } from "../../../scripts/ready.ts";
 import { FAILING_TEST_FILE_MARKER, failingTestFileRecord, READY_ATTEMPT_ENV } from "../../../scripts/run-v2-tests.ts";
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import {
   acquireGateInvocationLease,
@@ -1373,7 +1373,7 @@ describe("createReadyFinalizer", () => {
       runReadyGate: async () => {},
       runRuntimeSmokeVerification: async () => ({
         kind: "not-runnable",
-        inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+        inspectedPaths: ["v2/src/execution/write-loop.ts", "v2/src/shared/subprocess.ts"],
         discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
       }),
       ghReadyFlip: async () => {},
@@ -1382,7 +1382,7 @@ describe("createReadyFinalizer", () => {
     await expect(finalizer(input)).resolves.toEqual({
       runtimeSmokeOutcome: {
         kind: "not-runnable",
-        inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+        inspectedPaths: ["v2/src/execution/write-loop.ts", "v2/src/shared/subprocess.ts"],
         discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
       },
     });

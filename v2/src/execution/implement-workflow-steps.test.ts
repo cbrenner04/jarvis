@@ -3,17 +3,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import type { ProjectMatch } from "../../../shared/project-registry.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessRunner,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { createChainedStageProjectMatch } from "../daemon/pipeline-stage-resolve.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import type { ProjectMatch } from "../shared/project-registry.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { WithExternalWorktreeResult } from "./external-worktree.ts";
 import {

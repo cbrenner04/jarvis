@@ -9,7 +9,7 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const REPO_ROOT = join(import.meta.dir, "..");
+const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 
 type ProductionSources = Readonly<Record<string, string>>;
 
@@ -20,7 +20,7 @@ type ProductionSources = Readonly<Record<string, string>>;
 const JARVIS_HOME_HOMEDIR_JOIN_PATTERN =
   /\bjoin\s*\(\s*(?:(?:process\.env\.HOME\s*\?\?\s*)?homedir\s*\(\)|process\.env\.HOME(?:\s*\?\?\s*homedir\s*\(\))?)\s*,\s*["'`]\.jarvis["'`]/;
 
-const CANONICAL_RESOLVER_PATH = "shared/paths.ts";
+const CANONICAL_RESOLVER_PATH = "v2/src/shared/paths.ts";
 
 /** Violations: files (other than the canonical resolver) joining homedir() with a `.jarvis` segment. */
 export function jarvisHomeHomedirJoinViolations(sources: ProductionSources): string[] {
@@ -53,7 +53,6 @@ function listGuardedProductionSources(): ProductionSources {
     }
   };
 
-  walkDir(join(REPO_ROOT, "shared"), "shared");
   walkDir(join(REPO_ROOT, "v2/src"), "v2/src");
 
   return sources;
@@ -70,8 +69,8 @@ test("flags the pre-fix session-log resolver", () => {
     "}",
   ].join("\n");
 
-  expect(jarvisHomeHomedirJoinViolations({ "shared/invocation/session-log.ts": preFixSessionLog })).toEqual([
-    "shared/invocation/session-log.ts",
+  expect(jarvisHomeHomedirJoinViolations({ "v2/src/shared/invocation/session-log.ts": preFixSessionLog })).toEqual([
+    "v2/src/shared/invocation/session-log.ts",
   ]);
 });
 
@@ -82,8 +81,8 @@ test("flags a bare process.env.HOME join with no homedir() fallback", () => {
     "}",
   ].join("\n");
 
-  expect(jarvisHomeHomedirJoinViolations({ "shared/invocation/session-log.ts": bareHomeEnvResolver })).toEqual([
-    "shared/invocation/session-log.ts",
+  expect(jarvisHomeHomedirJoinViolations({ "v2/src/shared/invocation/session-log.ts": bareHomeEnvResolver })).toEqual([
+    "v2/src/shared/invocation/session-log.ts",
   ]);
 });
 
@@ -94,7 +93,7 @@ test("does not flag shared/invocation/agents.ts's .codex sessions resolver", () 
     "}",
   ].join("\n");
 
-  expect(jarvisHomeHomedirJoinViolations({ "shared/invocation/agents.ts": codexResolver })).toEqual([]);
+  expect(jarvisHomeHomedirJoinViolations({ "v2/src/shared/invocation/agents.ts": codexResolver })).toEqual([]);
 });
 
 test("does not flag the canonical resolver itself", () => {
@@ -104,5 +103,5 @@ test("does not flag the canonical resolver itself", () => {
     "}",
   ].join("\n");
 
-  expect(jarvisHomeHomedirJoinViolations({ "shared/paths.ts": canonical })).toEqual([]);
+  expect(jarvisHomeHomedirJoinViolations({ "v2/src/shared/paths.ts": canonical })).toEqual([]);
 });

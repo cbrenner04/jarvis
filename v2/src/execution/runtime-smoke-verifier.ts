@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, normalize, relative, resolve } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
-import type { AsyncSubprocessOptions, AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import type { AsyncSubprocessOptions, AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
 import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 export type RuntimeSmokeVerifierInput = {
@@ -103,7 +103,7 @@ async function defaultExecuteEntrypoint(
   env?: Record<string, string>,
   processGroups?: VerifierProcessGroupRecorder,
 ): Promise<{ success: boolean; output: string }> {
-  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
+  const { realAsyncSubprocessRunner } = await import("../shared/subprocess.ts");
   return createExecuteEntrypoint(realAsyncSubprocessRunner)(cwd, entrypoint, args, timeoutMs, env, processGroups);
 }
 

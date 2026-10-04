@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../../../shared/prompts/review-feedback-write.ts";
+import { REVIEW_FEEDBACK_RESPONSE_SIDECAR } from "../shared/prompts/review-feedback-write.ts";
 import { type PrReviewInputCaptureArtifact, resolvePrReviewInputArtifactPath } from "./pr-review-input-capture.ts";
 
 type ReviewFeedbackItemReconciliation = {

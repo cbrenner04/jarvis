@@ -3,8 +3,6 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { createCompletionPublisher } from "../execution/completion-publisher.ts";
@@ -15,14 +13,16 @@ import type { AnyWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-
 import { type PlanStageRecoveryRequest, recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import { completionPublishLaneRepublishFields } from "../execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
+import { planReviewPromptProfile } from "../shared/prompts/review-plan.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { makeStaleResetIpcClient, writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 
 ensureWorkflowRunnerResumeDepsWired();
 
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type PipelineContext, type StateStore } from "../persistence/state-store.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createBindingFactory, doneBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";

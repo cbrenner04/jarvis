@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { DEFAULT_SUBPROCESS_TIMEOUT_MS } from "../../../shared/subprocess.ts";
+import { DEFAULT_SUBPROCESS_TIMEOUT_MS } from "../shared/subprocess.ts";
 
 const SUBSPEC_FIRST_BODY_LINE_PREFIX = "Spec: ";
 const COMMIT_FIELD_SEP = "\x1f";

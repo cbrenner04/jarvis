@@ -1,13 +1,9 @@
 import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { SANDBOX_SUFFIX } from "../../../scripts/test-slice.ts";
-import { errorMessage } from "../../../shared/error-message.ts";
-import { parseSpec } from "../../../shared/spec-parser.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessRunner,
-  realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import { parseSpec } from "../shared/spec-parser.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
 /** Worktree-root sidecar an implement agent writes to ask Jarvis to run integration-slice test files outside its sandbox. */

@@ -100,7 +100,7 @@ describe("deterministic daemon tests guard", () => {
       const source = "await Bun.sleep(100);";
       expect(violations(source, "v2/src/other/example.test.ts")).toHaveLength(0);
       expect(violations(source, "v1/src/daemon/example.test.ts")).toHaveLength(0);
-      expect(violations(source, "shared/daemon.test.ts")).toHaveLength(0);
+      expect(violations(source, "v2/src/shared/daemon.test.ts")).toHaveLength(0);
     });
 
     test("does not guard non-test files", () => {
@@ -164,7 +164,7 @@ line 6`;
     test("excludes test files outside daemon and execution", () => {
       expect(guarded("v2/src/cli/usage.test.ts")).toBe(false);
       expect(guarded("v1/src/daemon/example.test.ts")).toBe(false);
-      expect(guarded("shared/example.test.ts")).toBe(false);
+      expect(guarded("v2/src/shared/example.test.ts")).toBe(false);
     });
   });
 });

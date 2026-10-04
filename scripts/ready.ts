@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { gitDir } from "../shared/git.ts";
-import { realSubprocessRunner, type SubprocessRunner } from "../shared/subprocess.ts";
+import { gitDir } from "../v2/src/shared/git.ts";
+import { realSubprocessRunner, type SubprocessRunner } from "../v2/src/shared/subprocess.ts";
 import type { ScopedTests } from "./ci-test-scope.ts";
 import { READY_ATTEMPT_ENV } from "./run-v2-tests.ts";
 

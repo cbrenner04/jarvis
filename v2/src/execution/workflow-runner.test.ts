@@ -12,9 +12,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { jarvisHome } from "../paths.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";

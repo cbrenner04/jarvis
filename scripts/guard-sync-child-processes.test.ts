@@ -30,13 +30,13 @@ describe("sync child-process guard", () => {
   test("rejects Bun.spawnSync and v2 synchronous seams", () => {
     expect(violations('Bun.spawnSync(["git"]);')).toMatchObject([{ construct: "Bun.spawnSync" }]);
     expect(violations('Bun["spawnSync"](["git"]);')).toMatchObject([{ construct: "Bun.spawnSync" }]);
-    expect(violations('import { type SubprocessRunner } from "../../shared/subprocess.ts";')).toHaveLength(1);
-    expect(violations('import { isGitRepo } from "../../shared/git.ts";')).toHaveLength(1);
+    expect(violations('import { type SubprocessRunner } from "../shared/subprocess.ts";')).toHaveLength(1);
+    expect(violations('import { isGitRepo } from "../shared/git.ts";')).toHaveLength(1);
   });
 
   test("allows the CLI runner, test files, and test support", () => {
     const source = 'import { execFileSync } from "node:child_process"; execFileSync("git");';
-    expect(violations(source, "shared/subprocess.ts")).toEqual([]);
+    expect(violations(source, "v2/src/shared/subprocess.ts")).toEqual([]);
     expect(violations(source, "v2/src/example.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/execution/workflow-runner.test-support.ts")).toEqual([]);
     expect(violations(source, "v2/src/testing/process.ts")).toEqual([]);

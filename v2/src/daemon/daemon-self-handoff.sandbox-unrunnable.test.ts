@@ -5,12 +5,12 @@ import { describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { connectIpcClient } from "../ipc/client";
 import { startIpcServer } from "../ipc/server";
 import type { IpcFrame, ResponseFrame } from "../ipc/types";
 import type { LogReader, LogSink } from "../persistence/log-stream";
 import { openStateStore, type StateStore } from "../persistence/state-store";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
   createHeldWorkflowBindings,
   type HeldWorkflowBindings,

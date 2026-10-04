@@ -1,8 +1,8 @@
-import { isRecord } from "../../../shared/is-record.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { loadAdmittedPipelineSelection } from "../persistence/state-store.ts";
+import { isRecord } from "../shared/is-record.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
 import { ambiguousPipelineIdMessage, PIPELINE_ID_PREFIX_MIN_LENGTH } from "./pipeline-id-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";

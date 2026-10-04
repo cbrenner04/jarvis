@@ -4,9 +4,6 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import ts from "typescript";
-import { operatorFailureRecordFromUnknown } from "../../../shared/operator-failure-record.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
@@ -30,6 +27,9 @@ import type {
   StateStore,
   WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
 import { makeStaleResetIpcClient, writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";

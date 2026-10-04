@@ -1,4 +1,4 @@
-import { operatorFailureRecordFromUnknown } from "../../../shared/operator-failure-record.ts";
+import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
 
 const RECORD_KEYS = ["expectation", "observation", "nearMiss", "retryable", "referencedPaths"];

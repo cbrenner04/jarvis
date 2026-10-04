@@ -1,28 +1,6 @@
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
-import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
-import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import {
-  requiredIntegrationScopeForTerminalSubspec,
-  resolvePinnedLinkedSubspec,
-} from "../../../shared/linked-subspec-routing.ts";
-import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
-import {
-  implementReviewPromptProfile,
-  PATCH_REVIEW_CRITIC_PROMPT_ID,
-  PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
-} from "../../../shared/prompts/review-implement.ts";
-import { extractBlockerBody } from "../../../shared/spec-parser.ts";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import {
-  findSnapshotStepForRunStepId,
-  isWriteSiblingStepId,
-  LINK_STEP_ID_INFIX,
-  matchesLinkedSiblingStepId,
-} from "../../../shared/write-sibling-step-id.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import {
   type IntentFinalizationEvent,
@@ -42,6 +20,28 @@ import type {
   WorkflowSnapshotStep,
 } from "../persistence/state-store.ts";
 import { RunAdmissionRefusedError } from "../persistence/state-store.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import type { RunFixCommandOpts } from "../shared/fix-command.ts";
+import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../shared/invocation/agents.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
+import {
+  requiredIntegrationScopeForTerminalSubspec,
+  resolvePinnedLinkedSubspec,
+} from "../shared/linked-subspec-routing.ts";
+import { renderPromptForStep } from "../shared/prompts/assemble.ts";
+import {
+  implementReviewPromptProfile,
+  PATCH_REVIEW_CRITIC_PROMPT_ID,
+  PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS,
+} from "../shared/prompts/review-implement.ts";
+import { extractBlockerBody } from "../shared/spec-parser.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import {
+  findSnapshotStepForRunStepId,
+  isWriteSiblingStepId,
+  LINK_STEP_ID_INFIX,
+  matchesLinkedSiblingStepId,
+} from "../shared/write-sibling-step-id.ts";
 import {
   type CompletionCommitter,
   type CompletionStepMetadata,

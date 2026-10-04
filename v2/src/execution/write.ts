@@ -11,38 +11,35 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { errorMessage } from "../../../shared/error-message.ts";
-import type {
-  InvocationBinding,
-  InvocationTelemetryContext,
-  ProcessGroupRecorder,
-} from "../../../shared/invocation/execute.ts";
-import type { SessionLog } from "../../../shared/invocation/session-log.ts";
-import {
-  normalizePlanDraftSpecDir,
-  type PlanDraftNormalizationMode,
-} from "../../../shared/module-boundary-surfaces.ts";
-import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
-import {
-  buildIntentSplitPrompt,
-  INTENT_SPLIT_PROMPT_ID,
-  listIntentStageMarkdownFiles,
-} from "../../../shared/prompts/intent-split.ts";
-import { buildHarnessNormalizerDiagnosticsSection, buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
-import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { PromptRenderingError } from "../../../shared/prompts/render.ts";
-import {
-  buildReviewFeedbackWritePrompt,
-  REVIEW_FEEDBACK_WRITE_PROMPT_ID,
-  type ReviewFeedbackLaneKind,
-} from "../../../shared/prompts/review-feedback-write.ts";
-import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
-import { hasGenuineBlocker, parseSpec, RESERVED_HARNESS_BLOCKER_MARKER } from "../../../shared/spec-parser.ts";
 import {
   type DraftContractRepromptContext,
   dualConstraintRepromptDetail,
   type SurvivingMutationRepromptContext,
 } from "../persistence/log-stream.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import type {
+  InvocationBinding,
+  InvocationTelemetryContext,
+  ProcessGroupRecorder,
+} from "../shared/invocation/execute.ts";
+import type { SessionLog } from "../shared/invocation/session-log.ts";
+import { normalizePlanDraftSpecDir, type PlanDraftNormalizationMode } from "../shared/module-boundary-surfaces.ts";
+import { renderPromptForStep } from "../shared/prompts/assemble.ts";
+import {
+  buildIntentSplitPrompt,
+  INTENT_SPLIT_PROMPT_ID,
+  listIntentStageMarkdownFiles,
+} from "../shared/prompts/intent-split.ts";
+import { buildHarnessNormalizerDiagnosticsSection, buildPlanDraftPrompt } from "../shared/prompts/plan-draft.ts";
+import { loadPromptRegistry } from "../shared/prompts/registry.ts";
+import { PromptRenderingError } from "../shared/prompts/render.ts";
+import {
+  buildReviewFeedbackWritePrompt,
+  REVIEW_FEEDBACK_WRITE_PROMPT_ID,
+  type ReviewFeedbackLaneKind,
+} from "../shared/prompts/review-feedback-write.ts";
+import { readSpecGuidance } from "../shared/spec-guidance-path.ts";
+import { hasGenuineBlocker, parseSpec, RESERVED_HARNESS_BLOCKER_MARKER } from "../shared/spec-parser.ts";
 import { mutationCoverageFixDetail } from "./diff-derived-mutation-verifier.ts";
 import {
   type ExternalWorktreeInput,

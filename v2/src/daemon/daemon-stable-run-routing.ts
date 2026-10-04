@@ -1,9 +1,9 @@
-import { isRecord } from "../../../shared/is-record.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import type { StateStore } from "../persistence/state-store.ts";
+import { isRecord } from "../shared/is-record.ts";
 import { mergePipelineSnapshots } from "./merge-pipeline-snapshots.ts";
 import {
   PIPELINE_OWNER_RPC_TIMEOUT_MS,

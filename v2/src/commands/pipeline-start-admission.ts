@@ -1,11 +1,5 @@
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
-import {
-  parseSeedMetadata,
-  RATING_DIMENSIONS,
-  type RatingDimension,
-  type SeedMetadata,
-} from "../../../shared/seed-metadata.ts";
 import { formatConnectionError, formatLifecycleError, formatRpcError } from "../cli/ipc.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { isLoadError } from "../config/agent-model-config.ts";
@@ -19,6 +13,12 @@ import {
 } from "../execution/project-pipeline-resolution.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { AdmittedPipelineSelection, PipelineContext } from "../persistence/state-store.ts";
+import {
+  parseSeedMetadata,
+  RATING_DIMENSIONS,
+  type RatingDimension,
+  type SeedMetadata,
+} from "../shared/seed-metadata.ts";
 
 export type PipelineStartAdmissionInput = {
   projectKey: string;

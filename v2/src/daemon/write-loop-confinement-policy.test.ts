@@ -5,10 +5,10 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { ConfinementRefusalError } from "../../../shared/invocation/confinement-policy.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
+import { ConfinementRefusalError } from "../shared/invocation/confinement-policy.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { resolveWriteLoopBindings } from "./daemon.ts";
 
 class FakeChild extends EventEmitter {

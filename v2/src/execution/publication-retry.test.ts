@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
+import { AsyncSubprocessError } from "../shared/subprocess.ts";
 import { GitHubOperationError } from "./github-operations.ts";
 import {
   completionCommitFailureResumable,

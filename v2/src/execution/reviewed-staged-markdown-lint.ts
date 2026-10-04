@@ -1,8 +1,8 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
-import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
+import { renderPromptForStep } from "../shared/prompts/assemble.ts";
+import { loadPromptRegistry } from "../shared/prompts/registry.ts";
+import { renderArtifactTemplate } from "../shared/prompts/render.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { type LintStagedMarkdownDeps, lintStagedMarkdown } from "./staged-markdown-lint.ts";
 

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../v2/src/shared/tracked-temp-dir.test-support.ts";
 
 const repoRoot = join(import.meta.dir, "..");
 

@@ -16,7 +16,7 @@ describe("test-temp-dir-cleanup guard", () => {
 
   test("covers test-support, the v2 harness, and the preload", () => {
     const source = 'mkdtempSync("x-");';
-    for (const file of ["shared/a.test-support.ts", "v2/src/testing/helpers.ts", "test/setup-fake-agents.ts"]) {
+    for (const file of ["v2/src/shared/a.test-support.ts", "v2/src/testing/helpers.ts", "test/setup-fake-agents.ts"]) {
       expect(violations(source, file)).toHaveLength(1);
     }
   });

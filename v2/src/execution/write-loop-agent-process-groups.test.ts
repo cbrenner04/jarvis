@@ -4,9 +4,9 @@ import { EventEmitter } from "node:events";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import { createResolvedAgentBinding } from "../shared/invocation/agents.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { createFakeWithExternalWorktree, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { executeWriteLoop, type WallSegmentSchedule } from "./write-loop.ts";
 

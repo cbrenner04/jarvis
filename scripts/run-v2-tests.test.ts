@@ -13,10 +13,19 @@ import {
   SUPPORTED_HEALTHY_FILE_BUDGET_MS,
   spawnTimeoutMessage,
   validatePerFileTimeout,
+  walkV2TestFiles,
 } from "./run-v2-tests.ts";
 
 const POLL_UNTIL_DONE_FILE = "v2/src/commands/workflow.test.ts";
 const SUBPROCESS_SPAWNING_FILE = "v2/src/execution/diff-derived-mutation-verifier.test.ts";
+
+describe("walkV2TestFiles", () => {
+  test("excludes v2/src/shared so shared-runtime tests stay on test:shared", () => {
+    const files = walkV2TestFiles();
+    expect(files.every((file) => !file.startsWith("v2/src/shared/"))).toBe(true);
+    expect(files.some((file) => file.startsWith("v2/src/") && !file.startsWith("v2/src/shared/"))).toBe(true);
+  });
+});
 
 describe("isSpawnTimeout", () => {
   test("detects a SIGKILL with null status as a timeout", () => {

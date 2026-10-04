@@ -2,9 +2,6 @@ import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
-import { confinementRefusalMessage } from "../../../shared/invocation/confinement-policy.ts";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { acquireGateInvocationLease, HARNESS_GATE_SLOT_WAIT_LIST_MESSAGE } from "../execution/gate-invocation-lease.ts";
 import { createReadyFinalizer, formatReadyGateOutOfScopeDetail } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
@@ -12,6 +9,9 @@ import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stre
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import type { GateRefusalRecoveryCause } from "../shared/gate-refusal-recovery-state.ts";
+import { confinementRefusalMessage } from "../shared/invocation/confinement-policy.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { MAX_SLOT_REDRIVES } from "./daemon-slot-redrive.ts";
 import type {
   RunOperatorError,

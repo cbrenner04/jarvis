@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
 export function walkSharedTestFiles(): string[] {
-  return [...walkTestFiles("shared"), ...walkTestFiles("test"), ...walkTestFiles("scripts")];
+  return [...walkTestFiles("v2/src/shared"), ...walkTestFiles("test"), ...walkTestFiles("scripts")];
 }
 
 export function sharedTests(mode: TestSliceMode): string[] {

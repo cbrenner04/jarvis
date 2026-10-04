@@ -37,11 +37,11 @@ export function classifyChangedPaths(paths: string[]): ScopedTests {
   let needsShared = false;
 
   for (const path of filtered) {
-    if (path.startsWith("v2/")) {
-      needsV2 = true;
-    } else if (path.startsWith("shared/")) {
+    if (path.startsWith("v2/src/shared/")) {
       needsV2 = true;
       needsShared = true;
+    } else if (path.startsWith("v2/")) {
+      needsV2 = true;
     } else if (path.startsWith("test/")) {
       needsShared = true;
     } else {

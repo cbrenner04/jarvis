@@ -1,5 +1,4 @@
 import { join, resolve, sep } from "node:path";
-import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import { type ResolveSpecsHomeResult, resolveSpecsHome } from "../config/specs-home.ts";
 import type { BuildImplementWorkflowStepsDeps } from "../execution/implement-workflow-steps.ts";
@@ -7,6 +6,7 @@ import type { PlanWorkflowDeps } from "../execution/publication-workflow-steps.t
 import { loadWorkflowSteps as realLoadWorkflowSteps } from "../execution/workflow-loader.ts";
 import { intentWorkRoot, jarvisHome, specsHome, worktreesRoot } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
+import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../shared/project-registry.ts";
 
 function isUnderPath(child: string, parent: string): boolean {
   const resolvedChild = resolve(child);

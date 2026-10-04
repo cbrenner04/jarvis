@@ -3,7 +3,7 @@ import { execFileSync, execSync } from "node:child_process";
 import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { readBranchCommits, renderAttribution } from "./pr-attribution.ts";
 
 let dir: string;

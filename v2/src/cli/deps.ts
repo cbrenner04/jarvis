@@ -1,4 +1,3 @@
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { readProjectRegistry, resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
@@ -9,6 +8,7 @@ import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "../paths.ts";
 import type { ReviewFeedbackLaneResolutionStore } from "../persistence/review-feedback-lane-resolution.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { runTuiEntry } from "../tui/tui-entry.tsx";
 import { runTuiLogFollow } from "../tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "../tui/tui-log-follow-types.ts";

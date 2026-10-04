@@ -5,6 +5,7 @@ import {
   exitCodeForGitSpawnBypassViolations,
   findGitSpawnBypassViolations,
   GH_OWNER_FILE,
+  GIT_OWNER_DIR,
   runGitSpawnBypassGuard,
 } from "./guard-git-spawn-bypass.ts";
 
@@ -18,6 +19,12 @@ describe("git spawn bypass guard", () => {
   test("rejects runAsync git literal in production fixture", () => {
     const source = 'await runner.runAsync("git", ["status"], cwd);';
     expect(violations(source)).toEqual([{ file: EXAMPLE_FILE, line: 1, command: "git" }]);
+  });
+
+  test("allows the Git boundary under v2/src/shared to spawn git", () => {
+    const source = 'await runner.runAsync("git", ["status"], cwd);\n';
+    expect(findGitSpawnBypassViolations([{ file: `${GIT_OWNER_DIR}git.ts`, source }])).toEqual([]);
+    expect(findGitSpawnBypassViolations([{ file: "v2/src/execution/other.ts", source }])).toHaveLength(1);
   });
 
   test("allows github-operations gh owner", () => {

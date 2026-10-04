@@ -7,7 +7,7 @@ import {
   PROMPT_SURGERY_GUARDED_ASSEMBLY_PATHS,
 } from "./no-prompt-surgery-guard.ts";
 
-const REPO_ROOT = join(import.meta.dir, "..", "..");
+const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
 
 const FORBIDDEN_TOKEN_SAMPLE_SOURCES: Record<(typeof FORBIDDEN_PROMPT_SURGERY_TOKENS)[number], string> = {
   stripOptionalSection: "stripOptionalSection(rendered)",

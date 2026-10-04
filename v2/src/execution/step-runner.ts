@@ -6,12 +6,12 @@ import {
   type InvocationResult,
   type InvocationTelemetryContext,
   type ProcessGroupRecorder,
-} from "../../../shared/invocation/execute.ts";
-import type { SessionLog } from "../../../shared/invocation/session-log.ts";
-import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
-import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
-import { agentAuthoredBlockerBody, extractBlockerBody, hasGenuineBlocker } from "../../../shared/spec-parser.ts";
+} from "../shared/invocation/execute.ts";
+import type { SessionLog } from "../shared/invocation/session-log.ts";
+import { renderPromptForStep } from "../shared/prompts/assemble.ts";
+import { loadPromptRegistry } from "../shared/prompts/registry.ts";
+import { renderArtifactTemplate } from "../shared/prompts/render.ts";
+import { agentAuthoredBlockerBody, extractBlockerBody, hasGenuineBlocker } from "../shared/spec-parser.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 const TERMINAL_TOKENS = ["done", "no-work", "blocked", "progress"] as const;

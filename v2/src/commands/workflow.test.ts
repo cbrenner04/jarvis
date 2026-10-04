@@ -4,11 +4,6 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync,
 import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
-import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
@@ -27,6 +22,11 @@ import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { jarvisHome } from "../paths.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import { originTrackingRefResolvesAsync } from "../shared/git.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
+import { locateSymbolSlice } from "../shared/structural-test-locator.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import {
   type CliRepoFixture,
   COMPLETED_WAIT_JSON,

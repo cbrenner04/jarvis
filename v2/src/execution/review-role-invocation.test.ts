@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import { invokeReviewRole, reviewRoleFailureKind } from "./review-role-invocation.ts";
 
 function hungBinding(id: string, agent: string, model: string): InvocationBinding {

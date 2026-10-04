@@ -4,10 +4,10 @@ import { execSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS, type StateStore } from "../persistence/state-store.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { createRunControlHandlers, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;

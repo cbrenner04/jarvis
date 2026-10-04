@@ -1,5 +1,5 @@
-import { getCurrentHeadAsync } from "../../../shared/git.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { getCurrentHeadAsync } from "../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   TUI_REVISION_REEXEC_EXIT_CODE,
   type TuiReexecCarriedState,

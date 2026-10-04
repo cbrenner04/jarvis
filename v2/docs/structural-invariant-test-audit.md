@@ -1,12 +1,12 @@
 # Structural-invariant test audit
 
-Durable artifact for discovering, classifying, and re-keying structural-invariant tests under `v2/src/**` and `shared/**`. Inventory rows from subspecs 01–04 append below the candidate manifest.
+Durable artifact for discovering, classifying, and re-keying structural-invariant tests under `v2/src/**` and `v2/src/shared/**`. Inventory rows from subspecs 01–04 append below the candidate manifest.
 
 ## Methodology
 
 ### In-scope tests
 
-Co-located `*.test.ts` files under `v2/src/**` and `shared/**` whose anchors pin invariants to incidental structure rather than observable behavior. Discovery is mechanical: `scripts/discover-structural-invariant-tests.ts` emits one candidate row per file. A file is `in-scope` when any discovery rule matches; otherwise `out-of-scope` with rationale `no-structural-signal`.
+Co-located `*.test.ts` files under `v2/src/**` and `v2/src/shared/**` whose anchors pin invariants to incidental structure rather than observable behavior. Discovery is mechanical: `scripts/discover-structural-invariant-tests.ts` emits one candidate row per file. A file is `in-scope` when any discovery rule matches; otherwise `out-of-scope` with rationale `no-structural-signal`.
 
 ### Excluded trees
 
@@ -47,43 +47,43 @@ Verbatim stdout from `bun run scripts/discover-structural-invariant-tests.ts`:
 
 ```
 test-path scope rule
-shared/executable-tree.test.ts out-of-scope no-structural-signal
-shared/git.test.ts out-of-scope no-structural-signal
-shared/intent-stage.test.ts in-scope source-read
-shared/invocation/agents.test.ts out-of-scope no-structural-signal
-shared/invocation/claude-json.test.ts in-scope source-read
-shared/invocation/cursor-json.test.ts out-of-scope no-structural-signal
-shared/invocation/execute.test.ts out-of-scope no-structural-signal
-shared/invocation/session-log.test.ts in-scope source-read
-shared/is-record.test.ts out-of-scope no-structural-signal
-shared/linked-subspec-routing.test.ts out-of-scope no-structural-signal
-shared/module-boundary-surfaces.test.ts in-scope source-read
-shared/mutation-checkpoint-criteria.test.ts out-of-scope no-structural-signal
-shared/preload.sandbox-unrunnable.test.ts out-of-scope no-structural-signal
-shared/prices/cost.test.ts out-of-scope no-structural-signal
-shared/prices/load.test.ts out-of-scope no-structural-signal
-shared/project-safe-id.test.ts out-of-scope no-structural-signal
-shared/prompts/assemble.test.ts out-of-scope no-structural-signal
-shared/prompts/intent-split.test.ts out-of-scope no-structural-signal
-shared/prompts/no-prompt-surgery-guard.test.ts in-scope source-read
-shared/prompts/plan-draft.test.ts out-of-scope no-structural-signal
-shared/prompts/registry.test.ts out-of-scope no-structural-signal
-shared/prompts/render.test.ts out-of-scope no-structural-signal
-shared/prompts/review-implement-contract-preservation.test.ts in-scope source-read
-shared/prompts/review-implement-growth-budget.test.ts in-scope source-read
-shared/prompts/review-implement.test.ts in-scope source-read
-shared/prompts/review-plan-contract-preservation.test.ts out-of-scope no-structural-signal
-shared/prompts/review-plan-growth-budget.test.ts in-scope source-read
-shared/prompts/review-plan-hollow-pin.test.ts out-of-scope no-structural-signal
-shared/prompts/review-plan-premise-falsification.test.ts out-of-scope no-structural-signal
-shared/prompts/review-profile.test.ts out-of-scope no-structural-signal
-shared/prompts/review-prompt-divergence.test.ts in-scope source-read
-shared/prompts/step-rules.test.ts out-of-scope no-structural-signal
-shared/publication-input-consumption.test.ts out-of-scope no-structural-signal
-shared/shrink-step-id.test.ts out-of-scope no-structural-signal
-shared/spec-parser.test.ts out-of-scope no-structural-signal
-shared/subprocess.test.ts in-scope source-read
-shared/worktree-lock.test.ts in-scope source-read
+v2/src/shared/executable-tree.test.ts out-of-scope no-structural-signal
+v2/src/shared/git.test.ts out-of-scope no-structural-signal
+v2/src/shared/intent-stage.test.ts in-scope source-read
+v2/src/shared/invocation/agents.test.ts out-of-scope no-structural-signal
+v2/src/shared/invocation/claude-json.test.ts in-scope source-read
+v2/src/shared/invocation/cursor-json.test.ts out-of-scope no-structural-signal
+v2/src/shared/invocation/execute.test.ts out-of-scope no-structural-signal
+v2/src/shared/invocation/session-log.test.ts in-scope source-read
+v2/src/shared/is-record.test.ts out-of-scope no-structural-signal
+v2/src/shared/linked-subspec-routing.test.ts out-of-scope no-structural-signal
+v2/src/shared/module-boundary-surfaces.test.ts in-scope source-read
+v2/src/shared/mutation-checkpoint-criteria.test.ts out-of-scope no-structural-signal
+v2/src/shared/preload.sandbox-unrunnable.test.ts out-of-scope no-structural-signal
+v2/src/shared/prices/cost.test.ts out-of-scope no-structural-signal
+v2/src/shared/prices/load.test.ts out-of-scope no-structural-signal
+v2/src/shared/project-safe-id.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/assemble.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/intent-split.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/no-prompt-surgery-guard.test.ts in-scope source-read
+v2/src/shared/prompts/plan-draft.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/registry.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/render.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/review-implement-contract-preservation.test.ts in-scope source-read
+v2/src/shared/prompts/review-implement-growth-budget.test.ts in-scope source-read
+v2/src/shared/prompts/review-implement.test.ts in-scope source-read
+v2/src/shared/prompts/review-plan-contract-preservation.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/review-plan-growth-budget.test.ts in-scope source-read
+v2/src/shared/prompts/review-plan-hollow-pin.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/review-plan-premise-falsification.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/review-profile.test.ts out-of-scope no-structural-signal
+v2/src/shared/prompts/review-prompt-divergence.test.ts in-scope source-read
+v2/src/shared/prompts/step-rules.test.ts out-of-scope no-structural-signal
+v2/src/shared/publication-input-consumption.test.ts out-of-scope no-structural-signal
+v2/src/shared/shrink-step-id.test.ts out-of-scope no-structural-signal
+v2/src/shared/spec-parser.test.ts out-of-scope no-structural-signal
+v2/src/shared/subprocess.test.ts in-scope source-read
+v2/src/shared/worktree-lock.test.ts in-scope source-read
 v2/src/cli.test.ts out-of-scope no-structural-signal
 v2/src/cli/help-flags-parity.test.ts in-scope structural-name
 v2/src/cli/stale-dispatch.test.ts out-of-scope no-structural-signal
@@ -248,30 +248,30 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 
 ## Shared inventory
 
-**Retired 2026-09-08 (#3628):** the `shr-mbs-*` rows below cover `shared/module-boundary-surfaces.test.ts` tests for the module-boundary surface split and its taxonomy, both of which were retired. Those tests no longer exist; the rows are kept for provenance and need no re-key.
+**Retired 2026-09-08 (#3628):** the `shr-mbs-*` rows below cover `v2/src/shared/module-boundary-surfaces.test.ts` tests for the module-boundary surface split and its taxonomy, both of which were retired. Those tests no longer exist; the rows are kept for provenance and need no re-key.
 
 | row-id | test-path | case-scope | guarded-invariant | anchor-mechanism | classification | disposition | stay-incidental-rationale | vacuous-pass-risk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| shr-mbs-surfaces-registry | shared/module-boundary-surfaces.test.ts | module boundary surfaces > classifies committed phrases | `MODULE_BOUNDARY_SURFACES` lists persistence, daemon, cli, execution-loop | hardcoded array equality against imported export | incidental | re-key | | |
-| shr-mbs-split-emitted-files | shared/module-boundary-surfaces.test.ts | module boundary surfaces > normalizes the * staged tree without provenance | multi-boundary split emits manifest-declared child filenames | `manifest.json` `expectedChildren.file` list equality on `readdirSync` filter | incidental | re-key | | |
-| shr-mbs-split-index-links | shared/module-boundary-surfaces.test.ts | module boundary surfaces > normalizes the * staged tree without provenance | index checklist links match emitted child files | same manifest file list reused for `indexChecklistFiles` equality | incidental | re-key | | |
-| shr-mbs-split-section-bullets | shared/module-boundary-surfaces.test.ts | module boundary surfaces > normalizes the * staged tree without provenance | preserved Decisions/Acceptance/Documentation bullets match manifest child arrays | per-section `child[section.key]` equality against emitted subspec bodies | incidental | re-key | | |
-| shr-mbs-manifest-union | shared/module-boundary-surfaces.test.ts | module boundary surfaces > normalizes the * staged tree without provenance | surviving parent section bullets equal union of child section bullets | `assertManifestUnion` compares fixture parent read to manifest `expectedChildren` union | incidental | re-key | | |
-| shr-mbs-k4-cli-first-filename | shared/module-boundary-surfaces.test.ts | module boundary surfaces > inverting draft dependency order guard fails k4 | k4 dependency order emits CLI surface file before persistence | hardcoded `emittedFiles[0] === "00-cli.md"` filename pin | incidental | re-key | | |
-| shr-npsg-assembly-paths | shared/prompts/no-prompt-surgery-guard.test.ts | prompt assembly builders omit post-render string surgery | listed assembly sources contain no forbidden prompt-surgery constructs | hand-maintained `GUARDED_ASSEMBLY_PATHS` list driving `readFileSync` scans | incidental | re-key | | |
-| shr-npsg-forbidden-tokens | shared/prompts/no-prompt-surgery-guard.test.ts | prompt assembly builders omit post-render string surgery | forbidden constructs are strip/replace call shapes | hand-maintained `FORBIDDEN_PROMPT_SURGERY_TOKENS` literal list | incidental | re-key | | |
-| shr-ricp-contract-markers | shared/prompts/review-implement-contract-preservation.test.ts | implement review role contract preservation > implement review role contract substrings preserved | implement review roles preserve merge-base diff instructions and role-specific contract phrases; critic omits adversary identify checklist | `MERGE_BASE_DIFF_MARKERS` and role contract substring presence; `ADVERSARY_IDENTIFY_LIST_MARKERS` one-way `.not.toContain` on registry bodies | incidental | re-key | | yes |
-| shr-ri-merge-base-prose | shared/prompts/review-implement.test.ts | renderPatchReviewCriticPrompt branch diff > renders stat, changed paths, and merge-base unified diff for critic and debate roles | critic and debate roles render merge-base diff provenance wording | substring pins for `merge-base branch diff`, `git merge-base <base> HEAD`, `git diff <mergeBase> HEAD`, and `.not.toContain("not a unified diff")` | incidental | re-key | | yes |
-| shr-rpd-patch-implement-divergence | shared/prompts/review-prompt-divergence.test.ts | patch vs implement review prompt registry-body divergence > * branch-diff prose diverges | each implement review role body diverges from patch on unified-diff wording | per-role substring presence/absence pins (`not a unified diff`, `merge-base branch diff`) plus `not.toEqual(patchBody)` | incidental | re-key | | yes |
-| shr-is-stage-contract | shared/intent-stage.test.ts | intent stage contract > * | intent stage filename/content/structure validation and repair behave correctly | behavioral unit tests; `readFileSync` only on temp stage paths after repair | behavioral | n/a | | |
-| shr-cj-parse-fixtures | shared/invocation/claude-json.test.ts | parseClaudeJsonOutput / isClaudeZeroExitQuotaEnvelope > * | Claude JSON envelope parsing and quota classification handle fixtures correctly | behavioral tests; `readFileSync` on `v1/test/fixtures/claude` JSON fixtures only | behavioral | n/a | | |
-| shr-sl-writer | shared/invocation/session-log.test.ts | session log writer > * | session log writer creates namespaced files with stamped lines and close semantics | behavioral tests; `readFileSync` only on temp sessions dir paths | behavioral | n/a | | |
-| shr-rigb-body-baselines | shared/prompts/review-implement-growth-budget.test.ts | implement review role growth budget > implement review role body growth stays within budget | implement review role prompt bodies stay under committed length ceilings | `IMPLEMENT_REVIEW_ROLE_BASELINES` and exported `*_BASELINE_BODY_LENGTH` literals vs `registry.getById(id).body.length` | incidental | re-key | | |
-| shr-rigb-role-placeholders | shared/prompts/review-implement-growth-budget.test.ts | implement review role growth budget > implement review role placeholders unchanged | implement review role prompt frontmatter placeholders stay stable | `IMPLEMENT_REVIEW_ROLE_PLACEHOLDERS` literal map vs `readFileSync(artifact.sourcePath)` placeholders field parse | incidental | re-key | | |
-| shr-rpgb-body-baselines | shared/prompts/review-plan-growth-budget.test.ts | plan review role growth budget > plan review role body growth stays within budget | plan review role prompt bodies stay under committed length ceilings | `PLAN_REVIEW_ROLE_BASELINES` and exported `*_BASELINE_BODY_LENGTH` literals vs `registry.getById(id).body.length` | incidental | re-key | | |
-| shr-rpgb-role-placeholders | shared/prompts/review-plan-growth-budget.test.ts | plan review role growth budget > plan review role placeholders unchanged | plan review role prompt frontmatter placeholders stay stable | `PLAN_REVIEW_ROLE_PLACEHOLDERS` literal map vs `readFileSync(artifact.sourcePath)` placeholders field parse | incidental | re-key | | |
-| shr-sp-runner | shared/subprocess.test.ts | realSubprocessRunner / realAsyncSubprocessRunner / predicate parity > * | subprocess runners, abort/group semantics, and git predicate parity behave correctly | behavioral integration; `readFileSync` only on temp `.scratch` pid files in group-mode fixtures | behavioral | n/a | | |
-| shr-wtl-lock | shared/worktree-lock.test.ts | acquireLock / releaseLock / isProcessAlive > * | worktree lock acquire, busy/recovery paths, release, and pid liveness behave correctly | behavioral tests; `readFileSync` only on temp lock paths | behavioral | n/a | | |
+| shr-mbs-surfaces-registry | v2/src/shared/module-boundary-surfaces.test.ts | module boundary surfaces > classifies committed phrases | `MODULE_BOUNDARY_SURFACES` lists persistence, daemon, cli, execution-loop | hardcoded array equality against imported export | incidental | re-key | | |
+| shr-mbs-split-emitted-files | v2/src/shared/module-boundary-surfaces.test.ts | module boundary surfaces > normalizes the * staged tree without provenance | multi-boundary split emits manifest-declared child filenames | `manifest.json` `expectedChildren.file` list equality on `readdirSync` filter | incidental | re-key | | |
+| shr-mbs-split-index-links | v2/src/shared/module-boundary-surfaces.test.ts | module boundary surfaces > normalizes the * staged tree without provenance | index checklist links match emitted child files | same manifest file list reused for `indexChecklistFiles` equality | incidental | re-key | | |
+| shr-mbs-split-section-bullets | v2/src/shared/module-boundary-surfaces.test.ts | module boundary surfaces > normalizes the * staged tree without provenance | preserved Decisions/Acceptance/Documentation bullets match manifest child arrays | per-section `child[section.key]` equality against emitted subspec bodies | incidental | re-key | | |
+| shr-mbs-manifest-union | v2/src/shared/module-boundary-surfaces.test.ts | module boundary surfaces > normalizes the * staged tree without provenance | surviving parent section bullets equal union of child section bullets | `assertManifestUnion` compares fixture parent read to manifest `expectedChildren` union | incidental | re-key | | |
+| shr-mbs-k4-cli-first-filename | v2/src/shared/module-boundary-surfaces.test.ts | module boundary surfaces > inverting draft dependency order guard fails k4 | k4 dependency order emits CLI surface file before persistence | hardcoded `emittedFiles[0] === "00-cli.md"` filename pin | incidental | re-key | | |
+| shr-npsg-assembly-paths | v2/src/shared/prompts/no-prompt-surgery-guard.test.ts | prompt assembly builders omit post-render string surgery | listed assembly sources contain no forbidden prompt-surgery constructs | hand-maintained `GUARDED_ASSEMBLY_PATHS` list driving `readFileSync` scans | incidental | re-key | | |
+| shr-npsg-forbidden-tokens | v2/src/shared/prompts/no-prompt-surgery-guard.test.ts | prompt assembly builders omit post-render string surgery | forbidden constructs are strip/replace call shapes | hand-maintained `FORBIDDEN_PROMPT_SURGERY_TOKENS` literal list | incidental | re-key | | |
+| shr-ricp-contract-markers | v2/src/shared/prompts/review-implement-contract-preservation.test.ts | implement review role contract preservation > implement review role contract substrings preserved | implement review roles preserve merge-base diff instructions and role-specific contract phrases; critic omits adversary identify checklist | `MERGE_BASE_DIFF_MARKERS` and role contract substring presence; `ADVERSARY_IDENTIFY_LIST_MARKERS` one-way `.not.toContain` on registry bodies | incidental | re-key | | yes |
+| shr-ri-merge-base-prose | v2/src/shared/prompts/review-implement.test.ts | renderPatchReviewCriticPrompt branch diff > renders stat, changed paths, and merge-base unified diff for critic and debate roles | critic and debate roles render merge-base diff provenance wording | substring pins for `merge-base branch diff`, `git merge-base <base> HEAD`, `git diff <mergeBase> HEAD`, and `.not.toContain("not a unified diff")` | incidental | re-key | | yes |
+| shr-rpd-patch-implement-divergence | v2/src/shared/prompts/review-prompt-divergence.test.ts | patch vs implement review prompt registry-body divergence > * branch-diff prose diverges | each implement review role body diverges from patch on unified-diff wording | per-role substring presence/absence pins (`not a unified diff`, `merge-base branch diff`) plus `not.toEqual(patchBody)` | incidental | re-key | | yes |
+| shr-is-stage-contract | v2/src/shared/intent-stage.test.ts | intent stage contract > * | intent stage filename/content/structure validation and repair behave correctly | behavioral unit tests; `readFileSync` only on temp stage paths after repair | behavioral | n/a | | |
+| shr-cj-parse-fixtures | v2/src/shared/invocation/claude-json.test.ts | parseClaudeJsonOutput / isClaudeZeroExitQuotaEnvelope > * | Claude JSON envelope parsing and quota classification handle fixtures correctly | behavioral tests; `readFileSync` on `v1/test/fixtures/claude` JSON fixtures only | behavioral | n/a | | |
+| shr-sl-writer | v2/src/shared/invocation/session-log.test.ts | session log writer > * | session log writer creates namespaced files with stamped lines and close semantics | behavioral tests; `readFileSync` only on temp sessions dir paths | behavioral | n/a | | |
+| shr-rigb-body-baselines | v2/src/shared/prompts/review-implement-growth-budget.test.ts | implement review role growth budget > implement review role body growth stays within budget | implement review role prompt bodies stay under committed length ceilings | `IMPLEMENT_REVIEW_ROLE_BASELINES` and exported `*_BASELINE_BODY_LENGTH` literals vs `registry.getById(id).body.length` | incidental | re-key | | |
+| shr-rigb-role-placeholders | v2/src/shared/prompts/review-implement-growth-budget.test.ts | implement review role growth budget > implement review role placeholders unchanged | implement review role prompt frontmatter placeholders stay stable | `IMPLEMENT_REVIEW_ROLE_PLACEHOLDERS` literal map vs `readFileSync(artifact.sourcePath)` placeholders field parse | incidental | re-key | | |
+| shr-rpgb-body-baselines | v2/src/shared/prompts/review-plan-growth-budget.test.ts | plan review role growth budget > plan review role body growth stays within budget | plan review role prompt bodies stay under committed length ceilings | `PLAN_REVIEW_ROLE_BASELINES` and exported `*_BASELINE_BODY_LENGTH` literals vs `registry.getById(id).body.length` | incidental | re-key | | |
+| shr-rpgb-role-placeholders | v2/src/shared/prompts/review-plan-growth-budget.test.ts | plan review role growth budget > plan review role placeholders unchanged | plan review role prompt frontmatter placeholders stay stable | `PLAN_REVIEW_ROLE_PLACEHOLDERS` literal map vs `readFileSync(artifact.sourcePath)` placeholders field parse | incidental | re-key | | |
+| shr-sp-runner | v2/src/shared/subprocess.test.ts | realSubprocessRunner / realAsyncSubprocessRunner / predicate parity > * | subprocess runners, abort/group semantics, and git predicate parity behave correctly | behavioral integration; `readFileSync` only on temp `.scratch` pid files in group-mode fixtures | behavioral | n/a | | |
+| shr-wtl-lock | v2/src/shared/worktree-lock.test.ts | acquireLock / releaseLock / isProcessAlive > * | worktree lock acquire, busy/recovery paths, release, and pid liveness behave correctly | behavioral tests; `readFileSync` only on temp lock paths | behavioral | n/a | | |
 
 ## v2 daemon inventory
 
@@ -343,7 +343,7 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | ex-wlsl-fixture-golden | v2/src/execution/write-loop-staged-markdown-lint.test.ts | plan/intent write step staged Markdown lint cases | staged markdown lint uses committed golden/violation fixture bodies | committed `REVIEW_MD_LINT_FIXTURE_IDS` registry with `readReviewMdLintFixture` (throws `StructuralTestLocatorError` on missing) for plan/intent reprompt and finalize golden bodies | behavioral | n/a | | |
 | ex-wlsl-integration | v2/src/execution/write-loop-staged-markdown-lint.test.ts | write-loop staged markdown lint integration (non-fixture assertions) | write-loop reprompts and finalizes lint-clean staged plan/intent trees | behavioral `executeWriteLoop` integration with harness markdownlint binary probe | behavioral | n/a | | |
 | ex-wl-write-loop | v2/src/execution/write-loop.test.ts | executeWriteLoop integration suite | write-loop iteration, ready gate, publication, mutation repair, and completion paths | behavioral integration; `readFileSync` only on worktree outputs and fixture paths | behavioral | n/a | | |
-| ex-wr-spec-guidance-prose | v2/src/execution/write.test.ts | plan preset draft step isolates bundled human-only marker guidance | plan draft prompt embeds v2 spec-guidance agent-core prose without step-rule leakage | `extractSpecGuidance(capturedPrompt)` whole-body containment of `readSpecGuidance()` output plus forbidden-token absence checks; `@mutate` on `shared/spec-guidance-path.ts` | behavioral | n/a | | |
+| ex-wr-spec-guidance-prose | v2/src/execution/write.test.ts | plan preset draft step isolates bundled human-only marker guidance | plan draft prompt embeds v2 spec-guidance agent-core prose without step-rule leakage | `extractSpecGuidance(capturedPrompt)` whole-body containment of `readSpecGuidance()` output plus forbidden-token absence checks; `@mutate` on `v2/src/shared/spec-guidance-path.ts` | behavioral | n/a | | |
 | ex-wr-execute-write | v2/src/execution/write.test.ts | executeWrite integration (non-spec-guidance cases) | write step lands plan/intent artifacts, enforces contracts, and preserves harness diagnostics | behavioral integration with worktree/stage `readFileSync` and module-boundary fixture reads | behavioral | n/a | | |
 
 ## v2 CLI and persistence inventory
@@ -378,67 +378,67 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 
 Every inventory row with disposition `re-key`, grouped by `test-path` + `case-scope`. Counts are re-key rows per group.
 
-### shared/module-boundary-surfaces.test.ts
+### v2/src/shared/module-boundary-surfaces.test.ts
 
 **case-scope:** module boundary surfaces > classifies committed phrases
 
 **re-key (1):** shr-mbs-surfaces-registry
 
-### shared/module-boundary-surfaces.test.ts
+### v2/src/shared/module-boundary-surfaces.test.ts
 
 **case-scope:** module boundary surfaces > inverting draft dependency order guard fails k4
 
 **re-key (1):** shr-mbs-k4-cli-first-filename
 
-### shared/module-boundary-surfaces.test.ts
+### v2/src/shared/module-boundary-surfaces.test.ts
 
 **case-scope:** module boundary surfaces > normalizes the * staged tree without provenance
 
 **re-key (4):** shr-mbs-split-emitted-files, shr-mbs-split-index-links, shr-mbs-split-section-bullets, shr-mbs-manifest-union
 
-### shared/prompts/no-prompt-surgery-guard.test.ts
+### v2/src/shared/prompts/no-prompt-surgery-guard.test.ts
 
 **case-scope:** prompt assembly builders omit post-render string surgery
 
 **re-key (2):** shr-npsg-assembly-paths, shr-npsg-forbidden-tokens
 
-### shared/prompts/review-implement-contract-preservation.test.ts
+### v2/src/shared/prompts/review-implement-contract-preservation.test.ts
 
 **case-scope:** implement review role contract preservation > implement review role contract substrings preserved
 
 **re-key (1):** shr-ricp-contract-markers
 
-### shared/prompts/review-implement-growth-budget.test.ts
+### v2/src/shared/prompts/review-implement-growth-budget.test.ts
 
 **case-scope:** implement review role growth budget > implement review role body growth stays within budget
 
 **re-key (1):** shr-rigb-body-baselines
 
-### shared/prompts/review-implement-growth-budget.test.ts
+### v2/src/shared/prompts/review-implement-growth-budget.test.ts
 
 **case-scope:** implement review role growth budget > implement review role placeholders unchanged
 
 **re-key (1):** shr-rigb-role-placeholders
 
-### shared/prompts/review-implement.test.ts
+### v2/src/shared/prompts/review-implement.test.ts
 
 **case-scope:** renderPatchReviewCriticPrompt branch diff > renders stat, changed paths, and merge-base unified diff for critic and debate roles
 
 **re-key (1):** shr-ri-merge-base-prose
 
-### shared/prompts/review-plan-growth-budget.test.ts
+### v2/src/shared/prompts/review-plan-growth-budget.test.ts
 
 **case-scope:** plan review role growth budget > plan review role body growth stays within budget
 
 **re-key (1):** shr-rpgb-body-baselines
 
-### shared/prompts/review-plan-growth-budget.test.ts
+### v2/src/shared/prompts/review-plan-growth-budget.test.ts
 
 **case-scope:** plan review role growth budget > plan review role placeholders unchanged
 
 **re-key (1):** shr-rpgb-role-placeholders
 
-### shared/prompts/review-prompt-divergence.test.ts
+### v2/src/shared/prompts/review-prompt-divergence.test.ts
 
 **case-scope:** patch vs implement review prompt registry-body divergence > * branch-diff prose diverges
 

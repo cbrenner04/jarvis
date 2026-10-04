@@ -1,9 +1,9 @@
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import type { WorkflowPresetBuilderResult } from "../execution/workflow-presets.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { jarvisHome } from "../paths.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   createStaleResetDaemonClient,
   type DestroyedArtifacts,

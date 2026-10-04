@@ -75,7 +75,7 @@ const paths = inventory.map((entry) => entry.currentPath);`;
   test("scans only the four inventoried consumers", () => {
     const parser = `${STATUS_COMMAND}\nconst paths = output.split("\\n");`;
     expect(violations(parser, "v2/src/commands/other.ts")).toEqual([]);
-    expect(violations(parser, "shared/git.ts")).toEqual([]);
+    expect(violations(parser, "v2/src/shared/git.ts")).toEqual([]);
   });
 
   test("recognizes reordered porcelain options", () => {

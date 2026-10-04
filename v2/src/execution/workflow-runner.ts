@@ -1,27 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
-import {
-  diffNameOnly,
-  getCurrentHeadAsync,
-  resetWorktreeMixed,
-  resolveParentCommit,
-  runGitArgv,
-} from "../../../shared/git.ts";
-import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { isRecord } from "../../../shared/is-record.ts";
-import {
-  completeLinkedSubspec,
-  type LinkedIndexRoutingResult,
-  requiredIntegrationScopeForTerminalSubspec,
-  resolveActiveLinkedSubspec,
-  resolvePinnedLinkedSubspec,
-} from "../../../shared/linked-subspec-routing.ts";
-import type { OperatorFailureRecord, OperatorFailureReferencedPath } from "../../../shared/operator-failure-record.ts";
-import { extractBlockerBody } from "../../../shared/spec-parser.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { LINK_STEP_ID_INFIX, SHRINK_STEP_ID_SUFFIX } from "../../../shared/write-sibling-step-id.ts";
 import {
   type AgentModelConfig,
   resolveExecutableRole,
@@ -39,6 +17,28 @@ import {
   type WorkflowSnapshot,
   type WorkflowSnapshotStep,
 } from "../persistence/state-store.ts";
+import type { RunFixCommandOpts } from "../shared/fix-command.ts";
+import {
+  diffNameOnly,
+  getCurrentHeadAsync,
+  resetWorktreeMixed,
+  resolveParentCommit,
+  runGitArgv,
+} from "../shared/git.ts";
+import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../shared/invocation/agents.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
+import { isRecord } from "../shared/is-record.ts";
+import {
+  completeLinkedSubspec,
+  type LinkedIndexRoutingResult,
+  requiredIntegrationScopeForTerminalSubspec,
+  resolveActiveLinkedSubspec,
+  resolvePinnedLinkedSubspec,
+} from "../shared/linked-subspec-routing.ts";
+import type { OperatorFailureRecord, OperatorFailureReferencedPath } from "../shared/operator-failure-record.ts";
+import { extractBlockerBody } from "../shared/spec-parser.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { LINK_STEP_ID_INFIX, SHRINK_STEP_ID_SUFFIX } from "../shared/write-sibling-step-id.ts";
 import {
   type CompletionCommitter,
   type CompletionStepMetadata,
@@ -120,8 +120,8 @@ import { SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 export { isPostCommitReviewRetryableFailureKind };
 
-import { errorMessage } from "../../../shared/error-message.ts";
-import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../shared/prompts/review-feedback-write.ts";
 import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {

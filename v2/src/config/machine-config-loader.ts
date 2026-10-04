@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
-import type { CodexSandboxMode } from "../../../shared/invocation/agents.ts";
+import { MACHINE_CONFIG_PATH } from "../paths.ts";
+import type { CodexSandboxMode } from "../shared/invocation/agents.ts";
 import {
   CONFINEMENT_POLICIES,
   type ConfinementPolicy,
   DEFAULT_CONFINEMENT_POLICY,
-} from "../../../shared/invocation/confinement-policy.ts";
-import { isRecord } from "../../../shared/is-record.ts";
-import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { MACHINE_CONFIG_PATH } from "../paths.ts";
+} from "../shared/invocation/confinement-policy.ts";
+import { isRecord } from "../shared/is-record.ts";
+import type { ProjectRegistryEntry } from "../shared/project-registry.ts";
 
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 const DEFAULT_ITERATION_CEILING_MS = 1_800_000;

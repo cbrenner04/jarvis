@@ -1,6 +1,3 @@
-import type { GateRefusalRecoveryCause } from "../../../shared/gate-refusal-recovery-state.ts";
-import { isConfinementRefusalMessage } from "../../../shared/invocation/confinement-policy.ts";
-import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import { harnessGateSlotWaitListMessage } from "../execution/gate-invocation-lease.ts";
 import {
@@ -25,6 +22,9 @@ import {
   truncateLogText,
 } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
+import type { GateRefusalRecoveryCause } from "../shared/gate-refusal-recovery-state.ts";
+import { isConfinementRefusalMessage } from "../shared/invocation/confinement-policy.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
 import { MAX_SLOT_REDRIVES } from "./daemon-slot-redrive.ts";
 
 /** Closed operator-facing stop reason; not raw loop or invocation taxonomy. */

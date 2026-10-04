@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
-import { bindReviewPromptProfile, implementReviewProfile } from "../../../shared/prompts/review-profile.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import type { InvocationBinding, InvocationCompletedRecord } from "../shared/invocation/execute.ts";
+import { bindReviewPromptProfile, implementReviewProfile } from "../shared/prompts/review-profile.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { unrestrictedBindingConfinement } from "../testing/bindings.ts";
 import { executeReviewDebate, type ReviewDebateInput } from "./review-debate.ts";
 

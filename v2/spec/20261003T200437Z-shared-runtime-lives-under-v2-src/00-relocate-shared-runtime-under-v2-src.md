@@ -22,23 +22,23 @@
 
 ## Tasks
 
-- [ ] `git mv` all tracked content from `shared/` to `v2/src/shared/`; delete the empty `shared/` directory and `shared/tsconfig.json`.
-- [ ] Fix internal relative imports within `v2/src/shared/**` (including cross-subdir imports and test `import.meta.url` repo-root resolution).
-- [ ] Rewrite consumer imports in `v2/src/**`, `scripts/**`, and `test/**` (not `v1/**`).
-- [ ] Update `package.json` (`typecheck`, coverage globs), `biome.json`, `shared/executable-tree.ts` → `v2/src/shared/executable-tree.ts` pathspecs and bounce fixture, and the script/guard/discovery files listed in the decision ledger.
-- [ ] Extend `v2/src/shared/executable-tree.test.ts` per acceptance criteria.
+- [x] `git mv` all tracked content from `shared/` to `v2/src/shared/`; delete the empty `shared/` directory and `shared/tsconfig.json`.
+- [x] Fix internal relative imports within `v2/src/shared/**` (including cross-subdir imports and test `import.meta.url` repo-root resolution).
+- [x] Rewrite consumer imports in `v2/src/**`, `scripts/**`, and `test/**` (not `v1/**`).
+- [x] Update `package.json` (`typecheck`, coverage globs), `biome.json`, `shared/executable-tree.ts` → `v2/src/shared/executable-tree.ts` pathspecs and bounce fixture, and the script/guard/discovery files listed in the decision ledger.
+- [x] Extend `v2/src/shared/executable-tree.test.ts` per acceptance criteria.
 
 ## Acceptance criteria
 
-- [ ] No tracked file remains under `shared/`; `git ls-files shared/` is empty.
-- [ ] `biome.json` has no override whose `includes` matches `shared/**/*.ts`.
-- [ ] `v2/src/shared/executable-tree.test.ts` — `requiresDaemonBounceForChangedPath("v2/src/shared/git.ts")` is true and `requiresDaemonBounceForChangedPath("shared/git.ts")` is false; fails against pre-move `PATH_BOUNCE_CLASSIFICATION_FIXTURE` still classifying `shared/git.ts` as bounce-required (reachable on `main` via `shared/executable-tree.test.ts` fixture table).
-- [ ] `v2/src/shared/executable-tree.test.ts` — new test proves `getExecutableTreeDigest` hashes `git ls-tree` output that includes a tracked path under `v2/src/shared/` (mocked runner or committed fixture) and that the same file path would not be covered if `EXECUTABLE_TREE_PATHSPECS` still matched pre-move `shared/executable-tree.ts` on `main` without the `v2/src` tree holding that blob; fails against pre-move pathspec on `main`.
-- [ ] `v2/src/shared/executable-tree.test.ts` — `getExecutableTreeDigest` stability and nested-cwd tests stay green (behavior unchanged aside from pathspec membership).
-- [ ] `scripts/ci-test-scope.test.ts` stays green with `v2/src/shared/` substituted for the former `shared/`-only scope case.
-- [ ] `test/test-slices.test.ts` stays green after shared test discovery roots move to `v2/src/shared`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] No tracked file remains under `shared/`; `git ls-files shared/` is empty.
+- [x] `biome.json` has no override whose `includes` matches `shared/**/*.ts`.
+- [x] `v2/src/shared/executable-tree.test.ts` — `requiresDaemonBounceForChangedPath("v2/src/shared/git.ts")` is true and `requiresDaemonBounceForChangedPath("shared/git.ts")` is false; fails against pre-move `PATH_BOUNCE_CLASSIFICATION_FIXTURE` still classifying `shared/git.ts` as bounce-required (reachable on `main` via `shared/executable-tree.test.ts` fixture table).
+- [x] `v2/src/shared/executable-tree.test.ts` — new test proves `getExecutableTreeDigest` hashes `git ls-tree` output that includes a tracked path under `v2/src/shared/` (mocked runner or committed fixture) and that the same file path would not be covered if `EXECUTABLE_TREE_PATHSPECS` still matched pre-move `shared/executable-tree.ts` on `main` without the `v2/src` tree holding that blob; fails against pre-move pathspec on `main`.
+- [x] `v2/src/shared/executable-tree.test.ts` — `getExecutableTreeDigest` stability and nested-cwd tests stay green (behavior unchanged aside from pathspec membership).
+- [x] `scripts/ci-test-scope.test.ts` stays green with `v2/src/shared/` substituted for the former `shared/`-only scope case.
+- [x] `test/test-slices.test.ts` stays green after shared test discovery roots move to `v2/src/shared`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

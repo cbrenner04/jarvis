@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { errorMessage } from "../../../shared/error-message.ts";
+import { errorMessage } from "../shared/error-message.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessOptions,
@@ -8,7 +8,7 @@ import {
   NETWORK_SUBPROCESS_TIMEOUT_MS,
   networkSubprocessOptions,
   nonInteractiveNetworkEnv,
-} from "../../../shared/subprocess.ts";
+} from "../shared/subprocess.ts";
 
 // ---------------------------------------------------------------------------
 // GitHub operations boundary. Jarvis-owned code constructs no `gh` commands outside this

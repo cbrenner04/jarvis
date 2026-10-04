@@ -2,13 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
-import {
-  AsyncSubprocessError,
-  type AsyncSubprocessOptions,
-  type AsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
+import { resolveHarnessRoot } from "../shared/markdownlint-repair.ts";
+import { AsyncSubprocessError, type AsyncSubprocessOptions, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { lintStagedMarkdown, STAGED_MARKDOWN_LINT_TIMEOUT_MS } from "./staged-markdown-lint.ts";
 
 const FIXTURES_DIR = join(import.meta.dir, "fixtures", "staged-markdown-lint");

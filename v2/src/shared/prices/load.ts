@@ -78,7 +78,7 @@ function validateRow(rowRaw: unknown, modelId: string): PriceRow {
 }
 
 export function loadPrices(path?: string): Prices {
-  const resolvedPath = path ?? join(import.meta.dir, "..", "..", "data", "prices.json");
+  const resolvedPath = path ?? join(import.meta.dir, "..", "..", "..", "..", "data", "prices.json");
   const obj = readCatalog(resolvedPath);
 
   if (obj.version !== 1) {

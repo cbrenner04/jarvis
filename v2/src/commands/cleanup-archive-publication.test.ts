@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { StateStore } from "../persistence/state-store.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { ghRefusingRealRunner as realAsyncSubprocessRunner } from "../testing/gh-refusing-runner.ts";
 import { createArchivePublicationSessions, inspectStrandedArtifacts, runCleanupCommand } from "./cleanup.ts";
 import { committedBlobIdsAtRef, createArchivePublicationSession } from "./cleanup-archive-publication.ts";

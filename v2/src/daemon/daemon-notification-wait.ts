@@ -1,4 +1,3 @@
-import { isRecord } from "../../../shared/is-record.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import {
   encodeNotificationDeliveryCursor,
@@ -6,6 +5,7 @@ import {
   type NotificationDeliveryIncident,
   type StateStore,
 } from "../persistence/state-store.ts";
+import { isRecord } from "../shared/is-record.ts";
 
 export const NOTIFICATION_WAIT_ABORTED = "notification_wait aborted";
 

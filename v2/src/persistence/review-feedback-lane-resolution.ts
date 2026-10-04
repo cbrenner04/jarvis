@@ -1,5 +1,5 @@
-import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
 import type { WorkflowPipelineStage } from "../execution/pipeline-definition.ts";
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../shared/prompts/review-feedback-write.ts";
 import { resolveInvocationEntryRunId } from "./invocation-entry-run.ts";
 import { resolvePrEvidenceAcrossInvocation } from "./pipeline-stage-settlement.ts";
 import {

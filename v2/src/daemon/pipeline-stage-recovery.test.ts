@@ -3,9 +3,6 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
-import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
@@ -22,11 +19,13 @@ import type {
 } from "../execution/workflow-runner.ts";
 import type { PlanStageRecoveryRequest } from "../execution/workflow-runner-resume.ts";
 import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
+import { planReviewPromptProfile } from "../shared/prompts/review-plan.ts";
+import { locateSymbolSlice } from "../shared/structural-test-locator.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 
 ensureWorkflowRunnerResumeDepsWired();
 
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type {
   Pipeline,
@@ -36,6 +35,7 @@ import type {
   StateStore,
   WorkflowSnapshotStep,
 } from "../persistence/state-store.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { createMinimalDispatchWriteStep, DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";

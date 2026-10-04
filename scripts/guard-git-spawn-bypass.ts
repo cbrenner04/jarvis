@@ -4,6 +4,8 @@ import { collectSourceFiles, isProductionSourceFile, type SourceFile } from "./p
 /** Forbid inline `runAsync("git"|"gh", …)` in v2 production code except `github-operations.ts` `gh`; escape with `// guard-git-spawn-bypass: <reason>` on the spawn line or above. */
 export const ALLOW_MARKER = "guard-git-spawn-bypass:";
 export const GH_OWNER_FILE = "v2/src/execution/github-operations.ts";
+/** The Git boundary itself (moved under v2/src): the one place that may spawn `git`. */
+export const GIT_OWNER_DIR = "v2/src/shared/";
 
 export type GitSpawnBypassViolation = { file: string; line: number; command: "git" | "gh" };
 
@@ -23,7 +25,7 @@ function isAllowedGhOwner(file: string, command: string): boolean {
 
 export function findGitSpawnBypassViolations(files: readonly SourceFile[]): GitSpawnBypassViolation[] {
   return files.flatMap(({ file, source }) => {
-    if (!isProductionSourceFile(file) || !file.startsWith("v2/src/")) return [];
+    if (!isProductionSourceFile(file) || !file.startsWith("v2/src/") || file.startsWith(GIT_OWNER_DIR)) return [];
     const lines = source.split("\n");
     const violations: GitSpawnBypassViolation[] = [];
     for (const match of source.matchAll(RUN_ASYNC_COMMAND)) {

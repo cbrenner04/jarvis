@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../../../shared/prompts/review-feedback-write.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import { REVIEW_FEEDBACK_WRITE_PROMPT_ID } from "../shared/prompts/review-feedback-write.ts";
 import {
   type ReviewFeedbackLaneResolutionStore,
   resolveReviewFeedbackEntrySpecPath,

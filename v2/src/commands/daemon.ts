@@ -1,13 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
-import { isProcessAlive } from "../../../shared/worktree-lock.ts";
 import { DAEMON_LOG_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatLifecycleError } from "../cli/ipc.ts";
 import { DAEMON_LOG_USAGE, DAEMON_USAGE } from "../cli/usage.ts";
 import { probeSocketLiveness, type SocketLiveness } from "../ipc/server.ts";
+import { isProcessAlive } from "../shared/worktree-lock.ts";
 
 const DAEMON_DIGEST_ARTIFACT_FILE = /^daemon-([0-9a-f]{16})\.(sock|pid|log)$/;
 

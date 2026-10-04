@@ -4,7 +4,7 @@ import { collectSourceFiles, isTestCodePath, type SourceFile } from "./productio
 export type TempDirViolation = { file: string; line: number };
 
 /** The one module allowed to call `mkdtemp`/`mkdtempSync` directly: it registers every dir for removal. */
-export const TRACKED_TEMP_DIR_MODULE = "shared/tracked-temp-dir.test-support.ts";
+export const TRACKED_TEMP_DIR_MODULE = "v2/src/shared/tracked-temp-dir.test-support.ts";
 
 /** Test code: test files, `*.test-support.ts`, the v2 test harness, and the bun test preload. */
 export function isTestTempDirScope(file: string): boolean {
@@ -34,7 +34,7 @@ export function findUntrackedTempDirs(files: readonly SourceFile[]): TempDirViol
 
 if (import.meta.main) {
   const cwd = process.cwd();
-  const files = ["v2", "shared", "test", "scripts"].flatMap((root) => collectSourceFiles(join(cwd, root), cwd));
+  const files = ["v2", "test", "scripts"].flatMap((root) => collectSourceFiles(join(cwd, root), cwd));
   const violations = findUntrackedTempDirs(files);
   for (const { file, line } of violations) {
     console.error(`${file}:${line}: test temp dir without registered cleanup; use ${TRACKED_TEMP_DIR_MODULE}`);

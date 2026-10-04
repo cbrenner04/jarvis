@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { locateDiscoveredFile, locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
+import { locateDiscoveredFile, locateSymbolSlice } from "../shared/structural-test-locator.ts";
 import { symbolResolvedMoveGuard } from "./structural-invariant-move-regression.test.ts";
 import {
   BASE_WORKFLOW_NAMES,

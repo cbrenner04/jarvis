@@ -27,9 +27,13 @@ describe("real-lint-in-unit-tests guard", () => {
   });
 
   test.each([
-    ["runMarkdownlintAutofix", "../../../shared/markdownlint-repair.ts", "runMarkdownlintAutofix({ files, warn });"],
-    ["validateIntentStage", "../../../shared/intent-stage.ts", "await validateIntentStage(dir, paths, warn);"],
-    ["repairIntentStageContent", "../../../shared/intent-stage.ts", "await repairIntentStageContent(dir, warn, null);"],
+    ["runMarkdownlintAutofix", "../v2/src/shared/markdownlint-repair.ts", "runMarkdownlintAutofix({ files, warn });"],
+    ["validateIntentStage", "../v2/src/shared/intent-stage.ts", "await validateIntentStage(dir, paths, warn);"],
+    [
+      "repairIntentStageContent",
+      "../v2/src/shared/intent-stage.ts",
+      "await repairIntentStageContent(dir, warn, null);",
+    ],
     ["landIntentWorkflowOutput", "./intent-output.ts", "await landIntentWorkflowOutput({ worktreePath, baseRef });"],
     ["recoverPlanStage", "./workflow-runner-resume.ts", "await recoverPlanStage({ runId, worktreePath });"],
   ])("rejects %s called without an injected runner", (functionName, modulePath, callExpression) => {
@@ -85,7 +89,7 @@ describe("real-lint-in-unit-tests guard", () => {
       "await lintStagedMarkdown(stagingRoot, { worktreePath });",
     ].join("\n");
     expect(violations(source, "v2/src/execution/staged-markdown-lint.test.ts")).toEqual([]);
-    expect(violations(source, "shared/intent-stage.test.ts")).toEqual([]);
+    expect(violations(source, "v2/src/shared/intent-stage.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/daemon/daemon-start-list.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/execution/write-loop.test.ts")).toEqual([]);
     expect(violations(source, "v2/src/execution/write-loop-idle-watchdog.test.ts")).toEqual([]);
@@ -131,12 +135,12 @@ describe("real-lint-in-unit-tests guard", () => {
     ["recoverPlanStage", "./workflow-runner-resume.ts", "await recoverPlanStage({ ...request, runnerLike: runner });"],
     [
       "validateIntentStage",
-      "../../../shared/intent-stage.ts",
+      "../v2/src/shared/intent-stage.ts",
       "await validateIntentStage(dir, paths, warn, null, undefined);",
     ],
     [
       "repairIntentStageContent",
-      "../../../shared/intent-stage.ts",
+      "../v2/src/shared/intent-stage.ts",
       "await repairIntentStageContent(dir, warn, runner);",
     ],
   ])("flags %s (%s) with a wrong or undefined injection: %s", (functionName, modulePath, call) => {
@@ -154,12 +158,12 @@ describe("real-lint-in-unit-tests guard", () => {
     ],
     [
       "validateIntentStage",
-      "../../../shared/intent-stage.ts",
+      "../v2/src/shared/intent-stage.ts",
       "await validateIntentStage(dir, paths, () => {}, undefined, runner);",
     ],
     [
       "repairIntentStageContent",
-      "../../../shared/intent-stage.ts",
+      "../v2/src/shared/intent-stage.ts",
       "await repairIntentStageContent(dir, warn, undefined, runner);",
     ],
   ])("accepts %s (%s) with the correct injection: %s", (functionName, modulePath, call) => {

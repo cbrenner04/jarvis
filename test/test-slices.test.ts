@@ -38,13 +38,15 @@ describe("Test slice boundaries", () => {
     };
 
     const filesByOwner = {
-      v2: getTestFiles("v2").map((file) => ({
+      v2: getTestFiles("v2")
+        .filter((file) => !file.logical.startsWith("src/shared/"))
+        .map((file) => ({
+          ...file,
+          logical: `v2/${file.logical}`,
+        })),
+      shared: getTestFiles("v2/src/shared").map((file) => ({
         ...file,
-        logical: `v2/${file.logical}`,
-      })),
-      shared: getTestFiles("shared").map((file) => ({
-        ...file,
-        logical: `shared/${file.logical}`,
+        logical: `v2/src/shared/${file.logical}`,
       })),
     };
 
@@ -67,7 +69,7 @@ describe("Test slice boundaries", () => {
     expect(pkgJson.scripts.test).toBe("bun run scripts/run-tests.ts");
     expect(pkgJson.scripts["test:shared"]).toBe("bun run scripts/run-shared-tests.ts agent");
     expect(pkgJson.scripts["test:integration:shared"]).toBe("bun run scripts/run-shared-tests.ts integration");
-    expect(pkgJson.scripts.coverage).toBe("bun test --coverage ./v2/ ./shared/ ./test/");
+    expect(pkgJson.scripts.coverage).toBe("bun test --coverage ./v2/ ./test/");
   });
 
   it("frozen v1 tree is outside every test slice", () => {
@@ -180,7 +182,7 @@ describe("Test slice boundaries", () => {
   });
 
   it("shared integration slice includes preload real-process test", () => {
-    expect(sharedTests("integration")).toEqual(["shared/preload.sandbox-unrunnable.test.ts"]);
+    expect(sharedTests("integration")).toEqual(["v2/src/shared/preload.sandbox-unrunnable.test.ts"]);
     expect(sharedTests("agent").some((file) => file.endsWith("git.test.ts"))).toBeTrue();
   });
 
@@ -200,7 +202,7 @@ describe("Test slice boundaries", () => {
     };
 
     execSync("bun test ./v2/src/testing/preload.sandbox-unrunnable.test.ts", { env, stdio: "pipe" });
-    execSync("bun test ./shared/preload.sandbox-unrunnable.test.ts", { env, stdio: "pipe" });
+    execSync("bun test ./v2/src/shared/preload.sandbox-unrunnable.test.ts", { env, stdio: "pipe" });
   }, 20_000);
 
   it("ready script uses aggregate test command", async () => {

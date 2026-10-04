@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { composeRunOperatorError, type TerminalLogRecord } from "../daemon/run-operator-error.ts";
 import {
   INVALID_TOKEN_LOG_MAX_CHARS,
@@ -11,6 +10,7 @@ import {
   truncateLogText,
 } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import { createUncommittedGitFixtureTemplate } from "../testing/git-fixture-template.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";

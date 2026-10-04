@@ -13,12 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
-import * as sharedGit from "../../../shared/git.ts";
-import * as realInvocationExecute from "../../../shared/invocation/execute.ts";
-import { trackedMkdtempSync } from "../../../shared/tracked-temp-dir.test-support.ts";
 import type { LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type StateStore } from "../persistence/state-store.ts";
+import * as sharedGit from "../shared/git.ts";
+import * as realInvocationExecute from "../shared/invocation/execute.ts";
+import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
@@ -54,7 +54,7 @@ function executeWriteLoop(input: WriteLoopInput): ReturnType<typeof invokeWriteL
 function restoreCoverageModuleMocks(): void {
   mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
   mock.module("./uncovered-changed-lines.ts", () => realUncoveredChangedLines);
-  mock.module("../../../shared/invocation/execute.ts", () => realInvocationExecute);
+  mock.module("../shared/invocation/execute.ts", () => realInvocationExecute);
 }
 
 describe.serial("write loop", () => {
@@ -104,7 +104,7 @@ describe.serial("write loop", () => {
         },
       }));
 
-      mock.module("../../../shared/invocation/execute.ts", () => ({
+      mock.module("../shared/invocation/execute.ts", () => ({
         executeWithQuotaFallback: async (input: {
           prompt?: string;
           cwd?: string;
@@ -186,7 +186,7 @@ describe.serial("write loop", () => {
           return { uncoveredSites: [], reportText: "", skipReason: "timeout" };
         },
       }));
-      mock.module("../../../shared/invocation/execute.ts", () => ({
+      mock.module("../shared/invocation/execute.ts", () => ({
         executeWithQuotaFallback: async (input: { prompt?: string }) => {
           advisoryResponses.push(input.prompt ?? "");
           return { attempts: [], final: null, telemetryFailures: [] };
@@ -256,7 +256,7 @@ describe.serial("write loop", () => {
         }),
       }));
 
-      mock.module("../../../shared/invocation/execute.ts", () => ({
+      mock.module("../shared/invocation/execute.ts", () => ({
         executeWithQuotaFallback: async () => ({
           attempts: [],
           final: { result: { kind: "ok", stdout: "Noted.\n" }, binding: { id: "b1", metadata: {} } },
@@ -401,8 +401,8 @@ describe.serial("write loop", () => {
     });
 
     test("coverage-advisory prompt carries report text and states deliver-only", async () => {
-      const { loadPromptRegistry } = await import("../../../shared/prompts/registry.ts");
-      const { renderArtifactTemplate } = await import("../../../shared/prompts/render.ts");
+      const { loadPromptRegistry } = await import("../shared/prompts/registry.ts");
+      const { renderArtifactTemplate } = await import("../shared/prompts/render.ts");
 
       const registry = loadPromptRegistry();
       const artifact = registry.getById("write.coverage-advisory");

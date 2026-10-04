@@ -9,9 +9,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { diffNameOnlyVsWorktree, getGitStatusInventory, gitWorkTreeDir, isGitRepoAsync } from "../../../shared/git.ts";
-import { validateIntentStage } from "../../../shared/intent-stage.ts";
-import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { diffNameOnlyVsWorktree, getGitStatusInventory, gitWorkTreeDir, isGitRepoAsync } from "../shared/git.ts";
+import { validateIntentStage } from "../shared/intent-stage.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { isMaterializedNodeModulesPath } from "./external-worktree.ts";
 import { listRelativeFiles } from "./fs-walk.ts";
 

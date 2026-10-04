@@ -19,10 +19,10 @@ Operator and agent guidance still describe `shared/` as a separate package, docu
 
 ## Acceptance criteria
 
-- [ ] `AGENTS.md` does not list a top-level `shared/` package or the `shared/**`-must-not-import-`v2/**` boundary; it names `v2/src/shared/` as the shared runtime location.
-- [ ] `grep -r 'shared/' v2/docs --include='*.md'` has no remaining module-path citations that omit the `v2/src/shared/` prefix where they refer to relocated sources (fixture-only or historical prose excepted when clearly about retired layout).
-- [ ] `v2/docs/v1-behaviors.md` documents that shared runtime modules moved from `shared/` to `v2/src/shared/` and that the executable-tree digest no longer lists a top-level `shared` pathspec.
-- [ ] `bun run typecheck` passes (docs-only subspec; no additional test gate).
+- [x] `AGENTS.md` does not list a top-level `shared/` package or the `shared/**`-must-not-import-`v2/**` boundary; it names `v2/src/shared/` as the shared runtime location.
+- [x] `grep -r 'shared/' v2/docs --include='*.md'` has no remaining module-path citations that omit the `v2/src/shared/` prefix where they refer to relocated sources (fixture-only or historical prose excepted when clearly about retired layout).
+- [x] `v2/docs/v1-behaviors.md` documents that shared runtime modules moved from `shared/` to `v2/src/shared/` and that the executable-tree digest no longer lists a top-level `shared` pathspec.
+- [x] `bun run typecheck` passes (docs-only subspec; no additional test gate).
 
 ## Documentation updates
 

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
-import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { PromptRenderingError } from "../../../shared/prompts/render.ts";
-import { buildReviewFeedbackWritePrompt } from "../../../shared/prompts/review-feedback-write.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
-import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
+import { renderPromptForStep } from "../shared/prompts/assemble.ts";
+import { loadPromptRegistry } from "../shared/prompts/registry.ts";
+import { PromptRenderingError } from "../shared/prompts/render.ts";
+import { buildReviewFeedbackWritePrompt } from "../shared/prompts/review-feedback-write.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../shared/prompts/step-rules.ts";
+import { readSpecGuidance } from "../shared/spec-guidance-path.ts";
 import { mutationCoverageFixDetail } from "./diff-derived-mutation-verifier.ts";
 import { SHRINK_FORBID_GUARD_TEST_DELETION_RULE, SHRINK_WRITE_STEP_RULES } from "./write-loop-input.ts";
 

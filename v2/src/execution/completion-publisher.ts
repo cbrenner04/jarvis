@@ -1,12 +1,12 @@
-import { errorMessage } from "../../../shared/error-message.ts";
-import { branchExistsOnOriginAsync, getBaseBranch } from "../../../shared/git.ts";
+import type { StateStore } from "../persistence/state-store.ts";
+import { errorMessage } from "../shared/error-message.ts";
+import { branchExistsOnOriginAsync, getBaseBranch } from "../shared/git.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
-import type { StateStore } from "../persistence/state-store.ts";
+} from "../shared/subprocess.ts";
 import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import {
   createPr,

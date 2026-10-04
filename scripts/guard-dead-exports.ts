@@ -10,7 +10,9 @@ import { isProductionSourceFile, type SourceFile } from "./production-files.ts";
  */
 export const DEAD_EXPORT_ALLOWLIST = new Map<string, string>([["v2/src/cli.ts#main", "bin/jarvis entry point"]]);
 
-const REFERENCE_ROOTS = ["v2", "shared", "scripts", "test"] as const;
+const REFERENCE_ROOTS = ["v2", "scripts", "test"] as const;
+/** Shared runtime modules are reference-scan inputs but not dead-export scope (same as pre-move top-level `shared/`). */
+const DEAD_EXPORT_SCOPE_EXCLUDE_PREFIX = "v2/src/shared/";
 const NAMESPACE = "*";
 
 export type DeadExport = { file: string; line: number; symbol: string };
@@ -139,7 +141,12 @@ export function findDeadExports(
   }
   const dead: DeadExport[] = [];
   for (const [file, surface] of surfaces) {
-    if (!isProductionSourceFile(file) || !file.startsWith("v2/src/")) continue;
+    if (
+      !isProductionSourceFile(file) ||
+      !file.startsWith("v2/src/") ||
+      file.startsWith(DEAD_EXPORT_SCOPE_EXCLUDE_PREFIX)
+    )
+      continue;
     const names = referenced.get(file);
     for (const [symbol, line] of surface.exports) {
       if (names?.has(symbol) || names?.has(NAMESPACE)) continue;
@@ -160,7 +167,7 @@ function collectFiles(root: string, cwd: string): SourceFile[] {
   });
 }
 
-/** Every TypeScript file the reference scan reads: v2, shared, scripts, and root test trees. */
+/** Every TypeScript file the reference scan reads: v2 (including shared runtime), scripts, and root test trees. */
 export function collectReferenceSourceFiles(cwd: string): SourceFile[] {
   return REFERENCE_ROOTS.flatMap((root) => collectFiles(join(cwd, root), cwd));
 }

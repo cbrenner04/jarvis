@@ -13,7 +13,33 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
-import { errorMessage } from "../../../shared/error-message.ts";
+import type { CliDeps } from "../cli/deps.ts";
+import { request } from "../cli/ipc.ts";
+import {
+  readMachineConfigDocument,
+  readProjectConfigRecord,
+  readRetentionSessions,
+} from "../config/machine-config-loader.ts";
+import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
+import { publishArchiveReady } from "../execution/completion-publisher.ts";
+import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
+import {
+  closePr,
+  GitHubOperationError,
+  listPrs,
+  viewPrReviewActivity,
+  viewPrState,
+} from "../execution/github-operations.ts";
+import {
+  planSourcePublishesExternally,
+  resolveExternalPlanSpecIdentity,
+} from "../execution/implement-workflow-steps.ts";
+import { parseTerminalSupersedeSettlementSuccessorPrNumber } from "../execution/terminal-supersede-settlement.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import { RpcError } from "../ipc/rpc-errors.ts";
+import { jarvisHome, managedWorktreePath, specsHome, worktreesRoot as worktreesRootPath } from "../paths.ts";
+import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
+import { errorMessage } from "../shared/error-message.ts";
 import {
   abortableWorktreeMergeNoEdit,
   abortableWorktreeRebase,
@@ -48,45 +74,19 @@ import {
   remoteUrl,
   removeWorktree,
   resolveRef,
-} from "../../../shared/git.ts";
-import { isRecord } from "../../../shared/is-record.ts";
-import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
-import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
-import { type AcceptanceCriterion, parseSpec } from "../../../shared/spec-parser.ts";
+} from "../shared/git.ts";
+import { isRecord } from "../shared/is-record.ts";
+import { resolvePlanTargetDir } from "../shared/plan-target-dir.ts";
+import type { ProjectRegistryEntry } from "../shared/project-registry.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
+import { type AcceptanceCriterion, parseSpec } from "../shared/spec-parser.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   networkSubprocessOptions,
   realAsyncSubprocessRunner,
-} from "../../../shared/subprocess.ts";
-import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
-import type { CliDeps } from "../cli/deps.ts";
-import { request } from "../cli/ipc.ts";
-import {
-  readMachineConfigDocument,
-  readProjectConfigRecord,
-  readRetentionSessions,
-} from "../config/machine-config-loader.ts";
-import { type DaemonListResult, parseListRuns } from "../daemon/daemon-wire.ts";
-import { publishArchiveReady } from "../execution/completion-publisher.ts";
-import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
-import {
-  closePr,
-  GitHubOperationError,
-  listPrs,
-  viewPrReviewActivity,
-  viewPrState,
-} from "../execution/github-operations.ts";
-import {
-  planSourcePublishesExternally,
-  resolveExternalPlanSpecIdentity,
-} from "../execution/implement-workflow-steps.ts";
-import { parseTerminalSupersedeSettlementSuccessorPrNumber } from "../execution/terminal-supersede-settlement.ts";
-import type { IpcClient } from "../ipc/client.ts";
-import { RpcError } from "../ipc/rpc-errors.ts";
-import { jarvisHome, managedWorktreePath, specsHome, worktreesRoot as worktreesRootPath } from "../paths.ts";
-import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
+} from "../shared/subprocess.ts";
+import { isProcessAlive, type WorktreeLock } from "../shared/worktree-lock.ts";
 import {
   type ArchivePublicationResult,
   type ArchivePublicationSession,

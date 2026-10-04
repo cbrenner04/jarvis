@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { locateDiscoveredFile } from "../../../shared/structural-test-locator.ts";
+import { locateDiscoveredFile } from "../shared/structural-test-locator.ts";
 import { listProductionExecutionSources } from "./execution-terminal-settlement-guard.ts";
 import { EXTRACTED_FROM_WORKFLOW_RUNNER } from "./workflow-runner-resume.ts";
 

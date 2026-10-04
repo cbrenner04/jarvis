@@ -1,7 +1,4 @@
 import { existsSync } from "node:fs";
-import { resolveRef } from "../../../shared/git.ts";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
   resolveExecutableRole,
@@ -34,6 +31,9 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import { resolveRef } from "../shared/git.ts";
+import type { InvocationBinding } from "../shared/invocation/execute.ts";
+import { realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import {
   type ActiveRun,
   checkWorktreeClaimed,

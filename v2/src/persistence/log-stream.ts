@@ -1,6 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { sleep } from "../../../shared/sleep.ts";
 import type { LanePrOutcome } from "../execution/completion-publisher.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import type {
@@ -9,6 +8,7 @@ import type {
   SurvivingMutationKillingSetResult,
 } from "../execution/ready-finalize.ts";
 import type { GateInvocationRefusalCause, WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import { sleep } from "../shared/sleep.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
 type IterationStartedEvent = {

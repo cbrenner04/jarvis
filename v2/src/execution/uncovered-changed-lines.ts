@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { resolveProductionKillingTests } from "./diff-derived-mutation-verifier.ts";
 import {
   type ChangedLine,
@@ -73,7 +73,7 @@ export async function runCoverageTests(
   runner?: AsyncSubprocessRunner,
 ): Promise<CoverageRunResult> {
   if (scope.length === 0) return true;
-  const subprocess = runner ?? (await import("../../../shared/subprocess.ts")).realAsyncSubprocessRunner;
+  const subprocess = runner ?? (await import("../shared/subprocess.ts")).realAsyncSubprocessRunner;
   const tracked = trackProcessGroup(options.processGroups);
   try {
     const args = ["test", "--coverage", "--coverage-reporter=lcov", ...scope];

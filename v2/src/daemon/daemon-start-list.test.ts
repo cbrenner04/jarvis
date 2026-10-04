@@ -3,9 +3,9 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
-import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import type { OperatorFailureRecord } from "../shared/operator-failure-record.ts";
+import { StructuralTestLocatorError } from "../shared/structural-test-locator.ts";
 import {
   createHeldWorkflowBindings,
   flushBackgroundRuns,

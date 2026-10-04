@@ -1,6 +1,6 @@
 # Shared invocation contract
 
-`shared/invocation/execute.ts` owns the behavior-agnostic, abortable agent-invocation fallback seam used by v2 write-step execution.
+`v2/src/shared/invocation/execute.ts` owns the behavior-agnostic, abortable agent-invocation fallback seam used by v2 write-step execution.
 
 Contract:
 
@@ -25,7 +25,7 @@ Contract:
   keeps explicit null usage and `usage_source` / `cost_source` of `"unavailable"`
   (never assumed free). Field catalog: [`telemetry-capture.md`](./telemetry-capture.md).
   Callers that omit telemetry context plus sink stay telemetry no-op.
-- When the caller also passes a `sessionLog` (opened via `shared/invocation/session-log.ts`'s `openSessionLog`), every binding attempt in the fallback chain writes `harness` (binding id, agent, model) and `outbound` (prompt) lines before `binding.invoke` runs, then `inbound_stdout`/`inbound_stderr` after it settles: an `ok` result writes stdout under `inbound_stdout` and stderr under `inbound_stderr`; a `quota`/`model_config`/`error` result writes its `stderr` under `inbound_stderr`, plus, when it carries a retained observability `diagnostics` stream (opencode, whose classified `stderr` is scoped away — see below), that stream under `inbound_stdout`; a `stall` result carries buffered stderr followed by buffered stdout in its `stderr` diagnostics and writes that combined payload only under `inbound_stderr`, never `inbound_stdout`. An empty stalled inbound payload therefore means neither stream produced output. A throwing `sessionLog.append` is swallowed and never fails the invocation. Callers that omit `sessionLog` stay unaffected.
+- When the caller also passes a `sessionLog` (opened via `v2/src/shared/invocation/session-log.ts`'s `openSessionLog`), every binding attempt in the fallback chain writes `harness` (binding id, agent, model) and `outbound` (prompt) lines before `binding.invoke` runs, then `inbound_stdout`/`inbound_stderr` after it settles: an `ok` result writes stdout under `inbound_stdout` and stderr under `inbound_stderr`; a `quota`/`model_config`/`error` result writes its `stderr` under `inbound_stderr`, plus, when it carries a retained observability `diagnostics` stream (opencode, whose classified `stderr` is scoped away — see below), that stream under `inbound_stdout`; a `stall` result carries buffered stderr followed by buffered stdout in its `stderr` diagnostics and writes that combined payload only under `inbound_stderr`, never `inbound_stdout`. An empty stalled inbound payload therefore means neither stream produced output. A throwing `sessionLog.append` is swallowed and never fails the invocation. Callers that omit `sessionLog` stay unaffected.
 - Optional `onAgentShellCommand` on each `binding.invoke` call (and forwarded by `executeWithQuotaFallback`) fires synchronously when a claude or cursor binding's live `stream-json` stdout announces a shell-tool invocation, at or just before the agent CLI executes it. The callback receives the extracted shell command string. A matching shell-tool completion frame invokes optional `onAgentShellCommandComplete`. Codex bindings emit no live structured stream today (only post-hoc session rollout reads), so they never fire either callback. `singleSpawn` incrementally parses NDJSON stdout lines for per-agent shell-tool frames; claude frames include `assistant`/`tool_use` Bash blocks and `tool_result` completions, cursor frames use `tool_call` `shellToolCall` started/completed events.
 
 Fallback default is quota-only: `model_config` and other `error` kinds are terminal unless a binding's `shouldAdvance` opts in. No live v2 binding overrides `shouldAdvance` today; the review actuator's advance-past-a-timed-out-rung behavior is loop logic in `invokeReviewRole` (see [`agent-model-config.md`](./agent-model-config.md)), not a `shouldAdvance` predicate.
@@ -37,9 +37,9 @@ Bindings:
 - Shared execution consumes an already-flattened ordered binding list. For
   workflow steps, `v2/src/config/agent-model-config.ts`
   `resolveInvocationBindings(...)` flattens executable role + agent + rung
-  resolution first, then `shared/invocation/execute.ts` iterates that list.
+  resolution first, then `v2/src/shared/invocation/execute.ts` iterates that list.
 - `createResolvedAgentBinding({ agentId, adapterModel, priceKey })` in
-  `shared/invocation/agents.ts` builds one binding from one resolved rung.
+  `v2/src/shared/invocation/agents.ts` builds one binding from one resolved rung.
   Resolved `claude` bindings spawn `claude -p --permission-mode acceptEdits
   --model <adapterModel> --output-format stream-json --verbose --include-partial-messages`, pipe the prompt on stdin,
   parse the terminal `type: "result"` event from the NDJSON stream, unwrap it into display text (plus agent usage/cost when present),
@@ -115,7 +115,7 @@ Bindings:
 
 ## Session log writer
 
-`shared/invocation/session-log.ts`'s `openSessionLog(namespace, timestamp, opts?)` opens a file-backed, unbuffered writer at `<sessionsDir>/<YYYY-MM>/<namespace>-<timestamp>.log`, where `<YYYY-MM>` is the UTC year-month from the injectable clock at open time (sessions dir and clock are injectable; default sessions dir is `~/.jarvis/sessions/`, default clock is the system clock), mirroring v1's `<ISO ts> [<tag>] <line>` transcript format and tag set (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`). Multi-line text is split into one stamped line per source line. Appends are synchronous write-through, so a line is readable from another handle immediately after `append` returns. Appends after `close()` are dropped silently; `close()` is idempotent. Open, mkdir, and append failures are swallowed — the writer degrades to a no-op sink rather than blocking the invocation it observes. `v2/src/execution/write-loop.ts` is the caller: it opens a session log per iteration. See `v2/docs/daemon-host.md` for the write-loop-level contract.
+`v2/src/shared/invocation/session-log.ts`'s `openSessionLog(namespace, timestamp, opts?)` opens a file-backed, unbuffered writer at `<sessionsDir>/<YYYY-MM>/<namespace>-<timestamp>.log`, where `<YYYY-MM>` is the UTC year-month from the injectable clock at open time (sessions dir and clock are injectable; default sessions dir is `~/.jarvis/sessions/`, default clock is the system clock), mirroring v1's `<ISO ts> [<tag>] <line>` transcript format and tag set (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`). Multi-line text is split into one stamped line per source line. Appends are synchronous write-through, so a line is readable from another handle immediately after `append` returns. Appends after `close()` are dropped silently; `close()` is idempotent. Open, mkdir, and append failures are swallowed — the writer degrades to a no-op sink rather than blocking the invocation it observes. `v2/src/execution/write-loop.ts` is the caller: it opens a session log per iteration. See `v2/docs/daemon-host.md` for the write-loop-level contract.
 
 ## Terminal `failureKind` (binding-chain stop)
 

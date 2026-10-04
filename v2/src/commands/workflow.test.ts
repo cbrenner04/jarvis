@@ -1751,11 +1751,11 @@ describe("plan --base validation", () => {
           runAsync: async (command: string, args: string[]) => {
             if (command !== "git") return "";
             if (args[0] === "rev-parse") {
-              if (args.includes("--verify")) return ""; // tree-ish exists locally
-              if (args.some((a) => a.includes("@{upstream}"))) return "origin/epic-base";
-              const ref = args[args.length - 1];
+              const ref = args[args.length - 1] ?? "";
+              if (ref.endsWith("^{tree}")) return ""; // tree-ish exists locally
+              if (ref.includes("@{upstream}")) return "origin/epic-base";
               if (ref === "epic/base") return "aaaaaaaaaaaa";
-              if (ref === "origin/epic-base") return "bbbbbbbbbbbb";
+              if (ref === "origin/epic-base" || ref === "FETCH_HEAD") return "bbbbbbbbbbbb";
               return "";
             }
             if (args[0] === "merge-base") return ""; // --is-ancestor success: local is behind upstream

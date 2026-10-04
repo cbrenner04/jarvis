@@ -341,7 +341,7 @@ export async function viewPrTextField(
   );
 }
 
-export type PrAdmissionView = {
+type PrAdmissionView = {
   state?: PrState;
   headRefName?: string;
   url?: string;

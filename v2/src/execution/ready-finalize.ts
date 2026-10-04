@@ -39,13 +39,13 @@ import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stre
 import { MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
 import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 import { runHarnessFullSuiteGateWithSlot } from "./gate-invocation-lease.ts";
+import { markPrReady } from "./github-operations.ts";
 import {
   defaultPublicationDelay,
   defaultPublicationRetryNotice,
   runPublicationWithRetry,
 } from "./publication-retry.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
-import { markPrReady } from "./github-operations.ts";
 import type { SmokePass, VerificationResult } from "./runtime-smoke-verifier.ts";
 import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 

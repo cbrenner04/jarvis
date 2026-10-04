@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { parseSpec } from "../../../shared/spec-parser.ts";
 import { runGitArgv } from "../../../shared/git.ts";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import { resolveSpecIndexPath } from "./spec-creation-title.ts";
 

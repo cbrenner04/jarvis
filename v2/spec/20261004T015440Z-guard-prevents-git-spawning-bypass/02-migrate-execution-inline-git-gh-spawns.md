@@ -30,12 +30,6 @@
 - [x] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
 
-## Blocker
-
-`bun run test:v2` fails only `workflow.test.ts` > `plan --base validation > rejects a --base strictly behind its upstream`: stderr is daemon socket connect timeout (`Failed to connect to daemon on socket … after starting it (5000ms deadline exceeded)`), not `base_behind_origin`; reproduces serially (`JARVIS_TEST_CONCURRENCY=1`); `implement-workflow-steps.test.ts` `base_behind_origin` unit test passes.
-
-blocked
-
 ## Documentation updates
 
 - None (architecture doc updates in subspec 03).

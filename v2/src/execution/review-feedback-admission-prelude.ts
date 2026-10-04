@@ -1,7 +1,7 @@
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { viewPrAdmission } from "./github-operations.ts";
 import type { ReviewFeedbackLaneTarget } from "../persistence/review-feedback-lane-resolution.ts";
 import type { HarnessReadyFlipEvidenceLookup } from "./completion-publisher.ts";
+import { viewPrAdmission } from "./github-operations.ts";
 import {
   hasSubmittedPrReview,
   type PrReviewInputCaptureArtifact,

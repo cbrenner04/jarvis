@@ -1,7 +1,7 @@
 /** Shared diff plumbing for the completion verifiers (mutation + runtime smoke). */
 import { readFileSync } from "node:fs";
-import { listUntrackedPaths, runGitArgv } from "../../../shared/git.ts";
 import { isTestCodePath } from "../../../scripts/production-files.ts";
+import { listUntrackedPaths, runGitArgv } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 export async function defaultGitDiff(cwd: string, baseRef: string): Promise<string> {

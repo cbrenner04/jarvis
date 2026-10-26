@@ -3,11 +3,14 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import type { PipelineStageRecord } from "../persistence/state-store.ts";
 import { openStateStore, type PipelineContext, type StateStore } from "../persistence/state-store.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { createJarvisHome } from "../testing/write-fixtures.ts";
+import { continuePipeline } from "./pipeline-execution.ts";
+import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
 export const HAND_PUBLISHED_CHAINED_DEFINITION: PipelineDefinition = {
   name: "hand-published",
@@ -36,6 +39,24 @@ function initGitRepo(root: string): void {
   execFileSync("git", ["init", "-q"], { cwd: root });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+}
+
+export function handFinishedImplementStage(fixture: HandFinishedFixture): PipelineStageRecord | undefined {
+  return fixture.store.loadPipeline(fixture.pipelineId)?.stages.find((row) => row.stageId === "implement");
+}
+
+export async function continueHandFinishedImplement(
+  fixture: HandFinishedFixture,
+  runner: AsyncSubprocessRunner,
+): Promise<void> {
+  await continuePipeline(fixture.pipelineId, {
+    store: fixture.store,
+    context: fixture.context,
+    resolveStage: resolveStageWorkflowSteps,
+    subprocessRunner: runner,
+    dispatch: async () => ({ ok: false as const, code: "unexpected", message: "should not dispatch" }),
+    wait: async () => "failed",
+  });
 }
 
 export function ghPrListRunner(

@@ -664,20 +664,18 @@ async function buildChainedImplementStageInput(
   };
 }
 
-/** Lane identity for adopting a hand-published implement PR after `implement.already_complete`. */
 export async function resolveHandPublishedImplementLaneTarget(
   stage: PipelineStage & { kind: "workflow" },
   context: PipelineContext,
   priorArtifact: PipelineStageArtifact,
   loadRun: NonNullable<PipelineStageResolveDeps["loadRun"]>,
-  builders: typeof WORKFLOW_PRESET_BUILDERS = WORKFLOW_PRESET_BUILDERS,
 ): Promise<ImplementLaneAdoptionTarget | { error: string }> {
   if (stage.review !== "light" && stage.review !== "debate") {
     return { error: `pipeline-stage-resolve: stage "${stage.stageId}" is not a chained implement stage` };
   }
   const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
   if (!priorResult.ok) return { error: priorResult.error };
-  const builtInput = await buildChainedImplementStageInput(stage, priorResult.prior, context, builders);
+  const builtInput = await buildChainedImplementStageInput(stage, priorResult.prior, context, WORKFLOW_PRESET_BUILDERS);
   if ("error" in builtInput) return builtInput;
   return resolveImplementLaneAdoptionTarget(builtInput);
 }

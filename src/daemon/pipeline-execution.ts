@@ -4226,11 +4226,12 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
             },
             preflightCapture,
           );
+    const loadEntryRunWorktree = (runId: string) => {
+      const entryRun = store.loadRun(runId);
+      return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
+    };
     const resolution = await resolveStage(definition, index, context, stageArtifacts, {
-      loadRun: (runId) => {
-        const entryRun = store.loadRun(runId);
-        return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
-      },
+      loadRun: loadEntryRunWorktree,
       branchKey,
       ...(split !== null ? { splitPosition: split.splitPosition } : {}),
       ...(staleResetForResolve !== undefined ? { staleReset: staleResetForResolve } : {}),
@@ -4250,10 +4251,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
           resolutionError: resolution.error,
           runner:
             args.subprocessRunner ?? args.staleResetPreflight?.cliDeps.subprocessRunner ?? realAsyncSubprocessRunner,
-          loadRun: (runId) => {
-            const entryRun = store.loadRun(runId);
-            return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
-          },
+          loadRun: loadEntryRunWorktree,
         });
         if (adoption.kind === "succeeded") {
           return handleSucceededWorkflowStage({

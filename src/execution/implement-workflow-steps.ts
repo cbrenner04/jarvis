@@ -578,8 +578,6 @@ function validateLinkedIndexRouting(
 export const IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR =
   "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria";
 
-const ALREADY_COMPLETE_ERROR = IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR;
-
 export type ImplementLaneAdoptionTarget = {
   project: string;
   projectRoot: string;
@@ -589,7 +587,6 @@ export type ImplementLaneAdoptionTarget = {
   worktreePath: string;
 };
 
-/** Resolve lane identity for hand-published implement PR adoption without completeness preflight. */
 export async function resolveImplementLaneAdoptionTarget(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps = {},
@@ -639,7 +636,7 @@ export function validateImplementSpecTreeCompletion(
   }
   const linkedSubspecs = parseSpec(specContent).linkedSubspecs;
   if (basename(absoluteSpecPath) !== "index.md" || linkedSubspecs.length === 0) {
-    return hasUncheckedNonHumanOnlyCriteria(specContent) ? undefined : ALREADY_COMPLETE_ERROR;
+    return hasUncheckedNonHumanOnlyCriteria(specContent) ? undefined : IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR;
   }
   for (const subspec of linkedSubspecs) {
     const subspecPath = isAbsolute(subspec.path) ? subspec.path : resolve(dirname(absoluteSpecPath), subspec.path);
@@ -652,7 +649,7 @@ export function validateImplementSpecTreeCompletion(
       return `implement.link_unreadable: ${errorMessage(err)}`;
     }
   }
-  return ALREADY_COMPLETE_ERROR;
+  return IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR;
 }
 
 function stampImplementReviewBehavior(

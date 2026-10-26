@@ -6,29 +6,23 @@ import { GitHubOperationError } from "../execution/github-operations.ts";
 import { IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR } from "../execution/implement-workflow-steps.ts";
 import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
-import { continuePipeline } from "./pipeline-execution.ts";
-import { ghPrListRunner, setupHandFinishedImplement } from "./pipeline-implement-lane-pr-adoption.test-support.ts";
-import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
+import {
+  continueHandFinishedImplement,
+  ghPrListRunner,
+  handFinishedImplementStage,
+  setupHandFinishedImplement,
+} from "./pipeline-implement-lane-pr-adoption.test-support.ts";
 
 describe("hand-published implement lane PR adoption", () => {
   test("adopts one open PR and settles implement succeeded with a completed entry run", async () => {
     const fixture = setupHandFinishedImplement(true);
     try {
       execFileSync("git", ["branch", fixture.laneBranch, fixture.planBranch], { cwd: fixture.repoRoot });
-      const runner = ghPrListRunner(fixture.repoRoot, [
-        { number: 42, url: "https://example.test/pr/42", state: "OPEN" },
-      ]);
-      await continuePipeline(fixture.pipelineId, {
-        store: fixture.store,
-        context: fixture.context,
-        resolveStage: resolveStageWorkflowSteps,
-        subprocessRunner: runner,
-        dispatch: async () => ({ ok: false as const, code: "unexpected", message: "should not dispatch" }),
-        wait: async () => "failed",
-      });
-      const implement = fixture.store
-        .loadPipeline(fixture.pipelineId)
-        ?.stages.find((row) => row.stageId === "implement");
+      await continueHandFinishedImplement(
+        fixture,
+        ghPrListRunner(fixture.repoRoot, [{ number: 42, url: "https://example.test/pr/42", state: "OPEN" }]),
+      );
+      const implement = handFinishedImplementStage(fixture);
       expect(implement?.status).toBe("succeeded");
       const artifact = implement?.artifact as { entryRunId?: string; prNumber?: number; prUrl?: string };
       expect(artifact.prNumber).toBe(42);
@@ -45,22 +39,11 @@ describe("hand-published implement lane PR adoption", () => {
   test("adopts one merged PR when no open PR exists", async () => {
     const fixture = setupHandFinishedImplement(true);
     try {
-      const runner = ghPrListRunner(fixture.repoRoot, [
-        { number: 7, url: "https://example.test/pr/7", state: "MERGED" },
-      ]);
-      await continuePipeline(fixture.pipelineId, {
-        store: fixture.store,
-        context: fixture.context,
-        resolveStage: resolveStageWorkflowSteps,
-        subprocessRunner: runner,
-        dispatch: async () => ({ ok: false as const, code: "unexpected", message: "should not dispatch" }),
-        wait: async () => "failed",
-      });
-      const implement = fixture.store
-        .loadPipeline(fixture.pipelineId)
-        ?.stages.find((row) => row.stageId === "implement");
-      expect(implement?.status).toBe("succeeded");
-      expect((implement?.artifact as { prNumber?: number }).prNumber).toBe(7);
+      await continueHandFinishedImplement(
+        fixture,
+        ghPrListRunner(fixture.repoRoot, [{ number: 7, url: "https://example.test/pr/7", state: "MERGED" }]),
+      );
+      expect((handFinishedImplementStage(fixture)?.artifact as { prNumber?: number }).prNumber).toBe(7);
     } finally {
       fixture.dispose();
     }
@@ -77,18 +60,8 @@ describe("hand-published implement lane PR adoption", () => {
       execFileSync("git", ["add", "hand-finished.txt"], { cwd: laneWorktree });
       execFileSync("git", ["commit", "-qm", "hand finish"], { cwd: laneWorktree });
 
-      const runner = ghPrListRunner(fixture.repoRoot, []);
-      await continuePipeline(fixture.pipelineId, {
-        store: fixture.store,
-        context: fixture.context,
-        resolveStage: resolveStageWorkflowSteps,
-        subprocessRunner: runner,
-        dispatch: async () => ({ ok: false as const, code: "unexpected", message: "should not dispatch" }),
-        wait: async () => "failed",
-      });
-      const implement = fixture.store
-        .loadPipeline(fixture.pipelineId)
-        ?.stages.find((row) => row.stageId === "implement");
+      await continueHandFinishedImplement(fixture, ghPrListRunner(fixture.repoRoot, []));
+      const implement = handFinishedImplementStage(fixture);
       expect(implement?.status).toBe("failed");
       const observation = operatorFailureRecordFromUnknown(implement?.failureDetail)?.observation ?? "";
       expect(observation).toContain(fixture.laneBranch);
@@ -105,23 +78,15 @@ describe("hand-published implement lane PR adoption", () => {
   test("refuses ambiguous open pull requests without creating an adoption run", async () => {
     const fixture = setupHandFinishedImplement(true);
     try {
-      const runner = ghPrListRunner(fixture.repoRoot, [
-        { number: 1, url: "https://example.test/pr/1", state: "OPEN" },
-        { number: 2, url: "https://example.test/pr/2", state: "OPEN" },
-      ]);
-      await continuePipeline(fixture.pipelineId, {
-        store: fixture.store,
-        context: fixture.context,
-        resolveStage: resolveStageWorkflowSteps,
-        subprocessRunner: runner,
-        dispatch: async () => ({ ok: false as const, code: "unexpected", message: "should not dispatch" }),
-        wait: async () => "failed",
-      });
-      const implement = fixture.store
-        .loadPipeline(fixture.pipelineId)
-        ?.stages.find((row) => row.stageId === "implement");
-      expect(implement?.status).toBe("failed");
-      const observation = operatorFailureRecordFromUnknown(implement?.failureDetail)?.observation ?? "";
+      await continueHandFinishedImplement(
+        fixture,
+        ghPrListRunner(fixture.repoRoot, [
+          { number: 1, url: "https://example.test/pr/1", state: "OPEN" },
+          { number: 2, url: "https://example.test/pr/2", state: "OPEN" },
+        ]),
+      );
+      const observation =
+        operatorFailureRecordFromUnknown(handFinishedImplementStage(fixture)?.failureDetail)?.observation ?? "";
       expect(observation).toContain("#1");
       expect(observation).toContain("#2");
       expect(fixture.store.listRuns().filter((run) => run.branch === fixture.laneBranch)).toHaveLength(0);
@@ -141,20 +106,10 @@ describe("hand-published implement lane PR adoption", () => {
           return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? fixture.repoRoot);
         },
       };
-      await continuePipeline(fixture.pipelineId, {
-        store: fixture.store,
-        context: fixture.context,
-        resolveStage: resolveStageWorkflowSteps,
-        subprocessRunner: runner,
-        dispatch: async () => ({ ok: false as const, code: "unexpected", message: "should not dispatch" }),
-        wait: async () => "failed",
-      });
-      const implement = fixture.store
-        .loadPipeline(fixture.pipelineId)
-        ?.stages.find((row) => row.stageId === "implement");
-      expect(implement?.status).toBe("failed");
-      expect(operatorFailureRecordFromUnknown(implement?.failureDetail)?.retryable).toBe(true);
-      expect(operatorFailureRecordFromUnknown(implement?.failureDetail)?.observation).toContain("connect refused");
+      await continueHandFinishedImplement(fixture, runner);
+      const failure = operatorFailureRecordFromUnknown(handFinishedImplementStage(fixture)?.failureDetail);
+      expect(failure?.retryable).toBe(true);
+      expect(failure?.observation).toContain("connect refused");
       expect(fixture.store.listRuns().filter((run) => run.branch === fixture.laneBranch)).toHaveLength(0);
     } finally {
       fixture.dispose();
@@ -164,20 +119,8 @@ describe("hand-published implement lane PR adoption", () => {
   test("leaves already_complete failure when the tree is complete with no PR and no unpublished commits", async () => {
     const fixture = setupHandFinishedImplement(true);
     try {
-      const runner = ghPrListRunner(fixture.repoRoot, []);
-      await continuePipeline(fixture.pipelineId, {
-        store: fixture.store,
-        context: fixture.context,
-        resolveStage: resolveStageWorkflowSteps,
-        subprocessRunner: runner,
-        dispatch: async () => ({ ok: false as const, code: "unexpected", message: "should not dispatch" }),
-        wait: async () => "failed",
-      });
-      const implement = fixture.store
-        .loadPipeline(fixture.pipelineId)
-        ?.stages.find((row) => row.stageId === "implement");
-      expect(implement?.status).toBe("failed");
-      expect(operatorFailureRecordFromUnknown(implement?.failureDetail)?.observation).toBe(
+      await continueHandFinishedImplement(fixture, ghPrListRunner(fixture.repoRoot, []));
+      expect(operatorFailureRecordFromUnknown(handFinishedImplementStage(fixture)?.failureDetail)?.observation).toBe(
         IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR,
       );
     } finally {

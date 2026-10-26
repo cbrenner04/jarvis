@@ -15,28 +15,23 @@ type HandPublishedImplementLaneAdoptionOutcome =
 
 type AdoptablePr = { number: number; url: string };
 
+function soleAdoptablePr(candidates: readonly PrListEntry[]): AdoptablePr | null {
+  if (candidates.length !== 1) return null;
+  const pr = candidates[0];
+  if (pr === undefined || pr.url === undefined) return null;
+  return { number: pr.number, url: pr.url };
+}
+
 function selectAdoptableLanePr(
   prs: readonly PrListEntry[],
 ): AdoptablePr | { kind: "ambiguous"; numbers: number[] } | null {
   const open = prs.filter((pr) => pr.state === "OPEN");
-  if (open.length > 1) {
-    return { kind: "ambiguous", numbers: open.map((pr) => pr.number) };
-  }
-  if (open.length === 1) {
-    const pr = open[0];
-    if (pr === undefined || pr.url === undefined) return null;
-    return { number: pr.number, url: pr.url };
-  }
+  if (open.length > 1) return { kind: "ambiguous", numbers: open.map((pr) => pr.number) };
+  const fromOpen = soleAdoptablePr(open);
+  if (fromOpen !== null) return fromOpen;
   const merged = prs.filter((pr) => pr.state === "MERGED");
-  if (merged.length > 1) {
-    return { kind: "ambiguous", numbers: merged.map((pr) => pr.number) };
-  }
-  if (merged.length === 1) {
-    const pr = merged[0];
-    if (pr === undefined || pr.url === undefined) return null;
-    return { number: pr.number, url: pr.url };
-  }
-  return null;
+  if (merged.length > 1) return { kind: "ambiguous", numbers: merged.map((pr) => pr.number) };
+  return soleAdoptablePr(merged);
 }
 
 function ambiguousLanePrMessage(numbers: readonly number[]): string {
@@ -67,9 +62,7 @@ export async function tryAdoptHandPublishedImplementLane(args: {
   runner: AsyncSubprocessRunner;
   loadRun: (runId: string) => { worktreePath: string; branch: string } | null;
 }): Promise<HandPublishedImplementLaneAdoptionOutcome> {
-  if (args.stage.workflow !== "implement" || args.resolutionError !== IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR) {
-    return { kind: "unchanged" };
-  }
+  if (args.resolutionError !== IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR) return { kind: "unchanged" };
   const priorArtifact = findPrecedingWorkflowArtifact(
     args.definition.stages,
     args.stageIndex,
@@ -86,11 +79,12 @@ export async function tryAdoptHandPublishedImplementLane(args: {
   try {
     prs = await listPrs(args.runner, target.projectRoot, { branch: target.branchName, state: "all" });
   } catch (error) {
-    const message =
-      error instanceof GitHubOperationError
-        ? `pipeline implement stage: pull request lookup failed: ${error.message}`
-        : `pipeline implement stage: pull request lookup failed: ${errorMessage(error)}`;
-    return { kind: "failed", message, retryable: true };
+    const detail = error instanceof GitHubOperationError ? error.message : errorMessage(error);
+    return {
+      kind: "failed",
+      message: `pipeline implement stage: pull request lookup failed: ${detail}`,
+      retryable: true,
+    };
   }
 
   const selected = selectAdoptableLanePr(prs);

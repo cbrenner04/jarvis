@@ -1330,6 +1330,36 @@ describe("resolveStageWorkflowSteps", () => {
       });
     }));
 
+  test("implement stage reads the landed external plan tree after the plan's read-context workspace is gone", () =>
+    withIsolatedJarvisHome(async (jarvisRoot) => {
+      const { admissionRoot, projectKey, context } = gitDisabledPipelineContext();
+      initGitRepo(admissionRoot);
+      execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "init"], { cwd: admissionRoot });
+      const plansHome = join(jarvisRoot, "specs", projectSafeId(projectKey), "plans");
+      const planDir = join(plansHome, "feature");
+      const readContext = join(plansHome, "feature-read-context");
+      const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", planDir)]]);
+      const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(readContext, "plan/feature") };
+
+      mkdirSync(planDir, { recursive: true });
+      const missing = await resolveStageWorkflowSteps(planImplementDefinition, 1, context, stageArtifacts, deps);
+      expect(missing.ok).toBe(false);
+      if (!missing.ok) expect(missing.error).toContain("never landed");
+
+      writeFileSync(join(planDir, "index.md"), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+      writeFileSync(join(planDir, "00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+      expect(existsSync(readContext)).toBe(false);
+      const result = await resolveStageWorkflowSteps(planImplementDefinition, 1, context, stageArtifacts, deps);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const writeStep = singleStageResolutionSteps(result).find((step) => step.behavior === "write");
+      if (writeStep?.behavior !== "write") throw new Error("expected write step");
+      expect(writeStep.externalPlanSpec).toBe(true);
+      expect(writeStep.specPath).toBe(realpathSync(join(planDir, "index.md")));
+      expect(writeStep.specReadRoot).toBe(realpathSync(planDir));
+      expect(writeStep.worktree.projectRoot).toBe(realpathSync(admissionRoot));
+    }));
+
   test("chained implement stage returns already_complete for complete git-disabled external plan tree", () =>
     withIsolatedJarvisHome((jarvisRoot) => {
       const planBranch = "plan/feature";

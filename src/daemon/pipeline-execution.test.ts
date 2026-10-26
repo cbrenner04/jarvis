@@ -6155,6 +6155,59 @@ describe("pipeline terminal publication settlement", () => {
     expect(stages().find((s) => s.stageId === "implement")?.status).toBe("succeeded");
   });
 
+  test("forwards supersedeGh into runPipeline on continuation so preceding stage PRs supersede after terminal publish", async () => {
+    const { gh, calls } = trackingSupersedeGh();
+    const { store } = fakeStore(SUPERSEDE_PIPELINE_DEFINITION, supersedeThreeStageRuns(), {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    const stagePrArtifact = (entryRunId: string, prNumber: number, specPath: string): PipelineStageArtifact => ({
+      entryRunId,
+      specPath,
+      prNumber,
+      prUrl: `https://example.com/pr/${prNumber}`,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: {
+        status: "succeeded",
+        workflowInvocationId: "run-0",
+        artifact: stagePrArtifact("run-0", 10, "spec/intent.md"),
+      },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      patch: {
+        status: "succeeded",
+        workflowInvocationId: "run-1",
+        artifact: stagePrArtifact("run-1", 20, "spec/plan.md"),
+      },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      patch: {
+        status: "succeeded",
+        workflowInvocationId: "run-2",
+        artifact: terminalImplementArtifact("run-2"),
+      },
+    });
+
+    const outcome = await continuePipeline(PIPELINE_ID, {
+      store,
+      dispatch: supersedeThreeStageDispatch,
+      wait: async () => "completed",
+      resolveStage: resolveStageStub(),
+      executeTerminalPublication: async () => TERMINAL_PR,
+      supersedeGh: gh,
+    });
+
+    expect(outcome).toEqual({ kind: "continued", pipelineId: PIPELINE_ID });
+    expect(calls.filter((c) => c.op === "prState").map((c) => c.prNumber)).toEqual([10, 20]);
+  });
+
   test("fan-out two-lane ready runs terminal publication per lane with aggregate success", async () => {
     const definition: PipelineDefinition = {
       name: "fan-out-linear",

@@ -62,6 +62,7 @@ const CLASSIFIED_STATUS_WRITES = new Map<string, "terminal" | "nonterminal">([
   ["pipeline-execution.ts:admitFanOutBranches:skipped#1", "terminal"],
   ["pipeline-execution.ts:settleApprovalBoundaryFailure:failed#1", "terminal"],
   ["pipeline-execution.ts:skipRemainingStages:skipped#1", "terminal"],
+  ["pipeline-execution.ts:reviveSeveredChainLanes:pending#1", "nonterminal"],
   ["pipeline-execution.ts:settleSeveredChainLanes:skipped#1", "terminal"],
   ["pipeline-execution.ts:failWorkflowStageAt:failed#1", "terminal"],
   ["pipeline-execution.ts:refuseChainedLaneStage:failed#1", "terminal"],
@@ -237,6 +238,10 @@ function isNowCall(expression: ts.Expression): boolean {
   );
 }
 
+function isClearingNull(expression: ts.Expression | undefined): boolean {
+  return expression !== undefined && expression.kind === ts.SyntaxKind.NullKeyword;
+}
+
 function isNumericTimestamp(expression: ts.Expression | undefined, nowBound: ReadonlySet<string> = new Set()): boolean {
   if (expression === undefined) return false;
   if (ts.isNumericLiteral(expression) || isNowCall(expression)) return true;
@@ -317,12 +322,12 @@ test("every terminal pipeline stage-run write carries endedAt", () => {
   expect(classifiedStatusWritesMapEqualityGuard(vacuousMapMatchMissingEndedAt)).toBe(true);
 
   for (const write of writes) {
-    const terminal = write.endedAt !== undefined;
+    const stampsEndedAt = write.endedAt !== undefined && !isClearingNull(write.endedAt);
     if (TERMINAL_STAGE_RUN_STATUSES.has(write.status)) {
-      expect(terminal).toBe(true);
+      expect(stampsEndedAt).toBe(true);
       expect(write.endedAtIsTimestamp).toBe(true);
     } else {
-      expect(terminal).toBe(false);
+      expect(stampsEndedAt).toBe(false);
     }
   }
 });

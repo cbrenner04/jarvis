@@ -16,6 +16,7 @@ import {
   TerminalPublicationError,
   type TerminalPublicationInput,
 } from "../execution/terminal-publication.ts";
+import { IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR } from "../execution/implement-workflow-steps.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { createBindingFactory, DEBATE_AGENT_MODEL_CONFIG } from "../execution/workflow-runner.test-support.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
@@ -116,6 +117,7 @@ import {
 } from "./pipeline-stage-resolve.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
+import { buildStageFailureRecord } from "./pipeline-stage-failure-record.ts";
 
 function stageFailureObservation(failureDetail: unknown): string | undefined {
   return operatorFailureRecordFromUnknown(failureDetail)?.observation;
@@ -6968,7 +6970,7 @@ function withSyntheticPlanRunRecords(store: StateStore): StateStore {
     loadRun: (runId: string) => {
       const existing = store.loadRun(runId);
       if (existing) return existing;
-      const match = /^run-(alpha|beta)-(\d+)-\d+$/.exec(runId);
+      const match = /^run-(alpha|beta|gamma)-(\d+)-\d+$/.exec(runId);
       if (!match) return null;
       const [, branchKey, stageIndexRaw] = match;
       const stageName = stageIndexRaw === "1" ? "plan" : "implement";
@@ -11793,5 +11795,252 @@ describe("fan-out serial chained lanes", () => {
     expect(observation).toContain("origin/plan/beta does not exist (never pushed, or deleted on merge)");
     expect(observation).not.toContain("diverged");
     expect(rebaseStamp(stages(), "plan")).toBeUndefined();
+  });
+
+  function chainedIntentWorktree(lanes: Record<string, { prerequisites?: string[]; frontmatter?: string }>): string {
+    const root = trackedMkdtempSync(join(tmpdir(), "pipeline-lane-chain-"));
+    mkdirSync(join(root, "ready-intents"), { recursive: true });
+    for (const lane of Object.keys(lanes)) {
+      const { prerequisites = [], frontmatter = "" } = lanes[lane] ?? {};
+      const body = prerequisites.map((line) => `- ${line}`).join("\n");
+      writeFileSync(
+        join(root, "ready-intents", `${lane}.md`),
+        `---\nname: ${lane}\n${frontmatter}---\n\n# ${lane}\n\n## Prerequisites\n\n${body}\n\n## Decisions\n\n- x\n`,
+      );
+    }
+    return root;
+  }
+
+  const TRIPLE_CHAIN_DOWNSTREAM = [
+    "ready-intents/alpha.md",
+    "ready-intents/beta.md",
+    "ready-intents/gamma.md",
+  ] as const;
+
+  const TRIPLE_CHAIN_DELIVERS = {
+    beta: { prerequisites: ["alpha seam (delivered by: alpha)"] },
+    gamma: { prerequisites: ["beta seam (delivered by: beta)"] },
+  };
+
+  function severedChainFailureDetail(predecessor: string, lane: string): ReturnType<typeof buildStageFailureRecord> {
+    return buildStageFailureRecord(
+      "chained predecessor lane completes",
+      `predecessor lane "${predecessor}" failed or was rejected; lane "${lane}" chains off it`,
+      false,
+    );
+  }
+
+  test("pipeline resume on a recovered predecessor revives severed dependents and continues the chain", async () => {
+    const worktree = chainedIntentWorktree({ alpha: {}, ...TRIPLE_CHAIN_DELIVERS });
+    const runs = serialLaneRuns(["alpha", "beta", "gamma"], worktree);
+    runs["run-intent"] = {
+      specPath: "ready-intents",
+      downstreamInputs: [...TRIPLE_CHAIN_DOWNSTREAM],
+      worktreePath: worktree,
+    };
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, runs);
+    const { deps } = capturingLaneDeps(withSyntheticPlanRunRecords(store), {
+      failBranchIndex: 0,
+      failAtStageIndex: 2,
+    });
+    const { runner } = recordingGitRunner();
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext, subprocessRunner: runner });
+    const resumeDeps = capturingLaneDeps(withSyntheticPlanRunRecords(store));
+
+    expect(persistedChain(stages())).toEqual({ dependent: ["alpha", "beta", "gamma"], independent: [] });
+    for (const stageId of ["plan", "implement"]) {
+      const beta = stageRecord(stages(), stageId, "beta");
+      expect(beta?.status).toBe("skipped");
+      expect(beta?.failureDetail).toEqual(severedChainFailureDetail("alpha", "beta"));
+      const gamma = stageRecord(stages(), stageId, "gamma");
+      expect(gamma?.status).toBe("skipped");
+      expect(gamma?.failureDetail).toEqual(severedChainFailureDetail("beta", "gamma"));
+    }
+
+    resumeDeps.dispatched.length = 0;
+    const outcome = await resumePipeline(
+      PIPELINE_ID,
+      { ...resumeDeps.deps, subprocessRunner: runner },
+      { branchKey: "alpha" },
+    );
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "implement", "gamma")?.status).toBe("succeeded");
+    expect(resumeDeps.dispatched.some((entry) => entry.branchKey === "beta" && entry.stageId === "plan")).toBe(true);
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("hand-published implement adoption on the predecessor revives severed dependents", async () => {
+    const worktree = intentWorktree(ALPHA_DELIVERS_BETA);
+    const runs = serialLaneRuns(["alpha", "beta"], worktree);
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, runs);
+    const base = capturingLaneDeps(withSyntheticPlanRunRecords(store));
+    let implementPass = 0;
+    const resolveStage: typeof base.deps.resolveStage = async (
+      definition,
+      stageIndex,
+      context,
+      stageArtifacts,
+      deps,
+    ) => {
+      const stage = definition.stages[stageIndex];
+      if (
+        stage?.kind === "workflow" &&
+        stage.workflow === "implement" &&
+        deps?.branchKey === "alpha" &&
+        implementPass === 0
+      ) {
+        implementPass += 1;
+        return { ok: false, error: IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR };
+      }
+      return base.deps.resolveStage(definition, stageIndex, context, stageArtifacts, deps);
+    };
+    const deps = { ...base.deps, resolveStage };
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    for (const stageId of ["plan", "implement"]) {
+      expect(stageRecord(stages(), stageId, "beta")?.status).toBe("skipped");
+    }
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("failed");
+    expect(store.reopenFailedPipeline({ pipelineId: PIPELINE_ID, branchKey: "alpha" }).kind).toBe("applied");
+
+    const subprocessRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([
+            { number: 55, url: "https://example.test/pr/55", state: "OPEN", baseRefName: "main", isDraft: false },
+          ]);
+        }
+        if (cmd === "git" && args[0] === "rev-parse") return `${TIP}\n`;
+        return "";
+      },
+    };
+    base.dispatched.length = 0;
+    await continuePipeline(PIPELINE_ID, { ...deps, subprocessRunner }, "alpha");
+
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+    expect(base.dispatched.some((entry) => entry.branchKey === "beta")).toBe(true);
+  });
+
+  test("legacy severed rows revive once the predecessor is no longer dead", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      serialLaneRuns(["alpha", "beta"], intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const first = capturingLaneDeps(withSyntheticPlanRunRecords(store), {
+      failBranchIndex: 0,
+      failAtStageIndex: 2,
+    });
+    await runPipeline(PIPELINE_ID, { ...first.deps, context: baseContext });
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("skipped");
+    expect(stageRecord(stages(), "plan", "beta")?.failureDetail).toEqual(severedChainFailureDetail("alpha", "beta"));
+
+    const second = capturingLaneDeps(withSyntheticPlanRunRecords(store));
+    await resumePipeline(PIPELINE_ID, { ...second.deps, context: baseContext }, { branchKey: "alpha" });
+
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("severed dependents of a rejected predecessor stay skipped", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      serialLaneRuns(["alpha", "beta"], intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const { deps } = capturingLaneDeps(store);
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    expect(applyPipelineApprovalDecision(PIPELINE_ID, "gate", "rejected", deps, "alpha").kind).toBe("applied");
+
+    for (const stageId of ["gate", "plan", "implement"]) {
+      expect(stageRecord(stages(), stageId, "beta")?.status).toBe("skipped");
+    }
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    for (const stageId of ["gate", "plan", "implement"]) {
+      const row = stageRecord(stages(), stageId, "beta");
+      expect(row?.status).toBe("skipped");
+      expect(row?.skipProvenance).toBe("terminal");
+    }
+  });
+
+  test("terminal skips without severed-chain expectation are not revived", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      serialLaneRuns(["alpha", "beta"], intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    const first = capturingLaneDeps(withSyntheticPlanRunRecords(store), {
+      failBranchIndex: 0,
+      failAtStageIndex: 2,
+    });
+    await runPipeline(PIPELINE_ID, { ...first.deps, context: baseContext });
+    for (const stageId of ["plan", "implement"] as const) {
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId,
+        branchKey: "beta",
+        patch: { status: "skipped", skipProvenance: "terminal", endedAt: 1, failureDetail: null },
+      });
+    }
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: "alpha",
+      patch: {
+        status: "succeeded",
+        artifact: { entryRunId: "run-alpha-2-2", specPath: "spec/alpha/implement.md" },
+      },
+    });
+    const second = capturingLaneDeps(withSyntheticPlanRunRecords(store));
+    await runPipeline(PIPELINE_ID, { ...second.deps, context: baseContext });
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("skipped");
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("skipped");
+  });
+
+  test("terminal skips from a lane's own failure or gate rejection are not revived", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      serialLaneRuns(["alpha", "beta"], intentWorktree(ALPHA_DELIVERS_BETA)),
+    );
+    setupFanOutLinearPostIntent(store);
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: {
+        artifact: {
+          entryRunId: "run-intent",
+          specPath: "ready-intents",
+          downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+          laneChain: { dependent: ["alpha", "beta"], independent: [] },
+        },
+      },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: "alpha",
+      patch: { status: "succeeded", artifact: { entryRunId: "run-alpha-2-2" } },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: "beta",
+      patch: { status: "failed", endedAt: 1 },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: "beta",
+      patch: { status: "skipped", skipProvenance: "provisional", endedAt: 1 },
+    });
+
+    const { deps } = capturingLaneDeps(withSyntheticPlanRunRecords(store));
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext }, "alpha");
+
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("skipped");
+    expect(stageRecord(stages(), "implement", "beta")?.skipProvenance).toBe("provisional");
   });
 });

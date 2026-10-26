@@ -26,7 +26,7 @@
 - [x] A test asserts a dependent of a `rejected` predecessor stays `skipped`, and a lane skipped by its own failure or its own rejected gate is never revived.
 - [x] `pipeline-execution.test.ts` `fan-out serial chained lanes` severance tests stay green (severance on a dead predecessor unchanged).
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:agent` passes.
+- [x] `bun run test:agent` passes.
 
 ## Documentation updates
 

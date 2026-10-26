@@ -527,7 +527,9 @@ describe("pipeline start admission", () => {
       ["missing.md", "pipeline: cannot resolve seed path:"],
       ["directory-seed", "pipeline: seed is not a file: directory-seed\n"],
     ] as const) {
-      const harness = makeHarness();
+      const harness = makeHarness({
+        readProjectConfigRecord: () => ({ specs: "repo", pipeline: { name: "fast", terminalAction: "leave-draft" } }),
+      });
       const result = await admitPipelineStart({ projectKey: "demo", seedPath }, harness.deps);
       expect(result).toMatchObject({
         kind: "pre-admission-failure",
@@ -574,6 +576,48 @@ describe("pipeline start admission", () => {
       }
     } finally {
       rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("admits an absolute seed under an external project's seeds home, preserving its original value", async () => {
+    const jarvisRoot = join(fixtureRoot, "jarvis-home");
+    const seedsHome = join(jarvisRoot, "specs", "demo", "seeds");
+    mkdirSync(seedsHome, { recursive: true });
+    const seedPath = join(seedsHome, "external.md");
+    writeFileSync(seedPath, "External intent", "utf8");
+    for (const specs of [undefined, "external"]) {
+      const harness = makeHarness({
+        jarvisRoot,
+        readProjectConfigRecord: () => ({ specs, pipeline: { name: "fast", terminalAction: "leave-draft" } }),
+      });
+      const result = await admitPipelineStart({ projectKey: "demo", seedPath }, harness.deps);
+      expect(result).toEqual({ kind: "admitted", pipelineId: "pipeline-123", admittedSelection: null });
+      expect(harness.requests[0]).toMatchObject({ method: "pipeline_start", params: { context: { seedPath } } });
+    }
+  });
+
+  test("rejects absolute external seeds outside the project's seeds home before daemon contact", async () => {
+    const jarvisRoot = join(fixtureRoot, "jarvis-home-escape");
+    const seedsHome = join(jarvisRoot, "specs", "demo", "seeds");
+    const otherSeeds = join(jarvisRoot, "specs", "other", "seeds");
+    mkdirSync(seedsHome, { recursive: true });
+    mkdirSync(otherSeeds, { recursive: true });
+    writeFileSync(join(otherSeeds, "other.md"), "other", "utf8");
+    writeFileSync(join(fixtureRoot, "in-project.md"), "in project", "utf8");
+    symlinkSync(join(otherSeeds, "other.md"), join(seedsHome, "linked.md"));
+    for (const seedPath of [
+      join(otherSeeds, "other.md"),
+      join(fixtureRoot, "in-project.md"),
+      join(seedsHome, "linked.md"),
+    ]) {
+      const harness = makeHarness({ jarvisRoot });
+      const result = await admitPipelineStart({ projectKey: "demo", seedPath }, harness.deps);
+      expect(result).toMatchObject({
+        kind: "pre-admission-failure",
+        failure: "invalid-seed-path",
+        detail: `pipeline: seed escapes project seeds home after symlink resolution: ${seedPath}\n`,
+      });
+      expectNoDaemonContact(harness);
     }
   });
 

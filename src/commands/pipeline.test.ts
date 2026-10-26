@@ -719,7 +719,8 @@ describe("pipeline start", () => {
   });
 
   test.each([
-    ["/absolute/seed.md", "pipeline: --seed must be a relative path"],
+    // The fixture project defaults to `specs: "external"`, so an absolute seed is checked against its seeds home.
+    ["/absolute/seed.md", "pipeline: cannot resolve seed path:"],
     ["missing-seed.md", "pipeline: cannot resolve seed path:"],
     [".", "pipeline: seed is not a file: ."],
   ] as const)("rejects --seed %p before daemon connect", async (seedArg, stderrPrefix) => {

@@ -4,6 +4,7 @@ import { formatConnectionError, formatLifecycleError, formatRpcError } from "../
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { isLoadError } from "../config/agent-model-config.ts";
 import { parseProjectConfigOverrides, type readProjectConfigRecord } from "../config/machine-config-loader.ts";
+import { resolveSpecsHome } from "../config/specs-home.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import {
@@ -12,6 +13,7 @@ import {
   type SuppliedRatings,
 } from "../execution/project-pipeline-resolution.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
+import { jarvisHome, specsHome } from "../paths.ts";
 import type { AdmittedPipelineSelection, PipelineContext } from "../persistence/state-store.ts";
 import {
   parseSeedMetadata,
@@ -63,6 +65,8 @@ type PipelineStartAdmissionConnection = {
 export type PipelineStartAdmissionDeps = {
   cwd: string;
   configPath: string;
+  /** Jarvis home holding external specs; defaults to `jarvisHome()`. */
+  jarvisRoot?: string;
   readProjectRegistry: () => Record<string, { root: string; origin?: string }>;
   readProjectConfigRecord: typeof readProjectConfigRecord;
   loadMachineConfig: (configPath: string) => readonly string[] | undefined;
@@ -92,22 +96,42 @@ function inside(parent: string, child: string): boolean {
   return path === "" || (!path.startsWith("..") && !isAbsolute(path));
 }
 
+/** The project's external `seeds/` home, or undefined unless `specs` resolves to `"external"`. */
+function externalSeedsHome(
+  projectKey: string,
+  projectRecord: Record<string, unknown>,
+  jarvisRoot: string,
+): string | undefined {
+  // A specs-home config error is left for the intent stage to report; here it only withholds external seeds.
+  const specs = resolveSpecsHome(projectRecord, undefined);
+  return specs.ok && specs.specsHome === "external" ? join(specsHome(projectKey, jarvisRoot), "seeds") : undefined;
+}
+
+/**
+ * Relative seeds resolve from `cwd` and must stay in the project root. Absolute seeds are admitted only for
+ * `specs: "external"` projects and must stay in that project's external `seeds/` home, matching standalone intent.
+ */
 function resolvePipelineSeed(
   cwd: string,
   seedPath: string,
   projectRoot: string,
+  externalSeedsHome: string | undefined,
 ): { ok: true; text: string } | { ok: false; detail: string } {
-  if (isAbsolute(seedPath)) return { ok: false, detail: "pipeline: --seed must be a relative path\n" };
-  const path = join(cwd, seedPath);
+  if (isAbsolute(seedPath) && externalSeedsHome === undefined) {
+    return { ok: false, detail: "pipeline: --seed must be a relative path\n" };
+  }
+  const [path, home, homeLabel] = isAbsolute(seedPath)
+    ? [seedPath, externalSeedsHome as string, "project seeds home"]
+    : [join(cwd, seedPath), projectRoot, "registered project"];
   try {
     if (!statSync(path).isFile()) {
       return { ok: false, detail: `pipeline: seed is not a file: ${seedPath}\n` };
     }
     const canonical = realpathSync(path);
-    if (!inside(realpathSync(projectRoot), canonical)) {
+    if (!inside(realpathSync(home), canonical)) {
       return {
         ok: false,
-        detail: `pipeline: seed escapes registered project after symlink resolution: ${seedPath}\n`,
+        detail: `pipeline: seed escapes ${homeLabel} after symlink resolution: ${seedPath}\n`,
       };
     }
     accessSync(canonical, constants.R_OK);
@@ -158,6 +182,7 @@ function readExclusiveSeed(
 type AdmissionConfig = {
   registry: Record<string, { root: string; origin?: string }>;
   projectEntry: { root: string; origin?: string };
+  projectRecord: Record<string, unknown>;
   pipeline: unknown;
   agentModelConfig: AgentModelConfig;
 };
@@ -208,7 +233,7 @@ function resolveAdmissionConfig(
     return preAdmissionFailure("invalid-machine-model-configuration", `${agentModelConfig.errors.join("; ")}\n`);
   }
 
-  return { registry, projectEntry, pipeline: projectRecord.pipeline, agentModelConfig };
+  return { registry, projectEntry, projectRecord, pipeline: projectRecord.pipeline, agentModelConfig };
 }
 
 function isAdmissionResult(value: object): value is PipelineStartAdmissionResult {
@@ -251,7 +276,8 @@ export async function admitPipelineStart(
   const { seedPath } = seed;
   let seedText = seed.seedText as string;
   if (seedPath !== undefined) {
-    const seedResolution = resolvePipelineSeed(deps.cwd, seedPath, projectEntry.root);
+    const seedsHome = externalSeedsHome(projectKey, config.projectRecord, deps.jarvisRoot ?? jarvisHome());
+    const seedResolution = resolvePipelineSeed(deps.cwd, seedPath, projectEntry.root, seedsHome);
     if (!seedResolution.ok) {
       return preAdmissionFailure("invalid-seed-path", seedResolution.detail);
     }

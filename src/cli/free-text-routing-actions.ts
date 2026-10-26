@@ -44,6 +44,22 @@ export type RoutingRejection =
 
 export type RoutingValidation = { ok: true; action: RoutingAction } | { ok: false; rejection: RoutingRejection };
 
+const MAX_LABEL_LENGTH = 64;
+
+/** Caps an untrusted router-chosen name (action or field) before it reaches stderr or the audit log. */
+export function boundedRoutingLabel(value: string): string {
+  return value.length > MAX_LABEL_LENGTH ? `${value.slice(0, MAX_LABEL_LENGTH)}…` : value;
+}
+
+/** Stderr text for a rejection: the stable reason token, then the offending action/field when known. */
+export function describeRoutingRejection(rejection: RoutingRejection): string {
+  if (rejection.reason === "malformed-request") return rejection.reason;
+  if (rejection.reason === "unknown-action") {
+    return `${rejection.reason} (action ${JSON.stringify(boundedRoutingLabel(rejection.action))})`;
+  }
+  return `${rejection.reason} (action ${rejection.action}, field ${JSON.stringify(boundedRoutingLabel(rejection.field))})`;
+}
+
 const MAX_ARGUMENT_LENGTH = 1024;
 /** Shell metacharacters, quotes, whitespace, and control characters: none belong in a path, ID, or project name. */
 const COMMAND_PAYLOAD_PATTERN = /[\s;&|<>`$(){}'"\\]|\p{Cc}/u;

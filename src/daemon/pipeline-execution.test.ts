@@ -8321,6 +8321,43 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("skipped");
     expect(stageRecord(stages(), "implement", "beta")?.skipProvenance).toBe("provisional");
   });
+
+  test("forwards peerClaimTimeoutMs into runPipeline on continuation so a fan-out peer claim wait stays bounded", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      {
+        "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+      },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupFanOutLinearPostIntent(store);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const baseDeps = fanOutPipelineDeps(store, dispatchLog);
+    const deps: PipelineExecutionDeps = {
+      ...baseDeps,
+      context: baseContext,
+      peerClaimTimeoutMs: 20,
+      dispatch: async (steps) => {
+        const step = steps[0] as unknown as { stageIndex: number; branchKey?: string };
+        if (step.stageIndex === 1 && step.branchKey === "beta") {
+          return new Promise<never>(() => {});
+        }
+        return baseDeps.dispatch(steps);
+      },
+    };
+
+    void continuePipeline(PIPELINE_ID, deps);
+
+    const deadline = Date.now() + 2000;
+    while (stageRecord(stages(), "plan", "beta")?.status !== "failed" && Date.now() < deadline) {
+      await flushBackgroundRuns();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    const beta = stageRecord(stages(), "plan", "beta");
+    expect(beta?.status).toBe("failed");
+    expect(stageFailureObservation(beta?.failureDetail)).toContain("timed out");
+  });
 });
 
 describe("reopened pipeline continuation", () => {

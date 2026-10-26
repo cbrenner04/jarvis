@@ -1601,6 +1601,66 @@ describe("continuePipeline", () => {
     });
   });
 
+  test("forwards isEntryRunLive into runPipeline so a still-live invocation is not settled on continuation", async () => {
+    const entryRunId = "run-continue-live-entry";
+    const terminalRecord: PersistedRecord = {
+      runId: entryRunId,
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: {
+        kind: "loop_finished",
+        loopOutcomeKind: "completion_commit_failed" as WriteLoopOutcomeKind,
+        iterationsConsumed: 1,
+        resumable: true,
+      },
+    };
+    const singleStageDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+    };
+    const { store, stages } = fakeStore(
+      singleStageDefinition,
+      { [entryRunId]: { specPath: "spec/s1.md", status: "failed" } },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        failureDetail: {
+          code: "settlement_deferred",
+          reason: "entry_run_still_live",
+          entryRunId,
+          rollupStatus: "failed",
+        },
+      },
+    });
+    const before = structuredClone(stages());
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+    const wait: PipelineWorkflowWait = async () => "failed";
+    const loadLogRecords = () => [terminalRecord];
+
+    const outcome = await continuePipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait,
+      resolveStage: resolveStageStub(),
+      loadLogRecords,
+      isEntryRunLive: (candidate) => candidate === entryRunId,
+    });
+
+    expect(outcome).toEqual({ kind: "continued", pipelineId: PIPELINE_ID });
+    expect(dispatchCalled).toBe(false);
+    expect(stages()).toEqual(before);
+  });
+
   test.each([
     "configured",
     "default",

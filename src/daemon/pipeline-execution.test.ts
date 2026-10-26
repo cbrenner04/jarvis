@@ -12072,7 +12072,10 @@ describe("fan-out serial chained lanes", () => {
 
     expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
-    expect(base.dispatched.some((entry) => entry.branchKey === "beta")).toBe(true);
+    expect(base.dispatched.filter((entry) => entry.branchKey === "beta")).toEqual([
+      { stageId: "plan", branchKey: "beta", forkRef: TIP },
+      { stageId: "implement", branchKey: "beta", forkRef: TIP },
+    ]);
   });
 
   test("legacy severed rows revive once the predecessor is no longer dead", async () => {

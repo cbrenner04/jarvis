@@ -63,13 +63,42 @@ describe("hand-published implement lane PR adoption", () => {
       await continueHandFinishedImplement(fixture, ghPrListRunner(fixture.repoRoot, []));
       const implement = handFinishedImplementStage(fixture);
       expect(implement?.status).toBe("failed");
+      const commitCount = Number(
+        execFileSync("git", ["rev-list", "--count", `${fixture.defaultBranch}..${fixture.laneBranch}`], {
+          cwd: fixture.repoRoot,
+          encoding: "utf8",
+        }).trim(),
+      );
       const observation = operatorFailureRecordFromUnknown(implement?.failureDetail)?.observation ?? "";
       expect(observation).toContain(fixture.laneBranch);
+      expect(observation).toContain(`${commitCount} commit(s)`);
       expect(observation).toContain("jarvis pipeline resume");
       expect(operatorFailureRecordFromUnknown(implement?.failureDetail)?.retryable).toBe(true);
       expect(
         fixture.store.listRuns().some((run) => run.status === "completed" && run.branch === fixture.laneBranch),
       ).toBe(false);
+    } finally {
+      fixture.dispose();
+    }
+  });
+
+  test("refuses ambiguous merged pull requests without creating an adoption run", async () => {
+    const fixture = setupHandFinishedImplement(true);
+    try {
+      await continueHandFinishedImplement(
+        fixture,
+        ghPrListRunner(fixture.repoRoot, [
+          { number: 3, url: "https://example.test/pr/3", state: "MERGED" },
+          { number: 4, url: "https://example.test/pr/4", state: "MERGED" },
+        ]),
+      );
+      const implement = handFinishedImplementStage(fixture);
+      expect(implement?.status).toBe("failed");
+      const observation = operatorFailureRecordFromUnknown(implement?.failureDetail)?.observation ?? "";
+      expect(observation).toContain("#3");
+      expect(observation).toContain("#4");
+      expect(operatorFailureRecordFromUnknown(implement?.failureDetail)?.retryable).toBe(true);
+      expect(fixture.store.listRuns().filter((run) => run.branch === fixture.laneBranch)).toHaveLength(0);
     } finally {
       fixture.dispose();
     }
@@ -110,6 +139,31 @@ describe("hand-published implement lane PR adoption", () => {
       const failure = operatorFailureRecordFromUnknown(handFinishedImplementStage(fixture)?.failureDetail);
       expect(failure?.retryable).toBe(true);
       expect(failure?.observation).toContain("connect refused");
+      expect(fixture.store.listRuns().filter((run) => run.branch === fixture.laneBranch)).toHaveLength(0);
+    } finally {
+      fixture.dispose();
+    }
+  });
+
+  test("refuses when lane branch commit count fails with retryable failure", async () => {
+    const fixture = setupHandFinishedImplement(true);
+    try {
+      execFileSync("git", ["branch", fixture.laneBranch, fixture.planBranch], { cwd: fixture.repoRoot });
+      const runner: AsyncSubprocessRunner = {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            return "[]";
+          }
+          if (cmd === "git" && args[0] === "rev-list" && args[1] === "--count") {
+            throw new Error("broken ref");
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? fixture.repoRoot);
+        },
+      };
+      await continueHandFinishedImplement(fixture, runner);
+      const failure = operatorFailureRecordFromUnknown(handFinishedImplementStage(fixture)?.failureDetail);
+      expect(failure?.retryable).toBe(true);
+      expect(failure?.observation).toContain("broken ref");
       expect(fixture.store.listRuns().filter((run) => run.branch === fixture.laneBranch)).toHaveLength(0);
     } finally {
       fixture.dispose();

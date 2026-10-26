@@ -108,8 +108,12 @@ export async function tryAdoptHandPublishedImplementLane(args: {
             retryable: true,
           };
         }
-      } catch {
-        return { kind: "unchanged" };
+      } catch (error) {
+        return {
+          kind: "failed",
+          message: `pipeline implement stage: lane branch commit count failed: ${errorMessage(error)}`,
+          retryable: true,
+        };
       }
     }
     return { kind: "unchanged" };

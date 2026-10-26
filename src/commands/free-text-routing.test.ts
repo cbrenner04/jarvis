@@ -228,32 +228,39 @@ describe("runFreeTextRouting", () => {
   });
 
   test("rejects unknown action with no daemon RPC", async () => {
-    await expectRejectsWithReason("unknown-action", {
+    await expectRejectsWithReason('unknown-action (action "pipeline.restart")', {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.restart", pipelineId: "x" })),
     });
   });
 
   test("rejects extra field with no daemon RPC", async () => {
-    await expectRejectsWithReason("extra-field", {
+    await expectRejectsWithReason('extra-field (action run.log, field "extra")', {
       invokeRouting: async () =>
         routingOk(JSON.stringify({ action: "run.log", runId: "00000000-0000-4000-8000-000000000001", extra: "x" })),
     });
   });
 
   test("rejects missing field with no daemon RPC", async () => {
-    await expectRejectsWithReason("missing-field", {
+    await expectRejectsWithReason('missing-field (action run.log, field "runId")', {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "run.log" })),
     });
   });
 
+  test("names the missing field when the router nests arguments", async () => {
+    const pipelineId = "00000000-0000-4000-8000-000000000001";
+    await expectRejectsWithReason('missing-field (action pipeline.approve, field "pipelineId")', {
+      invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.approve", arguments: { pipelineId } })),
+    });
+  });
+
   test("rejects wrong type with no daemon RPC", async () => {
-    await expectRejectsWithReason("wrong-type", {
+    await expectRejectsWithReason('wrong-type (action run.log, field "runId")', {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "run.log", runId: 42 })),
     });
   });
 
   test("rejects command-payload with no daemon RPC", async () => {
-    await expectRejectsWithReason("command-payload", {
+    await expectRejectsWithReason('command-payload (action run.log, field "runId")', {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "run.log", runId: "run 42" })),
     });
   });
@@ -376,7 +383,7 @@ describe("runFreeTextRouting", () => {
   });
 
   test("rejects unsupported routing output with no daemon RPC", async () => {
-    await expectRejectsWithReason("unknown-action", {
+    await expectRejectsWithReason('unknown-action (action "not.real")', {
       invokeRouting: async () => routingOk(JSON.stringify({ action: "not.real", id: "x" })),
     });
   });
@@ -424,7 +431,7 @@ describe("runFreeTextRouting", () => {
     test("appends validation-rejected audit line with operatorSessionId", async () => {
       const operatorSessionId = "audit-session-validation";
       await expectRejectsWithReason(
-        "extra-field",
+        'extra-field (action run.log, field "extra")',
         {
           invokeRouting: async () =>
             routingOk(JSON.stringify({ action: "run.log", runId: "00000000-0000-4000-8000-000000000001", extra: "x" })),
@@ -437,6 +444,8 @@ describe("runFreeTextRouting", () => {
       expect(lines[0]?.operatorSessionId).toBe(operatorSessionId);
       expect(lines[0]?.outcome).toBe("validation-rejected");
       expect(lines[0]?.reason).toBe("extra-field");
+      expect(lines[0]?.action).toBe("run.log");
+      expect(lines[0]?.field).toBe("extra");
     });
 
     test("resolution-rejected audit lines carry the action only when one was validated", async () => {
@@ -452,7 +461,7 @@ describe("runFreeTextRouting", () => {
       // Mutation checkpoint: flipping the action guard drops the action here and adds `action: undefined` below.
       expect((rejected[0] as { action?: string }).action).toBe("run.kill");
       await expectRejectsWithReason(
-        "unknown-action",
+        'unknown-action (action "pipeline.wait")',
         { invokeRouting: async () => routingOk(JSON.stringify({ action: "pipeline.wait", pipelineId: "p" })) },
         makeCliDeps(),
         "audit-session-resolution-2",

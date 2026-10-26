@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  describeRoutingRejection,
   looksLikeCommandPayload,
   ROUTING_ACTION_CATALOG,
   type RoutingAction,
@@ -142,5 +143,25 @@ describe("validateRoutingRequest", () => {
       expect(looksLikeCommandPayload(value)).toBe(false);
     }
     expect(looksLikeCommandPayload("a b")).toBe(true);
+  });
+});
+
+describe("describeRoutingRejection", () => {
+  test("keeps the reason token first and names the action and field", () => {
+    expect(describeRoutingRejection({ reason: "malformed-request" })).toBe("malformed-request");
+    expect(describeRoutingRejection({ reason: "unknown-action", action: "pipeline.wait" })).toBe(
+      'unknown-action (action "pipeline.wait")',
+    );
+    expect(describeRoutingRejection({ reason: "missing-field", action: "pipeline.approve", field: "pipelineId" })).toBe(
+      'missing-field (action pipeline.approve, field "pipelineId")',
+    );
+  });
+
+  test("escapes and caps untrusted names", () => {
+    const described = describeRoutingRejection({ reason: "unknown-action", action: `a\n${"x".repeat(100)}` });
+    expect(described).not.toContain("\n");
+    expect(described).toContain(String.raw`a\n`);
+    expect(described).toContain("…");
+    expect(described.length).toBeLessThan(100);
   });
 });

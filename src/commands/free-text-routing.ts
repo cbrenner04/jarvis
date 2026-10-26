@@ -1,7 +1,10 @@
 import type { CliDeps } from "../cli/deps.ts";
 import {
+  boundedRoutingLabel,
+  describeRoutingRejection,
   ROUTING_ACTION_CATALOG,
   type RoutingAction,
+  type RoutingRejection,
   validateRoutingRequest,
 } from "../cli/free-text-routing-actions.ts";
 import type { Io } from "../cli/io.ts";
@@ -56,7 +59,12 @@ export type FreeTextRoutingSeams = {
   routingAuditPath?: string;
 };
 
-type RoutingAuditFields = Pick<RoutingAuditLine, "outcome" | "reason" | "action" | "dispatchExitCode">;
+type RoutingAuditFields = Pick<RoutingAuditLine, "outcome" | "reason" | "action" | "field" | "dispatchExitCode">;
+
+/** Audit detail for a field-level rejection: the catalog action and the offending field. */
+function rejectionAuditDetail(rejection: RoutingRejection): Pick<RoutingAuditLine, "action" | "field"> {
+  return "field" in rejection ? { action: rejection.action, field: boundedRoutingLabel(rejection.field) } : {};
+}
 
 type TranslateResult = { ok: true; action: RoutingAction } | { ok: false; exitCode: number; audit: RoutingAuditFields };
 
@@ -181,7 +189,12 @@ async function translateRequest(
   }
   const validation = validateRoutingRequest(parsed);
   if (!validation.ok) {
-    return translateFailure(io, "validation-rejected", validation.rejection.reason);
+    const { rejection } = validation;
+    return {
+      ok: false,
+      exitCode: routingStderrError(io, describeRoutingRejection(rejection)),
+      audit: { outcome: "validation-rejected", reason: rejection.reason, ...rejectionAuditDetail(rejection) },
+    };
   }
   return { ok: true, action: validation.action };
 }

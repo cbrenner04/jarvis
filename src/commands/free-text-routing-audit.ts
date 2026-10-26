@@ -18,6 +18,8 @@ export type RoutingAuditLine = {
   requestLength: number;
   outcome: RoutingAuditOutcome;
   action?: string;
+  /** Offending field on a field-level `validation-rejected` line. */
+  field?: string;
   dispatchExitCode?: number;
   reason?: string;
 };

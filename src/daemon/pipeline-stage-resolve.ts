@@ -626,7 +626,7 @@ async function buildChainedImplementStageInput(
   const defaultBase = await getBaseBranch(context.cwd);
   const baseRoot = (await isGitRepoAsync(readRoot)) ? readRoot : context.cwd;
   const baseRef = await resolvePipelineImplementBase(baseRoot, defaultBase);
-  let input: BuildImplementWorkflowStepsInput = {
+  const input: BuildImplementWorkflowStepsInput = {
     cwd: readRoot,
     baseRef,
     specPath,

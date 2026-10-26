@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { getExternalWorktreePath, withExternalWorktree } from "../execution/external-worktree.ts";
+import { IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { PIPELINE_REGISTRY } from "../execution/pipeline-registry.ts";
 import type { PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
@@ -16,7 +17,6 @@ import {
   TerminalPublicationError,
   type TerminalPublicationInput,
 } from "../execution/terminal-publication.ts";
-import { IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR } from "../execution/implement-workflow-steps.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { createBindingFactory, DEBATE_AGENT_MODEL_CONFIG } from "../execution/workflow-runner.test-support.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
@@ -109,6 +109,7 @@ import type {
   PipelineWorkflowWait,
 } from "./pipeline-stage-dispatch.ts";
 import { stageArtifactKey } from "./pipeline-stage-dispatch.ts";
+import { buildStageFailureRecord } from "./pipeline-stage-failure-record.ts";
 import {
   type PipelineStageResolutionResult,
   type PipelineStageResolveDeps,
@@ -117,7 +118,6 @@ import {
 } from "./pipeline-stage-resolve.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
-import { buildStageFailureRecord } from "./pipeline-stage-failure-record.ts";
 
 function stageFailureObservation(failureDetail: unknown): string | undefined {
   return operatorFailureRecordFromUnknown(failureDetail)?.observation;

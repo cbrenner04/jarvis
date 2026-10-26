@@ -1,12 +1,12 @@
-import type { PipelineDefinition, WorkflowPipelineStage } from "../execution/pipeline-definition.ts";
 import { GitHubOperationError, listPrs, type PrListEntry } from "../execution/github-operations.ts";
 import { IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR } from "../execution/implement-workflow-steps.ts";
+import type { PipelineDefinition, WorkflowPipelineStage } from "../execution/pipeline-definition.ts";
 import type { PipelineContext, StateStore } from "../persistence/state-store.ts";
-import { branchExistsLocalAsync, countCommitsBetween, resolveRef } from "../shared/git.ts";
 import { errorMessage } from "../shared/error-message.ts";
+import { branchExistsLocalAsync, countCommitsBetween, resolveRef } from "../shared/git.ts";
 import type { AsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { type PipelineStageArtifact, stageArtifactFromEntryRun } from "./pipeline-stage-dispatch.ts";
 import { findPrecedingWorkflowArtifact, resolveHandPublishedImplementLaneTarget } from "./pipeline-stage-resolve.ts";
-import { stageArtifactFromEntryRun, type PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 
 type HandPublishedImplementLaneAdoptionOutcome =
   | { kind: "unchanged" }

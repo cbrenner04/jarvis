@@ -55,6 +55,7 @@ import {
 import { isRecord } from "../shared/is-record.ts";
 import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { tryAdoptHandPublishedImplementLane } from "./pipeline-implement-lane-pr-adoption.ts";
 import {
   buildFanOutLaneChain,
   type FanOutLaneChain,
@@ -78,7 +79,6 @@ import {
   stageArtifactKey,
 } from "./pipeline-stage-dispatch.ts";
 import { buildStageFailureRecord } from "./pipeline-stage-failure-record.ts";
-import { tryAdoptHandPublishedImplementLane } from "./pipeline-implement-lane-pr-adoption.ts";
 import {
   isFanOutStageResolution,
   noopStaleResetPreflight,

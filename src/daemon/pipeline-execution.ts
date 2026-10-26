@@ -77,6 +77,7 @@ import {
   stageArtifactKey,
 } from "./pipeline-stage-dispatch.ts";
 import { buildStageFailureRecord } from "./pipeline-stage-failure-record.ts";
+import { tryAdoptHandPublishedImplementLane } from "./pipeline-implement-lane-pr-adoption.ts";
 import {
   isFanOutStageResolution,
   noopStaleResetPreflight,
@@ -426,6 +427,10 @@ export async function continuePipeline(
       ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
       ...(reopenedStageReset !== undefined ? { reopenedStageReset } : {}),
       ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
+      ...(deps.isEntryRunLive !== undefined ? { isEntryRunLive: deps.isEntryRunLive } : {}),
+      ...(deps.subprocessRunner !== undefined ? { subprocessRunner: deps.subprocessRunner } : {}),
+      ...(deps.supersedeGh !== undefined ? { supersedeGh: deps.supersedeGh } : {}),
+      ...(deps.peerClaimTimeoutMs !== undefined ? { peerClaimTimeoutMs: deps.peerClaimTimeoutMs } : {}),
     },
     effectiveContinuationBranchKey,
   );
@@ -4189,6 +4194,51 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       ...(staleResetForResolve !== undefined ? { staleReset: staleResetForResolve } : {}),
     });
     if (!resolution.ok) {
+      if (stage.workflow === "implement") {
+        const adoption = await tryAdoptHandPublishedImplementLane({
+          store,
+          pipelineId,
+          definition,
+          stage,
+          stageIndex: index,
+          branchKey,
+          ...(split !== null ? { splitPosition: split.splitPosition } : {}),
+          context,
+          stageArtifacts,
+          resolutionError: resolution.error,
+          runner:
+            args.subprocessRunner ?? args.staleResetPreflight?.cliDeps.subprocessRunner ?? realAsyncSubprocessRunner,
+          loadRun: (runId) => {
+            const entryRun = store.loadRun(runId);
+            return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
+          },
+        });
+        if (adoption.kind === "succeeded") {
+          return handleSucceededWorkflowStage({
+            store,
+            pipelineId,
+            definition,
+            stage,
+            index,
+            branchKey,
+            stageRecords,
+            stageArtifacts,
+            artifact: adoption.artifact,
+          });
+        }
+        if (adoption.kind === "failed") {
+          return failWorkflowStageAt(
+            store,
+            pipelineId,
+            stage.stageId,
+            branchKey,
+            stageRecords,
+            index + 1,
+            adoption.message,
+            adoption.retryable,
+          );
+        }
+      }
       return failWorkflowStageAt(
         store,
         pipelineId,

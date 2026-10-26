@@ -16,22 +16,22 @@ When an implement lane is finished outside the pipeline (operator ticks the rema
 
 ## Task checklist
 
-- [ ] Route the `implement.already_complete` resolution error through a lane-PR adoption check before `failWorkflowStageAt`.
-- [ ] Create the adoption run row and settle the stage `succeeded` with its artifact.
-- [ ] Add the unpublished-commits and ambiguous-PR refusals.
-- [ ] Tests in `src/daemon/pipeline-execution.test.ts` (or the resolve/dispatch test file owning implement stage settlement) with an injected `gh`/git runner.
+- [x] Route the `implement.already_complete` resolution error through a lane-PR adoption check before `failWorkflowStageAt`.
+- [x] Create the adoption run row and settle the stage `succeeded` with its artifact.
+- [x] Add the unpublished-commits and ambiguous-PR refusals.
+- [x] Tests in `src/daemon/pipeline-execution.test.ts` (or the resolve/dispatch test file owning implement stage settlement) with an injected `gh`/git runner.
 
 ## Acceptance criteria
 
-- [ ] A regression test drives a chained implement stage whose spec tree is complete and whose lane branch has one open PR; the stage settles `succeeded`, its artifact carries that `prNumber`/`prUrl`, and its `entryRunId` loads a `completed` run whose `branch` is the lane branch. It fails against the pre-fix code (stage `failed` with `implement.already_complete`).
-- [ ] The same test shape with one merged PR (no open PR) settles `succeeded` with that PR's evidence.
-- [ ] A test with a complete tree, no open or merged PR, and a lane branch carrying commits not on base settles the stage `failed` with `retryable: true` and a failure observation naming the branch, the commit count, and `jarvis pipeline resume`; it fails against the pre-fix code.
-- [ ] A test with two open PRs on the lane branch settles `failed` retryable naming both PR numbers, with no adoption run row created.
-- [ ] A test whose PR lookup fails settles `failed` retryable carrying the lookup error, with no adoption run row created.
-- [ ] `pipeline-stage-resolve.test.ts` `chained implement stage returns already_complete for complete git-disabled external plan tree` stays green (no PR, no unpublished commits → unchanged refusal).
-- [ ] After adoption, a chained dependent lane's next stage dispatches with `worktree.forkRef` derived from the adopted lane branch, as for a harness-published predecessor (test).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:agent` passes.
+- [x] A regression test drives a chained implement stage whose spec tree is complete and whose lane branch has one open PR; the stage settles `succeeded`, its artifact carries that `prNumber`/`prUrl`, and its `entryRunId` loads a `completed` run whose `branch` is the lane branch. It fails against the pre-fix code (stage `failed` with `implement.already_complete`).
+- [x] The same test shape with one merged PR (no open PR) settles `succeeded` with that PR's evidence.
+- [x] A test with a complete tree, no open or merged PR, and a lane branch carrying commits not on base settles the stage `failed` with `retryable: true` and a failure observation naming the branch, the commit count, and `jarvis pipeline resume`; it fails against the pre-fix code.
+- [x] A test with two open PRs on the lane branch settles `failed` retryable naming both PR numbers, with no adoption run row created.
+- [x] A test whose PR lookup fails settles `failed` retryable carrying the lookup error, with no adoption run row created.
+- [x] `pipeline-stage-resolve.test.ts` `chained implement stage returns already_complete for complete git-disabled external plan tree` stays green (no PR, no unpublished commits → unchanged refusal).
+- [x] After adoption, a chained dependent lane's next stage dispatches with `worktree.forkRef` derived from the adopted lane branch, as for a harness-published predecessor (test).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:agent` passes.
 
 ## Documentation updates
 

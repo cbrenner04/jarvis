@@ -69,6 +69,8 @@ Every other terminal stage failure — approval-boundary write failure, workflow
 
 Entry-run linkage is stored in `pipeline_stages.workflowInvocationId` (column name; value is the entry run id). The entry run is the invocation's first step-0 row; linked-implement link and shrink rows also report step 0 but never re-point the entry, its live-promise registration, or settlement.
 
+**Hand-published implement stage settlement.** Chained implement resolution that returns only `implement.already_complete` is intercepted in `advanceWorkflowStage` (`pipeline-implement-lane-pr-adoption.ts`). PR lookup uses `listPrs` with `state: all` on the lane branch from the project root. One open PR, or one merged PR when none are open, writes a synthetic `completed` entry run (`project`, lane branch, spec path, managed worktree path, `prNumber`/`prUrl`), stamps `forkTipSha` when `git rev-parse` resolves the branch tip, and settles `succeeded` with the normal stage artifact. Refusals: multiple matching PRs (message lists PR numbers), lookup errors (carry the `gh` message, retryable), unpublished local commits with no adoptable PR (retryable, names `jarvis pipeline resume`). No adoption run row is created on refusal. Other implement resolution errors and the standalone implement CLI path are unchanged.
+
 ## Fan-out lanes
 
 When a splitting intent stage artifact carries `downstreamInputs` with length ≥ 2 (`findFanOutSplit` in `pipeline-execution.ts`):

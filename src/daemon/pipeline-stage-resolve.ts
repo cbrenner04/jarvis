@@ -307,6 +307,21 @@ async function locateAbsentWorktreeDownstreamInputReadRoot(
   return { ok: false, error: neverLandedDownstreamInputError(relativePath) };
 }
 
+/**
+ * External-specs plans land at an absolute `<specsHome>/plans/<name>/`; the plan run's read-context
+ * workspace is transient, so the landed tree is the implement read root. Undefined when not one.
+ */
+function locateExternalPlanTree(context: PipelineContext, indexPath: string): string | undefined {
+  if (!isAbsolute(indexPath) || basename(indexPath) !== "index.md") return undefined;
+  const owner = resolveChainedStageOwnerProject(context);
+  if (owner === undefined) return undefined;
+  const specsHomeResolution = chainedStageSpecsHome(context, owner);
+  if (!specsHomeResolution.ok || specsHomeResolution.specsHome !== "external") return undefined;
+  const planDir = resolve(dirname(indexPath));
+  if (!planDir.startsWith(`${resolve(specsHome(owner.key), "plans")}${sep}`)) return undefined;
+  return existsSync(indexPath) ? planDir : undefined;
+}
+
 async function resolveChainedImplementSpecPath(
   prior: PriorArtifactContext,
   context: PipelineContext,
@@ -314,6 +329,8 @@ async function resolveChainedImplementSpecPath(
 ): Promise<{ ok: true; specPath: string; readRoot: string } | { ok: false; error: string }> {
   // Plan completion records specPath as the spec directory; normalize to index.md for implement.
   const relativePath = isChainedPlanReadyIntentPath(specPath) ? specPath : join(specPath, "index.md");
+  const externalPlanTree = locateExternalPlanTree(context, relativePath);
+  if (externalPlanTree !== undefined) return { ok: true, specPath: relativePath, readRoot: externalPlanTree };
   const indexPath = isAbsolute(relativePath) ? relativePath : join(prior.worktreePath, relativePath);
   if (await isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
     if (!isChainedPlanReadyIntentPath(specPath) && !existsSync(indexPath)) {

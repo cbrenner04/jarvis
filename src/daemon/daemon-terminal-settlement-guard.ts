@@ -69,6 +69,11 @@ const PERMITTED_DAEMON_TERMINAL_WRITES: PermittedDaemonTerminalWrite[] = [
     functionName: "restoreRunAfterFailedResume",
     writer: "commitTerminalRunSettlement",
   },
+  {
+    file: "pipeline-implement-lane-pr-adoption.ts",
+    functionName: "tryAdoptHandPublishedImplementLane",
+    writer: "commitCompletionBoundary",
+  },
 ];
 
 const PERMITTED_DAEMON_NONTERMINAL_SET_RUN_STATUS: PermittedDaemonNonterminalSetRunStatus[] = [

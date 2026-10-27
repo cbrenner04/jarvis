@@ -53,7 +53,9 @@ import {
   resolveRef,
 } from "../shared/git.ts";
 import { isRecord } from "../shared/is-record.ts";
+import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
+import { tryAdoptHandPublishedImplementLane } from "./pipeline-implement-lane-pr-adoption.ts";
 import {
   buildFanOutLaneChain,
   type FanOutLaneChain,
@@ -426,6 +428,10 @@ export async function continuePipeline(
       ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
       ...(reopenedStageReset !== undefined ? { reopenedStageReset } : {}),
       ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
+      ...(deps.isEntryRunLive !== undefined ? { isEntryRunLive: deps.isEntryRunLive } : {}),
+      ...(deps.subprocessRunner !== undefined ? { subprocessRunner: deps.subprocessRunner } : {}),
+      ...(deps.supersedeGh !== undefined ? { supersedeGh: deps.supersedeGh } : {}),
+      ...(deps.peerClaimTimeoutMs !== undefined ? { peerClaimTimeoutMs: deps.peerClaimTimeoutMs } : {}),
     },
     effectiveContinuationBranchKey,
   );
@@ -2647,7 +2653,7 @@ async function admitChainedLane(
   const gate = fanOutLaneGate(pipeline, split, chain, branchKey);
   if (gate.kind === "held") return { kind: "stop" };
   if (gate.kind === "severed") {
-    settleSeveredChainLanes(store, pipelineId, split, chain);
+    reconcileSeveredChainLanes(store, pipelineId, split, chain);
     return { kind: "stop" };
   }
   if (gate.predecessor === undefined) return { kind: "dispatch" };
@@ -2740,6 +2746,47 @@ async function rebaseCompletedDependentLanes(pipelineId: string, deps: TerminalS
   }
 }
 
+function isSeveredChainSkip(record: PipelineStageRecord): boolean {
+  if (record.status !== "skipped" || record.skipProvenance !== "terminal") return false;
+  const parsed = operatorFailureRecordFromUnknown(record.failureDetail);
+  return parsed?.expectation === "chained predecessor lane completes";
+}
+
+/** Restore severed dependent rows once the chain predecessor is no longer dead. */
+function reviveSeveredChainLanes(
+  store: StateStore,
+  pipelineId: string,
+  split: FanOutSplit,
+  chain: FanOutLaneChain,
+): void {
+  for (const lane of chain.dependent) {
+    const pipeline = store.loadPipeline(pipelineId);
+    if (!pipeline) return;
+    const gate = fanOutLaneGate(pipeline, split, chain, lane);
+    if (gate.kind === "severed") continue;
+    for (const { record } of suffixStagesForBranch(pipeline, split.splitPosition, lane)) {
+      if (!isSeveredChainSkip(record)) continue;
+      store.updateStage({
+        pipelineId,
+        stageId: record.stageId,
+        branchKey: lane,
+        patch: { status: "pending", endedAt: null, failureDetail: null },
+        requiredStatus: record.status,
+      });
+    }
+  }
+}
+
+function reconcileSeveredChainLanes(
+  store: StateStore,
+  pipelineId: string,
+  split: FanOutSplit,
+  chain: FanOutLaneChain,
+): void {
+  reviveSeveredChainLanes(store, pipelineId, split, chain);
+  settleSeveredChainLanes(store, pipelineId, split, chain);
+}
+
 /** Terminally skip every open row of a dependent lane whose chain predecessor failed or was rejected. */
 function settleSeveredChainLanes(
   store: StateStore,
@@ -2776,7 +2823,7 @@ function settleSeveredLanesAfterDecision(store: StateStore, pipelineId: string):
   const split = pipeline ? findFanOutSplit(pipeline) : null;
   const chain = pipeline && split !== null ? persistedFanOutLaneChain(pipeline, split) : undefined;
   if (split === null || chain === undefined) return;
-  settleSeveredChainLanes(store, pipelineId, split, chain);
+  reconcileSeveredChainLanes(store, pipelineId, split, chain);
 }
 
 type AdmitFanOutBranchesResult = { ok: true; branchKeys: string[] } | { ok: false; error: string };
@@ -4179,16 +4226,59 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
             },
             preflightCapture,
           );
+    const loadEntryRunWorktree = (runId: string) => {
+      const entryRun = store.loadRun(runId);
+      return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
+    };
     const resolution = await resolveStage(definition, index, context, stageArtifacts, {
-      loadRun: (runId) => {
-        const entryRun = store.loadRun(runId);
-        return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
-      },
+      loadRun: loadEntryRunWorktree,
       branchKey,
       ...(split !== null ? { splitPosition: split.splitPosition } : {}),
       ...(staleResetForResolve !== undefined ? { staleReset: staleResetForResolve } : {}),
     });
     if (!resolution.ok) {
+      if (stage.workflow === "implement") {
+        const adoption = await tryAdoptHandPublishedImplementLane({
+          store,
+          pipelineId,
+          definition,
+          stage,
+          stageIndex: index,
+          branchKey,
+          ...(split !== null ? { splitPosition: split.splitPosition } : {}),
+          context,
+          stageArtifacts,
+          resolutionError: resolution.error,
+          runner:
+            args.subprocessRunner ?? args.staleResetPreflight?.cliDeps.subprocessRunner ?? realAsyncSubprocessRunner,
+          loadRun: loadEntryRunWorktree,
+        });
+        if (adoption.kind === "succeeded") {
+          return handleSucceededWorkflowStage({
+            store,
+            pipelineId,
+            definition,
+            stage,
+            index,
+            branchKey,
+            stageRecords,
+            stageArtifacts,
+            artifact: adoption.artifact,
+          });
+        }
+        if (adoption.kind === "failed") {
+          return failWorkflowStageAt(
+            store,
+            pipelineId,
+            stage.stageId,
+            branchKey,
+            stageRecords,
+            index + 1,
+            adoption.message,
+            adoption.retryable,
+          );
+        }
+      }
       return failWorkflowStageAt(
         store,
         pipelineId,
@@ -4366,7 +4456,7 @@ async function runAuthoredStages(args: RunAuthoredStagesArgs): Promise<void> {
 async function releaseChainedSuccessorLanes(args: RunAuthoredStagesArgs): Promise<void> {
   const { pipelineId, deps, split, branchKey, laneChain } = args;
   if (split === null || laneChain === undefined || branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY) return;
-  settleSeveredChainLanes(deps.store, pipelineId, split, laneChain);
+  reconcileSeveredChainLanes(deps.store, pipelineId, split, laneChain);
   for (const successor of laneChainSuccessors(laneChain, branchKey)) {
     const pipeline = deps.store.loadPipeline(pipelineId);
     if (!pipeline || fanOutLaneGate(pipeline, split, laneChain, successor).kind !== "open") continue;
@@ -4491,7 +4581,7 @@ export async function runPipeline(
     if (activeSplit !== null) {
       const lastIndex = definition.stages.length - 1;
       const laneChain = persistedFanOutLaneChain(activePipeline, activeSplit);
-      if (laneChain !== undefined) settleSeveredChainLanes(store, pipelineId, activeSplit, laneChain);
+      if (laneChain !== undefined) reconcileSeveredChainLanes(store, pipelineId, activeSplit, laneChain);
       const suffixBranchKeys = continuationBranchKey !== undefined ? [continuationBranchKey] : activeSplit.branchKeys;
       const suffixDispatchTasks = suffixBranchKeys.map(
         (branchKey) => () =>

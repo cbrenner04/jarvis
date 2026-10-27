@@ -575,8 +575,53 @@ function validateLinkedIndexRouting(
   return { error: `implement.${routingResult.errorKind}: ${routingResult.error}` };
 }
 
-const ALREADY_COMPLETE_ERROR =
+export const IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR =
   "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria";
+
+export type ImplementLaneAdoptionTarget = {
+  project: string;
+  projectRoot: string;
+  baseRef: string;
+  branchName: string;
+  specPath: string;
+  worktreePath: string;
+};
+
+export async function resolveImplementLaneAdoptionTarget(
+  input: BuildImplementWorkflowStepsInput,
+  deps: BuildImplementWorkflowStepsDeps = {},
+): Promise<ImplementLaneAdoptionTarget | { error: string }> {
+  const resolvedInput = await resolveImplementLaunch(input, deps);
+  if ("error" in resolvedInput) return { error: resolvedInput.error };
+  const resolveProjectMatch = deps.resolveProjectMatch ?? ((p: string) => findProjectMatch(p, readProjectRegistry()));
+  const match = resolveImplementProjectMatch(resolvedInput, resolveProjectMatch);
+  if ("error" in match) return { error: match.error };
+  const chained = resolvedInput.preflightGitRoot !== undefined;
+  const absoluteSpecPath =
+    resolvedInput.absoluteSpecPath ??
+    (resolvedInput.preflightGitRoot !== undefined
+      ? resolve(resolvedInput.cwd, resolvedInput.specPath)
+      : resolve(match.root, resolvedInput.specPath));
+  const branchName = resolvedInput.branchName ?? basename(dirname(absoluteSpecPath));
+  if (branchName.length === 0) {
+    return { error: "implement: lane branch name is empty" };
+  }
+  const launchSpecPath = chained ? absoluteSpecPath : resolvedInput.specPath;
+  const worktreePath = getExternalWorktreePath({
+    projectRoot: match.root,
+    projectName: match.key,
+    branchName,
+    baseRef: resolvedInput.baseRef,
+  });
+  return {
+    project: match.key,
+    projectRoot: match.root,
+    baseRef: resolvedInput.baseRef,
+    branchName,
+    specPath: launchSpecPath,
+    worktreePath,
+  };
+}
 
 export function validateImplementSpecTreeCompletion(
   absoluteSpecPath: string,
@@ -591,7 +636,7 @@ export function validateImplementSpecTreeCompletion(
   }
   const linkedSubspecs = parseSpec(specContent).linkedSubspecs;
   if (basename(absoluteSpecPath) !== "index.md" || linkedSubspecs.length === 0) {
-    return hasUncheckedNonHumanOnlyCriteria(specContent) ? undefined : ALREADY_COMPLETE_ERROR;
+    return hasUncheckedNonHumanOnlyCriteria(specContent) ? undefined : IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR;
   }
   for (const subspec of linkedSubspecs) {
     const subspecPath = isAbsolute(subspec.path) ? subspec.path : resolve(dirname(absoluteSpecPath), subspec.path);
@@ -604,7 +649,7 @@ export function validateImplementSpecTreeCompletion(
       return `implement.link_unreadable: ${errorMessage(err)}`;
     }
   }
-  return ALREADY_COMPLETE_ERROR;
+  return IMPLEMENT_SPEC_ALREADY_COMPLETE_ERROR;
 }
 
 function stampImplementReviewBehavior(

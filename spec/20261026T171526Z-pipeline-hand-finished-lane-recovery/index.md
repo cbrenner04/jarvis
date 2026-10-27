@@ -1,7 +1,7 @@
 # Pipeline hand-finished lane recovery
 
-- [ ] [00 - Adopt a hand-published lane PR at chained implement](./00-adopt-hand-published-lane-pr.md)
-- [ ] [01 - Revive severed dependent lanes when the predecessor recovers](./01-revive-severed-dependent-lanes.md)
+- [x] [00 - Adopt a hand-published lane PR at chained implement](./00-adopt-hand-published-lane-pr.md)
+- [x] [01 - Revive severed dependent lanes when the predecessor recovers](./01-revive-severed-dependent-lanes.md)
 
 ## Decisions
 

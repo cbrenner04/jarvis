@@ -14,19 +14,19 @@
 
 ## Task checklist
 
-- [ ] Add the revival pass beside `settleSeveredChainLanes` and call it at each severance site.
-- [ ] Ensure a pipeline whose revived lanes have open rows is continued by the same `pipeline resume`.
-- [ ] Tests in `src/daemon/pipeline-execution.test.ts` under `fan-out serial chained lanes`.
+- [x] Add the revival pass beside `settleSeveredChainLanes` and call it at each severance site.
+- [x] Ensure a pipeline whose revived lanes have open rows is continued by the same `pipeline resume`.
+- [x] Tests in `src/daemon/pipeline-execution.test.ts` under `fan-out serial chained lanes`.
 
 ## Acceptance criteria
 
-- [ ] A regression test with chain A → B → C fails A's implement stage (B and C severed), then recovers A through `pipeline resume`; B's and C's severed rows return to `pending` and B dispatches after A's suffix is satisfied. It fails against the pre-fix code (B and C stay `skipped`).
-- [ ] A test recovers A by 00's lane-PR adoption and asserts the same revival.
-- [ ] A test seeds severed rows exactly as current `settleSeveredChainLanes` writes them (legacy shape) and asserts they revive once the predecessor is no longer dead.
-- [ ] A test asserts a dependent of a `rejected` predecessor stays `skipped`, and a lane skipped by its own failure or its own rejected gate is never revived.
-- [ ] `pipeline-execution.test.ts` `fan-out serial chained lanes` severance tests stay green (severance on a dead predecessor unchanged).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:agent` passes.
+- [x] A regression test with chain A → B → C fails A's implement stage (B and C severed), then recovers A through `pipeline resume`; B's and C's severed rows return to `pending` and B dispatches after A's suffix is satisfied. It fails against the pre-fix code (B and C stay `skipped`).
+- [x] A test recovers A by 00's lane-PR adoption and asserts the same revival.
+- [x] A test seeds severed rows exactly as current `settleSeveredChainLanes` writes them (legacy shape) and asserts they revive once the predecessor is no longer dead.
+- [x] A test asserts a dependent of a `rejected` predecessor stays `skipped`, and a lane skipped by its own failure or its own rejected gate is never revived.
+- [x] `pipeline-execution.test.ts` `fan-out serial chained lanes` severance tests stay green (severance on a dead predecessor unchanged).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:agent` passes.
 
 ## Documentation updates
 

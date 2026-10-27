@@ -4,7 +4,9 @@ import { resolveWorkflowPresetName } from "../commands/workflow-start-preparatio
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import {
   type BuildImplementWorkflowStepsInput,
+  type ImplementLaneAdoptionTarget,
   resolveExternalPlanSpecIdentity,
+  resolveImplementLaneAdoptionTarget,
   resolvePipelineImplementBase,
 } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
@@ -105,7 +107,7 @@ function artifactBranchKeyForStageIndex(
 }
 
 /** Walk back from `stageIndex`, skipping approval stages, to the nearest preceding workflow stage's artifact. */
-function findPrecedingWorkflowArtifact(
+export function findPrecedingWorkflowArtifact(
   stages: readonly PipelineStage[],
   stageIndex: number,
   stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
@@ -596,6 +598,25 @@ async function resolveImplementStage(
   builders: typeof WORKFLOW_PRESET_BUILDERS,
   staleReset?: PipelineStaleResetPreparation,
 ): Promise<PipelineStageResolutionResult> {
+  const builtInput = await buildChainedImplementStageInput(stage, prior, context, builders);
+  if ("error" in builtInput) return { ok: false, error: builtInput.error };
+  const prepared = await preparePipelineStageWorkflow(
+    "implement",
+    "implement",
+    builtInput,
+    context,
+    builders,
+    staleReset,
+  );
+  return preparedStageResolution(prepared);
+}
+
+async function buildChainedImplementStageInput(
+  stage: PipelineStage & { kind: "workflow" },
+  prior: PriorArtifactContext,
+  context: PipelineContext,
+  builders: typeof WORKFLOW_PRESET_BUILDERS,
+): Promise<BuildImplementWorkflowStepsInput | { error: string }> {
   const specPathResult = await resolveChainedImplementSpecPath(prior, context, prior.specPath);
   if (!specPathResult.ok) return specPathResult;
   const specPath = specPathResult.specPath;
@@ -605,7 +626,7 @@ async function resolveImplementStage(
   const defaultBase = await getBaseBranch(context.cwd);
   const baseRoot = (await isGitRepoAsync(readRoot)) ? readRoot : context.cwd;
   const baseRef = await resolvePipelineImplementBase(baseRoot, defaultBase);
-  let input: BuildImplementWorkflowStepsInput = {
+  const input: BuildImplementWorkflowStepsInput = {
     cwd: readRoot,
     baseRef,
     specPath,
@@ -614,41 +635,49 @@ async function resolveImplementStage(
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
     ...(context.projectRegistry !== undefined ? { projectRegistry: context.projectRegistry } : {}),
   };
-  if (usesDefaultBuilder) {
-    const projectMatch = createChainedStageProjectMatch(context)(readRoot);
-    if (projectMatch === undefined) {
-      return {
-        ok: false,
-        error: `pipeline-stage-resolve: no registered project matches prior worktree ${readRoot}`,
-      };
-    }
-    const externalIdentity = await resolveChainedExternalPlanIdentity(readRoot, context);
-    if (externalIdentity !== undefined) {
-      if ("error" in externalIdentity) {
-        return { ok: false, error: externalIdentity.error };
-      }
-      input = {
-        ...input,
-        cwd: context.cwd,
-        projectRoot: externalIdentity.projectRoot,
-        projectName: externalIdentity.project,
-        specPath: externalIdentity.absoluteSpecPath,
-        absoluteSpecPath: externalIdentity.absoluteSpecPath,
-        externalPlanSpec: true,
-        ...(externalIdentity.specReadRoot !== undefined ? { specReadRoot: externalIdentity.specReadRoot } : {}),
-      };
-    } else {
-      input = {
-        ...input,
-        projectRoot: projectMatch.root,
-        projectName: projectMatch.key,
-        preflightGitRoot: readRoot,
-        preflightBaseRef: prior.branch,
-      };
-    }
+  if (!usesDefaultBuilder) return input;
+
+  const projectMatch = createChainedStageProjectMatch(context)(readRoot);
+  if (projectMatch === undefined) {
+    return { error: `pipeline-stage-resolve: no registered project matches prior worktree ${readRoot}` };
   }
-  const prepared = await preparePipelineStageWorkflow("implement", "implement", input, context, builders, staleReset);
-  return preparedStageResolution(prepared);
+  const externalIdentity = await resolveChainedExternalPlanIdentity(readRoot, context);
+  if (externalIdentity !== undefined) {
+    if ("error" in externalIdentity) return { error: externalIdentity.error };
+    return {
+      ...input,
+      cwd: context.cwd,
+      projectRoot: externalIdentity.projectRoot,
+      projectName: externalIdentity.project,
+      specPath: externalIdentity.absoluteSpecPath,
+      absoluteSpecPath: externalIdentity.absoluteSpecPath,
+      externalPlanSpec: true,
+      ...(externalIdentity.specReadRoot !== undefined ? { specReadRoot: externalIdentity.specReadRoot } : {}),
+    };
+  }
+  return {
+    ...input,
+    projectRoot: projectMatch.root,
+    projectName: projectMatch.key,
+    preflightGitRoot: readRoot,
+    preflightBaseRef: prior.branch,
+  };
+}
+
+export async function resolveHandPublishedImplementLaneTarget(
+  stage: PipelineStage & { kind: "workflow" },
+  context: PipelineContext,
+  priorArtifact: PipelineStageArtifact,
+  loadRun: NonNullable<PipelineStageResolveDeps["loadRun"]>,
+): Promise<ImplementLaneAdoptionTarget | { error: string }> {
+  if (stage.review !== "light" && stage.review !== "debate") {
+    return { error: `pipeline-stage-resolve: stage "${stage.stageId}" is not a chained implement stage` };
+  }
+  const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
+  if (!priorResult.ok) return { error: priorResult.error };
+  const builtInput = await buildChainedImplementStageInput(stage, priorResult.prior, context, WORKFLOW_PRESET_BUILDERS);
+  if ("error" in builtInput) return builtInput;
+  return resolveImplementLaneAdoptionTarget(builtInput);
 }
 
 async function resolveIntentStage(

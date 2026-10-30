@@ -66,9 +66,7 @@ Hunt and remove bloat matching these patterns only — no numeric line-count tar
 
 ## Narrative
 
-Before your final outcome token, emit the PR narrative: a review-altitude summary of what this branch changes against its merge base (the whole PR), why, and how to verify — not what the shrink pass edited alone. Orient from `## Branch change summary`, `<BRANCH_DIFF>`, and `<<<BRANCH_SUMMARY_BEGIN>>>`; do not lead with or center simplification visible only in `## Run-scoped diff` or `<<<DIFF_BEGIN>>>`. The narrative is distinct from the spec header — focus on intent and verification, not a restatement of the acceptance criteria.
-
-You may add at most one trailing line after that branch summary for shrink-pass notes; the body must not primarily describe shrink cleanup.
+Before your final outcome token, emit the PR narrative: a review-altitude summary of what this branch changes against its merge base (the whole PR), why, and how to verify — not what the shrink pass edited alone. Orient from `<BRANCH_DIFF>` and `<<<BRANCH_SUMMARY_BEGIN>>>`; do not lead with or center simplification visible only in `<<<DIFF_BEGIN>>>`. Distinct from the spec header — intent and verification, not acceptance-criteria restatement. At most one trailing line for shrink-pass notes; the body must not primarily describe shrink cleanup.
 
 Write the narrative to `.scratch/shrink-narrative.md`:
 

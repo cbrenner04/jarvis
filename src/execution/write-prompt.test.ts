@@ -16,6 +16,15 @@ function renderStepPrompt(promptId: string, placeholders: Record<string, string>
 const HUMAN_ONLY_STEP_RULES =
   "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";
 
+const SHRINK_RENDER_PLACEHOLDERS: Record<string, string> = {
+  SPEC_PATH: "spec/example/index.md",
+  SPEC_TREE: "tree",
+  ALLOWLIST: "allow",
+  BRANCH_DIFF: "diff",
+  RUN_SCOPED_DIFF: "diff",
+  STEP_RULES: "Follow the contract.",
+};
+
 describe("write prompt", () => {
   test("registers stable id write.execute", () => {
     const registry = loadPromptRegistry();
@@ -132,14 +141,7 @@ describe("write prompt", () => {
   // Mutation checkpoint: inverting the `remove` exclusion in globalFragmentBodies
   // must turn this test red.
   test("implement.prompt.shrink includes no-hard-wrap after global.terse, omits documentation/naming", () => {
-    const rendered = renderStepPrompt("implement.prompt.shrink", {
-      SPEC_PATH: "spec/example/index.md",
-      SPEC_TREE: "tree",
-      ALLOWLIST: "allow",
-      BRANCH_DIFF: "diff",
-      RUN_SCOPED_DIFF: "diff",
-      STEP_RULES: "Follow the contract.",
-    });
+    const rendered = renderStepPrompt("implement.prompt.shrink", SHRINK_RENDER_PLACEHOLDERS);
 
     const terseIndex = rendered.indexOf("Be terse everywhere");
     const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
@@ -152,11 +154,7 @@ describe("write prompt", () => {
   // Mutation checkpoint: sentinel body-line mutation on `implement.prompt.shrink` must turn this RED.
   test("implement.prompt.shrink forbids deleting guard killing tests in Rules and STEP_RULES", () => {
     const rendered = renderStepPrompt("implement.prompt.shrink", {
-      SPEC_PATH: "spec/example/index.md",
-      SPEC_TREE: "tree",
-      ALLOWLIST: "allow",
-      BRANCH_DIFF: "diff",
-      RUN_SCOPED_DIFF: "diff",
+      ...SHRINK_RENDER_PLACEHOLDERS,
       STEP_RULES: SHRINK_WRITE_STEP_RULES,
     });
 
@@ -171,18 +169,8 @@ describe("write prompt", () => {
   });
 
   test("implement.prompt.shrink prescribes branch-against-base narrative scope", () => {
-    const rendered = renderStepPrompt("implement.prompt.shrink", {
-      SPEC_PATH: "spec/example/index.md",
-      SPEC_TREE: "tree",
-      ALLOWLIST: "allow",
-      BRANCH_DIFF: "diff",
-      RUN_SCOPED_DIFF: "diff",
-      STEP_RULES: "Follow the contract.",
-    });
-
-    const narrativeStart = rendered.indexOf("## Narrative");
-    expect(narrativeStart).toBeGreaterThanOrEqual(0);
-    const narrativeSection = rendered.slice(narrativeStart);
+    const rendered = renderStepPrompt("implement.prompt.shrink", SHRINK_RENDER_PLACEHOLDERS);
+    const narrativeSection = rendered.slice(rendered.indexOf("## Narrative"));
     expect(narrativeSection).toContain("merge base");
     expect(narrativeSection).toContain("whole PR");
     expect(narrativeSection).toContain("<<<BRANCH_SUMMARY_BEGIN>>>");

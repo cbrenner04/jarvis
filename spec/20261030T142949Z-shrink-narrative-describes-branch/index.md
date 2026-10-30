@@ -1,6 +1,6 @@
 # The PR narrative describes the branch
 
-- [ ] [00 - Shrink narrative branch-against-base scope](./00-shrink-narrative-branch-scope.md)
+- [x] [00 - Shrink narrative branch-against-base scope](./00-shrink-narrative-branch-scope.md)
 
 ## Decisions
 

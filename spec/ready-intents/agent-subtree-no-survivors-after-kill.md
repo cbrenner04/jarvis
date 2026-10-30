@@ -31,3 +31,8 @@ Out of scope: reaping hung tool shells while the agent is still running.
 
 - Agent abort, idle stall with `joinProcessOnIdleStall`, and iteration-timeout abort snapshot foreign descendant process groups, SIGTERM each, and schedule SIGKILL after `abortKillGraceMs` without cancelling escalation at invoke settle. (already true: agent-abort-reaps-descendant-groups merged)
 - Bounded implement iterations record the agent pgid and snapshotted descendant pgids on the run row via `storeVerifierProcessGroupRecorder`. (already true: implement-run-records-agent-process-groups merged)
+
+## Acceptance criteria
+
+- [ ] `agents.test.ts`: fake agent idle-stalls with output, spawns a detached-pgid child ignoring SIGTERM (`trap '' TERM; while :; do :; done`), and with `joinProcessOnIdleStall` asserts every snapshotted pgid gets SIGKILL after `abortKillGraceMs` with no live processes in those groups when invoke settles; fails against main (reachable on paths like `idle stall with joinProcessOnIdleStall SIGTERMs descendant process groups` that stop at SIGTERM).
+- [ ] `agents.test.ts` or `write-loop-agent-process-groups.test.ts`: a recorded pgid whose group is still alive at invoke settle stays on the run row until that group is confirmed gone; fails against main if settle clears the id while descendants remain.

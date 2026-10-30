@@ -170,6 +170,28 @@ describe("write prompt", () => {
     expect(rendered.trimEnd().endsWith(SHRINK_WRITE_STEP_RULES)).toBe(true);
   });
 
+  test("implement.prompt.shrink prescribes branch-against-base narrative scope", () => {
+    const rendered = renderStepPrompt("implement.prompt.shrink", {
+      SPEC_PATH: "spec/example/index.md",
+      SPEC_TREE: "tree",
+      ALLOWLIST: "allow",
+      BRANCH_DIFF: "diff",
+      RUN_SCOPED_DIFF: "diff",
+      STEP_RULES: "Follow the contract.",
+    });
+
+    const narrativeStart = rendered.indexOf("## Narrative");
+    expect(narrativeStart).toBeGreaterThanOrEqual(0);
+    const narrativeSection = rendered.slice(narrativeStart);
+    expect(narrativeSection).toContain("merge base");
+    expect(narrativeSection).toContain("whole PR");
+    expect(narrativeSection).toContain("<<<BRANCH_SUMMARY_BEGIN>>>");
+    expect(narrativeSection).toContain("<<<DIFF_BEGIN>>>");
+    expect(narrativeSection).toMatch(/do not lead with or center/i);
+    expect(narrativeSection).toMatch(/at most one trailing line/i);
+    expect(narrativeSection).toMatch(/must not primarily describe shrink cleanup/i);
+  });
+
   test("write.execute isolates the shared human-only step rules", () => {
     const principles = "MARKER_FREE_PRINCIPLES";
     const rendered = renderStepPrompt("write.execute", {

@@ -315,13 +315,22 @@ async function locateAbsentWorktreeDownstreamInputReadRoot(
  */
 function locateExternalPlanTree(context: PipelineContext, indexPath: string): string | undefined {
   if (!isAbsolute(indexPath) || basename(indexPath) !== "index.md") return undefined;
-  const owner = resolveChainedStageOwnerProject(context);
-  if (owner === undefined) return undefined;
-  const specsHomeResolution = chainedStageSpecsHome(context, owner);
-  if (!specsHomeResolution.ok || specsHomeResolution.specsHome !== "external") return undefined;
   const planDir = resolve(dirname(indexPath));
-  if (!planDir.startsWith(`${resolve(specsHome(owner.key), "plans")}${sep}`)) return undefined;
+  if (!isUnderExternalPlansHome(context, planDir)) return undefined;
   return existsSync(indexPath) ? planDir : undefined;
+}
+
+/**
+ * True when `path` sits under the pipeline owner's external plans home (`specs: "external"`). A plan
+ * run's worktree there is its git-less read-context workspace, so it carries no branch to rebase.
+ */
+export function isUnderExternalPlansHome(context: PipelineContext, path: string): boolean {
+  if (!isAbsolute(path)) return false;
+  const owner = resolveChainedStageOwnerProject(context);
+  if (owner === undefined) return false;
+  const specsHomeResolution = chainedStageSpecsHome(context, owner);
+  if (!specsHomeResolution.ok || specsHomeResolution.specsHome !== "external") return false;
+  return resolve(path).startsWith(`${resolve(specsHome(owner.key), "plans")}${sep}`);
 }
 
 async function resolveChainedImplementSpecPath(

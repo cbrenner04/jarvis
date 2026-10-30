@@ -24,6 +24,7 @@ import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import { stageArtifactKey } from "./pipeline-stage-dispatch.ts";
 import {
   createChainedStageProjectMatch,
+  isUnderExternalPlansHome,
   type PipelineContext,
   type PipelineStageResolveDeps,
   resolveStageWorkflowSteps,
@@ -1358,6 +1359,21 @@ describe("resolveStageWorkflowSteps", () => {
       expect(writeStep.specPath).toBe(realpathSync(join(planDir, "index.md")));
       expect(writeStep.specReadRoot).toBe(realpathSync(planDir));
       expect(writeStep.worktree.projectRoot).toBe(realpathSync(admissionRoot));
+    }));
+
+  test("isUnderExternalPlansHome holds only for paths under an external-specs owner's plans home", () =>
+    withIsolatedJarvisHome((jarvisRoot) => {
+      const { projectKey, context } = gitDisabledPipelineContext();
+      const plansHome = join(jarvisRoot, "specs", projectSafeId(projectKey), "plans");
+      expect(isUnderExternalPlansHome(context, join(plansHome, "feature-read-context"))).toBe(true);
+      expect(isUnderExternalPlansHome(context, plansHome)).toBe(false);
+      expect(isUnderExternalPlansHome(context, join(jarvisRoot, "worktrees", "demo", "plan", "feature"))).toBe(false);
+      expect(isUnderExternalPlansHome(context, "specs/plans/feature-read-context")).toBe(false);
+
+      const repoRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-repo-specs-admission-"));
+      const configPath = writeHomeMachineConfig({ projects: { [projectKey]: { root: repoRoot, specs: "repo" } } });
+      const repoContext: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+      expect(isUnderExternalPlansHome(repoContext, join(plansHome, "feature-read-context"))).toBe(false);
     }));
 
   test("chained implement stage returns already_complete for complete git-disabled external plan tree", () =>

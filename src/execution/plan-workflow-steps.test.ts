@@ -678,6 +678,131 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
   });
 });
 
+describe("plan spec dir reuse on rebuild", () => {
+  async function stageGitPlanBranch(options: {
+    readyName?: string;
+    baseSpecDirs?: string[];
+    branchSpecDirs?: string[];
+    createPlanBranch?: boolean;
+  }): Promise<{ root: string; config: string; readyIntent: string; readyName: string }> {
+    const readyName = options.readyName ?? "feature";
+    const root = trackedMkdtempSync(join(tmpdir(), "plan-reuse-spec-dir-"));
+    roots.push(root);
+    const run = (args: string[]) => realAsyncSubprocessRunner.runAsync("git", args, root);
+    await run(["init", "-q", "-b", "trunk"]);
+    await run(["config", "user.email", "t@t"]);
+    await run(["config", "user.name", "t"]);
+    mkdirSync(join(root, "spec/ready-intents"), { recursive: true });
+    writeFileSync(
+      join(root, "spec/ready-intents", `${readyName}.md`),
+      `---\nname: ${readyName}\n---\n\n## Prerequisites\n`,
+      "utf8",
+    );
+    for (const dir of options.baseSpecDirs ?? []) {
+      mkdirSync(join(root, "spec", dir), { recursive: true });
+      writeFileSync(join(root, "spec", dir, "index.md"), "# index\n", "utf8");
+    }
+    await run(["add", "-A"]);
+    await run(["commit", "-q", "-m", "base"]);
+    if (options.createPlanBranch !== false) {
+      await run(["branch", `plan/${readyName}`]);
+      if ((options.branchSpecDirs?.length ?? 0) > 0) {
+        await run(["checkout", "-q", `plan/${readyName}`]);
+        for (const dir of options.branchSpecDirs ?? []) {
+          mkdirSync(join(root, "spec", dir), { recursive: true });
+          writeFileSync(join(root, "spec", dir, "index.md"), "# index\n", "utf8");
+        }
+        await run(["add", "-A"]);
+        await run(["commit", "-q", "-m", "plan trees"]);
+        await run(["checkout", "-q", "trunk"]);
+      }
+    }
+    const config = join(root, "config.json");
+    writeFileSync(config, JSON.stringify({ projects: { demo: { root, specs: "repo" } } }), "utf8");
+    return { root, config, readyIntent: `spec/ready-intents/${readyName}.md`, readyName };
+  }
+
+  const buildDeps = { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk", reviewPasses: 0 as const };
+
+  test("reuses the newest branch-added matching dir on rebuild", async () => {
+    const older = "20260101T000000Z-feature";
+    const newer = "20260201T000000Z-feature";
+    const { root, config, readyIntent } = await stageGitPlanBranch({
+      branchSpecDirs: [older, newer],
+    });
+    const input = { cwd: root, readyIntent, configPath: config, reviewPasses: 0 };
+    const first = await buildPlanWorkflowSteps(input, buildDeps);
+    const second = await buildPlanWorkflowSteps(input, buildDeps);
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    const expected = `spec/${newer}`;
+    expect(first.steps[0]).toMatchObject({ specPath: expected, landing: { durablePath: expected } });
+    expect(second.steps[0]).toMatchObject({ specPath: expected, landing: { durablePath: expected } });
+  });
+
+  test("reuses a single branch-added dir on first build after the plan branch exists", async () => {
+    const landed = "20260115T120000Z-feature";
+    const { root, config, readyIntent } = await stageGitPlanBranch({ branchSpecDirs: [landed] });
+    const input = { cwd: root, readyIntent, configPath: config, reviewPasses: 0 };
+    const result = await buildPlanWorkflowSteps(input, buildDeps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps[0]).toMatchObject({
+      specPath: `spec/${landed}`,
+      landing: { durablePath: `spec/${landed}` },
+    });
+  });
+
+  test("mints a fresh timestamp when the plan branch is absent", async () => {
+    const seeded = "20260101T000000Z-feature";
+    const { root, config, readyIntent } = await stageGitPlanBranch({
+      createPlanBranch: false,
+      baseSpecDirs: [seeded],
+    });
+    const result = await buildPlanWorkflowSteps(
+      { cwd: root, readyIntent, configPath: config, reviewPasses: 0 },
+      buildDeps,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.steps[0];
+    if (step?.behavior !== "write") throw new Error("expected write step");
+    expect(step.specPath).toMatch(/^spec\/\d{8}T\d{6}Z-feature$/);
+    expect(step.specPath).not.toBe(`spec/${seeded}`);
+  });
+
+  test("mints fresh when only invalid slug or base-ref trees exist", async () => {
+    const onBase = "20260101T000000Z-feature";
+    const invalidSlug = "not-a-timestamp-feature";
+    const withInvalid = await stageGitPlanBranch({
+      branchSpecDirs: [invalidSlug],
+    });
+    const invalidOnly = await buildPlanWorkflowSteps(
+      { cwd: withInvalid.root, readyIntent: withInvalid.readyIntent, configPath: withInvalid.config, reviewPasses: 0 },
+      buildDeps,
+    );
+    expect(invalidOnly.ok).toBe(true);
+    if (!invalidOnly.ok) return;
+    expect(invalidOnly.steps[0]).toMatchObject({
+      specPath: expect.stringMatching(/^spec\/\d{8}T\d{6}Z-feature$/),
+    });
+    if (invalidOnly.steps[0]?.behavior !== "write") throw new Error("expected write step");
+    expect(invalidOnly.steps[0].specPath).not.toBe(`spec/${invalidSlug}`);
+
+    const onBaseOnly = await stageGitPlanBranch({ baseSpecDirs: [onBase], branchSpecDirs: [] });
+    const baseOnly = await buildPlanWorkflowSteps(
+      { cwd: onBaseOnly.root, readyIntent: onBaseOnly.readyIntent, configPath: onBaseOnly.config, reviewPasses: 0 },
+      buildDeps,
+    );
+    expect(baseOnly.ok).toBe(true);
+    if (!baseOnly.ok) return;
+    if (baseOnly.steps[0]?.behavior !== "write") throw new Error("expected write step");
+    expect(baseOnly.steps[0].specPath).toMatch(/^spec\/\d{8}T\d{6}Z-feature$/);
+    expect(baseOnly.steps[0].specPath).not.toBe(`spec/${onBase}`);
+  });
+});
+
 describe("external plan draft read-context checkout", () => {
   async function initGitProject(): Promise<{ repoRoot: string; committed: string }> {
     const root = trackedMkdtempSync(join(tmpdir(), "plan-readctx-repo-"));

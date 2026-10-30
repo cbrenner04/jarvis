@@ -7,6 +7,11 @@ import { resolveSpecsHome } from "../config/specs-home.ts";
 import { intentWorkRoot, jarvisHome, managedWorktreePath, specsHome } from "../paths.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import { getBaseBranch } from "../shared/git.ts";
+import {
+  defaultPlanSpecDirGitRead,
+  type PlanSpecDirGitRead,
+  resolveReusedPlanSpecDirRelativePath,
+} from "./publication-plan-spec-dir.ts";
 import type { ResolvedAgentBinding } from "../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import { resolvePlanTargetDir } from "../shared/plan-target-dir.ts";
@@ -92,6 +97,7 @@ export type PlanWorkflowDeps = LoaderDeps & {
   resolveProjectMatch?: (path: string) => ProjectMatch | undefined;
   readReadyIntent?: (path: string) => { ok: true; name: string; content: string } | { ok: false; message: string };
   resolveBaseBranch?: (projectRoot: string) => string | Promise<string>;
+  planSpecDirGitRead?: PlanSpecDirGitRead;
 };
 
 function validTargetDir(value: string): boolean {
@@ -643,18 +649,35 @@ function planSource(
     const root = input.jarvisRoot ?? jarvisHome();
     const branch = `plan/${ready.name}`;
     const cwd = managedWorktreePath(root, project.key, branch);
-    const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
-    const specDir = join(target, `${timestamp}-${ready.name}`);
     const externalPlanPath = join(specsHome(project.key, root), "plans", ready.name);
     // The external read-context checkout is the agent cwd; it is a distinct directory from the
     // durable plan-tree landing target (`externalPlanPath`) so extracted target-repo content can
     // never masquerade as a pre-existing durable plan-tree file at landing.
     const externalReadContextPath = join(specsHome(project.key, root), "plans", `${ready.name}-read-context`);
-    const durableSpecPath = git ? specDir : externalPlanPath;
     // An explicit operator `--base` overrides the repository default; the CLI has already validated
     // it resolves to a local tree-ish (git-true worktree base and git-false read-context archive both
     // read from the local clone), so the read checkout never silently falls back to `HEAD`.
     const baseRef = input.baseRef ?? (await (deps.resolveBaseBranch ?? getBaseBranch)(project.root));
+    const gitRead = deps.planSpecDirGitRead ?? defaultPlanSpecDirGitRead;
+    let durableSpecPath: string;
+    if (git) {
+      const reused = await resolveReusedPlanSpecDirRelativePath(
+        project.root,
+        baseRef,
+        branch,
+        target,
+        ready.name,
+        gitRead,
+      );
+      if (reused !== undefined) {
+        durableSpecPath = reused;
+      } else {
+        const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
+        durableSpecPath = join(target, `${timestamp}-${ready.name}`);
+      }
+    } else {
+      durableSpecPath = externalPlanPath;
+    }
     const source: WriteWorkflowSourceStep = {
       behavior: "write",
       stepId: "plan",

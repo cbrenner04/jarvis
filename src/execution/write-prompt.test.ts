@@ -169,8 +169,14 @@ describe("write prompt", () => {
   });
 
   test("implement.prompt.shrink prescribes branch-against-base narrative scope", () => {
-    const rendered = renderStepPrompt("implement.prompt.shrink", SHRINK_RENDER_PLACEHOLDERS);
+    const rendered = renderStepPrompt("implement.prompt.shrink", {
+      ...SHRINK_RENDER_PLACEHOLDERS,
+      BRANCH_DIFF: "BRANCH_STAT_SENTINEL",
+      RUN_SCOPED_DIFF: "RUN_DIFF_SENTINEL",
+    });
     const narrativeSection = rendered.slice(rendered.indexOf("## Narrative"));
+    expect(narrativeSection).not.toContain("BRANCH_STAT_SENTINEL");
+    expect(narrativeSection).not.toContain("RUN_DIFF_SENTINEL");
     expect(narrativeSection).toContain("merge base");
     expect(narrativeSection).toContain("whole PR");
     expect(narrativeSection).toContain("<<<BRANCH_SUMMARY_BEGIN>>>");

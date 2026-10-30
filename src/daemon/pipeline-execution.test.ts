@@ -51,6 +51,7 @@ import {
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import { operatorFailureRecordFromUnknown } from "../shared/operator-failure-record.ts";
+import { projectSafeId } from "../shared/project-safe-id.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../shared/subprocess.ts";
 import { trackedMkdtempSync } from "../shared/tracked-temp-dir.test-support.ts";
 import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
@@ -11644,6 +11645,36 @@ describe("fan-out serial chained lanes", () => {
     });
     expect(rebaseStamp(stages(), "implement")).toBeUndefined();
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("an external-specs plan's git-less read-context workspace is never rebased after its predecessor merges", async () => {
+    const previousJarvisHome = process.env.JARVIS_HOME;
+    const { jarvisRoot } = createJarvisHome();
+    process.env.JARVIS_HOME = jarvisRoot;
+    try {
+      const admissionRoot = trackedMkdtempSync(join(tmpdir(), "pipeline-external-rebase-admission-"));
+      const configPath = writeHomeMachineConfig({ projects: { demo: { root: admissionRoot, specs: "external" } } });
+      const context: PipelineContext = { cwd: admissionRoot, seed: "seed text", configPath };
+      const readContext = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "beta-read-context");
+      const runs = stackedLaneRuns(intentWorktree(ALPHA_DELIVERS_BETA));
+      Object.assign(runs["run-beta-1-3"] ?? {}, { worktreePath: readContext, branch: "plan/beta" });
+      const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, runs, { context });
+      const { deps, dispatched } = capturingLaneDeps(store);
+      const { gh } = alphaMergedGh(() =>
+        dispatched.some((entry) => entry.branchKey === "beta" && entry.stageId === "plan"),
+      );
+      const { runner, calls } = recordingGitRunner();
+
+      await runPipeline(PIPELINE_ID, { ...deps, context, subprocessRunner: runner, supersedeGh: gh });
+
+      // Pre-fix: `git merge-base --is-ancestor` runs in the read-context dir and fails "not a git repository".
+      expect(calls.some((call) => call.cwd === readContext)).toBe(false);
+      expect(dispatched.at(-1)).toEqual({ stageId: "implement", branchKey: "beta", forkRef: undefined });
+      expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+    } finally {
+      if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+      else process.env.JARVIS_HOME = previousJarvisHome;
+    }
   });
 
   test("a conflicting rebase aborts cleanly, fails only the admitted stage retryably naming the predecessor, and resumes once hand-rebased", async () => {

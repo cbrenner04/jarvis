@@ -81,6 +81,7 @@ import {
 import { buildStageFailureRecord } from "./pipeline-stage-failure-record.ts";
 import {
   isFanOutStageResolution,
+  isUnderExternalPlansHome,
   noopStaleResetPreflight,
   type PipelineStageResolutionResult,
   resolveStageWorkflowSteps,
@@ -2303,6 +2304,7 @@ function unrebasedLaneBranches(
 ): { branches: LaneBranch[]; stamped: boolean } {
   const branches: LaneBranch[] = [];
   let stamped = false;
+  const loaded = loadPipelineContext(pipeline.context);
   for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, lane)) {
     if (stage.kind !== "workflow" || record.status !== "succeeded") continue;
     const artifact = narrowPipelineStageArtifact(record.artifact);
@@ -2314,6 +2316,8 @@ function unrebasedLaneBranches(
     if (onlyStageId !== undefined && stage.stageId !== onlyStageId) continue;
     const run = store.loadRun(artifact.entryRunId);
     if (run === null || !run.worktreePath || !run.branch) continue;
+    // An external-specs plan ran in a git-less read-context workspace: no branch exists to rebase.
+    if (loaded.ok && isUnderExternalPlansHome(loaded.context, run.worktreePath)) continue;
     branches.push({
       stageId: stage.stageId,
       artifact,

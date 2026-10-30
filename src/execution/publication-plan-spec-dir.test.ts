@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  matchingPlanSpecDirBasenamePattern,
-  selectNewestBranchAddedPlanSpecBasename,
-} from "./publication-plan-spec-dir.ts";
+import { selectNewestBranchAddedPlanSpecBasename } from "./publication-plan-spec-dir.ts";
 
 describe("selectNewestBranchAddedPlanSpecBasename", () => {
   const readyName = "feature";
@@ -36,10 +33,5 @@ describe("selectNewestBranchAddedPlanSpecBasename", () => {
     expect(
       selectNewestBranchAddedPlanSpecBasename([{ type: "tree", name: `not-a-timestamp-${readyName}` }], [], readyName),
     ).toBeUndefined();
-  });
-
-  test("matchingPlanSpecDirBasenamePattern requires the full timestamp prefix", () => {
-    expect(matchingPlanSpecDirBasenamePattern(readyName).test(`20260101T000000Z-${readyName}`)).toBe(true);
-    expect(matchingPlanSpecDirBasenamePattern(readyName).test(`not-a-timestamp-${readyName}`)).toBe(false);
   });
 });

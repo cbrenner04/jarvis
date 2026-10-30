@@ -684,7 +684,7 @@ describe("plan spec dir reuse on rebuild", () => {
     baseSpecDirs?: string[];
     branchSpecDirs?: string[];
     createPlanBranch?: boolean;
-  }): Promise<{ root: string; config: string; readyIntent: string; readyName: string }> {
+  }): Promise<{ root: string; config: string; readyIntent: string }> {
     const readyName = options.readyName ?? "feature";
     const root = trackedMkdtempSync(join(tmpdir(), "plan-reuse-spec-dir-"));
     roots.push(root);
@@ -719,10 +719,19 @@ describe("plan spec dir reuse on rebuild", () => {
     }
     const config = join(root, "config.json");
     writeFileSync(config, JSON.stringify({ projects: { demo: { root, specs: "repo" } } }), "utf8");
-    return { root, config, readyIntent: `spec/ready-intents/${readyName}.md`, readyName };
+    return { root, config, readyIntent: `spec/ready-intents/${readyName}.md` };
   }
 
   const buildDeps = { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk", reviewPasses: 0 as const };
+  const mintedFeatureSpec = /^spec\/\d{8}T\d{6}Z-feature$/;
+
+  function writeSpecPath(result: Awaited<ReturnType<typeof buildPlanWorkflowSteps>>): string {
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok build");
+    const step = result.steps[0];
+    if (step?.behavior !== "write") throw new Error("expected write step");
+    return step.specPath;
+  }
 
   test("reuses the newest branch-added matching dir on rebuild", async () => {
     const older = "20260101T000000Z-feature";
@@ -760,16 +769,11 @@ describe("plan spec dir reuse on rebuild", () => {
       createPlanBranch: false,
       baseSpecDirs: [seeded],
     });
-    const result = await buildPlanWorkflowSteps(
-      { cwd: root, readyIntent, configPath: config, reviewPasses: 0 },
-      buildDeps,
+    const specPath = writeSpecPath(
+      await buildPlanWorkflowSteps({ cwd: root, readyIntent, configPath: config, reviewPasses: 0 }, buildDeps),
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const step = result.steps[0];
-    if (step?.behavior !== "write") throw new Error("expected write step");
-    expect(step.specPath).toMatch(/^spec\/\d{8}T\d{6}Z-feature$/);
-    expect(step.specPath).not.toBe(`spec/${seeded}`);
+    expect(specPath).toMatch(mintedFeatureSpec);
+    expect(specPath).not.toBe(`spec/${seeded}`);
   });
 
   test("mints fresh when only invalid slug or base-ref trees exist", async () => {
@@ -778,28 +782,29 @@ describe("plan spec dir reuse on rebuild", () => {
     const withInvalid = await stageGitPlanBranch({
       branchSpecDirs: [invalidSlug],
     });
-    const invalidOnly = await buildPlanWorkflowSteps(
-      { cwd: withInvalid.root, readyIntent: withInvalid.readyIntent, configPath: withInvalid.config, reviewPasses: 0 },
-      buildDeps,
+    const invalidSpecPath = writeSpecPath(
+      await buildPlanWorkflowSteps(
+        {
+          cwd: withInvalid.root,
+          readyIntent: withInvalid.readyIntent,
+          configPath: withInvalid.config,
+          reviewPasses: 0,
+        },
+        buildDeps,
+      ),
     );
-    expect(invalidOnly.ok).toBe(true);
-    if (!invalidOnly.ok) return;
-    expect(invalidOnly.steps[0]).toMatchObject({
-      specPath: expect.stringMatching(/^spec\/\d{8}T\d{6}Z-feature$/),
-    });
-    if (invalidOnly.steps[0]?.behavior !== "write") throw new Error("expected write step");
-    expect(invalidOnly.steps[0].specPath).not.toBe(`spec/${invalidSlug}`);
+    expect(invalidSpecPath).toMatch(mintedFeatureSpec);
+    expect(invalidSpecPath).not.toBe(`spec/${invalidSlug}`);
 
     const onBaseOnly = await stageGitPlanBranch({ baseSpecDirs: [onBase], branchSpecDirs: [] });
-    const baseOnly = await buildPlanWorkflowSteps(
-      { cwd: onBaseOnly.root, readyIntent: onBaseOnly.readyIntent, configPath: onBaseOnly.config, reviewPasses: 0 },
-      buildDeps,
+    const baseSpecPath = writeSpecPath(
+      await buildPlanWorkflowSteps(
+        { cwd: onBaseOnly.root, readyIntent: onBaseOnly.readyIntent, configPath: onBaseOnly.config, reviewPasses: 0 },
+        buildDeps,
+      ),
     );
-    expect(baseOnly.ok).toBe(true);
-    if (!baseOnly.ok) return;
-    if (baseOnly.steps[0]?.behavior !== "write") throw new Error("expected write step");
-    expect(baseOnly.steps[0].specPath).toMatch(/^spec\/\d{8}T\d{6}Z-feature$/);
-    expect(baseOnly.steps[0].specPath).not.toBe(`spec/${onBase}`);
+    expect(baseSpecPath).toMatch(mintedFeatureSpec);
+    expect(baseSpecPath).not.toBe(`spec/${onBase}`);
   });
 });
 

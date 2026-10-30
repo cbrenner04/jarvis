@@ -3,7 +3,7 @@ id: implement.prompt.shrink
 behavior: implement
 kind: step
 fragmentPolicy: global
-revision: 6
+revision: 8
 remove: [global.documentation, global.naming]
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, ALLOWLIST:string!, BRANCH_DIFF:string!, RUN_SCOPED_DIFF:string!, STEP_RULES:string!]
 ---
@@ -66,15 +66,15 @@ Hunt and remove bloat matching these patterns only — no numeric line-count tar
 
 ## Narrative
 
-Before your final outcome token, emit the PR narrative: a review-altitude summary of what changed, why, and how to verify. The narrative is distinct from the spec header — focus on intent and verification, not a restatement of the acceptance criteria.
+Before your final outcome token, emit the PR narrative: a review-altitude summary of what this branch changes against its merge base (the whole PR), why, and how to verify — not what the shrink pass edited alone. Orient from the `<<<BRANCH_SUMMARY_BEGIN>>>` block; do not lead with or center simplification visible only in the `<<<DIFF_BEGIN>>>` block. Distinct from the spec header — intent and verification, not acceptance-criteria restatement. At most one trailing line for shrink-pass notes; the body must not primarily describe shrink cleanup.
 
 Write the narrative to `.scratch/shrink-narrative.md`:
 
 ```
 mkdir -p .scratch
 cat > .scratch/shrink-narrative.md << 'EOF'
-What changed and why — intent captured and verification path.
-Multiple lines OK.
+Whole PR vs merge base: what the branch changes, why, how to verify (orient from the branch summary block).
+Optional final line only: shrink-pass note if needed.
 EOF
 ```
 

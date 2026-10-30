@@ -443,7 +443,7 @@ Full section order after the `Spec:` line (see [Implement PR body template](#imp
 
 ### Narrative authoring in implement workflows
 
-The shrink pass (see above: [execution contract](#execution-contract)) authors a review-altitude narrative summarizing what changed, why, and how to verify, distinct from the spec header. The shrink agent writes the narrative to `.scratch/shrink-narrative.md` inside the worktree; the runner reads it after shrink completes and threads it into the publication input. The publication path passes the narrative to `refreshPrBody`, which renders it inside marker blocks in the PR body. Only implement workflows generate a narrative; plan and intent publication paths do not. If the narrative file is absent or unreadable, publication succeeds without one (graceful fallback — missing narrative does not fail the run).
+The shrink pass (see above: [execution contract](#execution-contract)) authors narrative text per [write-behavior.md](./write-behavior.md) PR body refresh narrative contract and `prompts/implement/shrink.md` `## Narrative`. The shrink agent writes it to `.scratch/shrink-narrative.md` in the worktree; the runner reads it after shrink and threads it into publication as `refreshPrBody`'s `narrative` input. Only implement workflows supply narrative; absent or unreadable file does not fail publication.
 
 ### Narrative preservation and re-publication
 

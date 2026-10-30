@@ -16,6 +16,15 @@ function renderStepPrompt(promptId: string, placeholders: Record<string, string>
 const HUMAN_ONLY_STEP_RULES =
   "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";
 
+const SHRINK_RENDER_PLACEHOLDERS: Record<string, string> = {
+  SPEC_PATH: "spec/example/index.md",
+  SPEC_TREE: "tree",
+  ALLOWLIST: "allow",
+  BRANCH_DIFF: "diff",
+  RUN_SCOPED_DIFF: "diff",
+  STEP_RULES: "Follow the contract.",
+};
+
 describe("write prompt", () => {
   test("registers stable id write.execute", () => {
     const registry = loadPromptRegistry();
@@ -132,14 +141,7 @@ describe("write prompt", () => {
   // Mutation checkpoint: inverting the `remove` exclusion in globalFragmentBodies
   // must turn this test red.
   test("implement.prompt.shrink includes no-hard-wrap after global.terse, omits documentation/naming", () => {
-    const rendered = renderStepPrompt("implement.prompt.shrink", {
-      SPEC_PATH: "spec/example/index.md",
-      SPEC_TREE: "tree",
-      ALLOWLIST: "allow",
-      BRANCH_DIFF: "diff",
-      RUN_SCOPED_DIFF: "diff",
-      STEP_RULES: "Follow the contract.",
-    });
+    const rendered = renderStepPrompt("implement.prompt.shrink", SHRINK_RENDER_PLACEHOLDERS);
 
     const terseIndex = rendered.indexOf("Be terse everywhere");
     const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
@@ -152,11 +154,7 @@ describe("write prompt", () => {
   // Mutation checkpoint: sentinel body-line mutation on `implement.prompt.shrink` must turn this RED.
   test("implement.prompt.shrink forbids deleting guard killing tests in Rules and STEP_RULES", () => {
     const rendered = renderStepPrompt("implement.prompt.shrink", {
-      SPEC_PATH: "spec/example/index.md",
-      SPEC_TREE: "tree",
-      ALLOWLIST: "allow",
-      BRANCH_DIFF: "diff",
-      RUN_SCOPED_DIFF: "diff",
+      ...SHRINK_RENDER_PLACEHOLDERS,
       STEP_RULES: SHRINK_WRITE_STEP_RULES,
     });
 
@@ -168,6 +166,28 @@ describe("write prompt", () => {
     expect(rulesSection).toContain(`- ${SHRINK_FORBID_GUARD_TEST_DELETION_RULE}`);
     expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
     expect(rendered.trimEnd().endsWith(SHRINK_WRITE_STEP_RULES)).toBe(true);
+  });
+
+  test("implement.prompt.shrink prescribes branch-against-base narrative scope", () => {
+    const rendered = renderStepPrompt("implement.prompt.shrink", {
+      ...SHRINK_RENDER_PLACEHOLDERS,
+      BRANCH_DIFF: "BRANCH_STAT_SENTINEL",
+      RUN_SCOPED_DIFF: "RUN_DIFF_SENTINEL",
+    });
+    const narrativeSection = rendered.slice(rendered.indexOf("## Narrative"));
+    expect(narrativeSection).not.toContain("BRANCH_STAT_SENTINEL");
+    expect(narrativeSection).not.toContain("RUN_DIFF_SENTINEL");
+    expect(narrativeSection).toContain("merge base");
+    expect(narrativeSection).toContain("whole PR");
+    expect(narrativeSection).toContain("<<<BRANCH_SUMMARY_BEGIN>>>");
+    expect(narrativeSection).toContain("<<<DIFF_BEGIN>>>");
+    expect(narrativeSection).toMatch(/do not lead with or center/i);
+    expect(narrativeSection).toMatch(/at most one trailing line/i);
+    expect(narrativeSection).toMatch(/must not primarily describe shrink cleanup/i);
+    expect(narrativeSection).not.toContain("Multiple lines OK.");
+    expect(narrativeSection).not.toMatch(/What changed and why — intent captured/);
+    expect(narrativeSection).toMatch(/Whole PR vs merge base:/);
+    expect(narrativeSection).toMatch(/Optional final line only:/);
   });
 
   test("write.execute isolates the shared human-only step rules", () => {

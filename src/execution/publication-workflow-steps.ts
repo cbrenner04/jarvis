@@ -7,7 +7,6 @@ import { resolveSpecsHome } from "../config/specs-home.ts";
 import { intentWorkRoot, jarvisHome, managedWorktreePath, specsHome } from "../paths.ts";
 import { errorMessage } from "../shared/error-message.ts";
 import { getBaseBranch } from "../shared/git.ts";
-import { resolveReusedPlanSpecDirRelativePath } from "./publication-plan-spec-dir.ts";
 import type { ResolvedAgentBinding } from "../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../shared/invocation/execute.ts";
 import { resolvePlanTargetDir } from "../shared/plan-target-dir.ts";
@@ -17,6 +16,7 @@ import { planReviewPromptProfile } from "../shared/prompts/review-plan.ts";
 import { parseSeedMetadata } from "../shared/seed-metadata.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
+import { resolveReusedPlanSpecDirRelativePath } from "./publication-plan-spec-dir.ts";
 import {
   type LoadedWorkflowStep,
   type ReviewDebateWorkflowSourceStep,

@@ -16,6 +16,7 @@ import { planReviewPromptProfile } from "../shared/prompts/review-plan.ts";
 import { parseSeedMetadata } from "../shared/seed-metadata.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
+import { resolveReusedPlanSpecDirRelativePath } from "./publication-plan-spec-dir.ts";
 import {
   type LoadedWorkflowStep,
   type ReviewDebateWorkflowSourceStep,
@@ -643,18 +644,19 @@ function planSource(
     const root = input.jarvisRoot ?? jarvisHome();
     const branch = `plan/${ready.name}`;
     const cwd = managedWorktreePath(root, project.key, branch);
-    const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
-    const specDir = join(target, `${timestamp}-${ready.name}`);
     const externalPlanPath = join(specsHome(project.key, root), "plans", ready.name);
     // The external read-context checkout is the agent cwd; it is a distinct directory from the
     // durable plan-tree landing target (`externalPlanPath`) so extracted target-repo content can
     // never masquerade as a pre-existing durable plan-tree file at landing.
     const externalReadContextPath = join(specsHome(project.key, root), "plans", `${ready.name}-read-context`);
-    const durableSpecPath = git ? specDir : externalPlanPath;
     // An explicit operator `--base` overrides the repository default; the CLI has already validated
     // it resolves to a local tree-ish (git-true worktree base and git-false read-context archive both
     // read from the local clone), so the read checkout never silently falls back to `HEAD`.
     const baseRef = input.baseRef ?? (await (deps.resolveBaseBranch ?? getBaseBranch)(project.root));
+    const durableSpecPath = git
+      ? ((await resolveReusedPlanSpecDirRelativePath(project.root, baseRef, branch, target, ready.name)) ??
+        join(target, `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z-${ready.name}`))
+      : externalPlanPath;
     const source: WriteWorkflowSourceStep = {
       behavior: "write",
       stepId: "plan",

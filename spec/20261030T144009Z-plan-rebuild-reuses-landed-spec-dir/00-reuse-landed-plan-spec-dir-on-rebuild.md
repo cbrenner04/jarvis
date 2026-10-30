@@ -18,10 +18,10 @@
 
 ## Task checklist
 
-- [ ] Add an exported selector (co-located with plan builder code) that implements the decisions above using injectable Git reads for tests.
-- [ ] Call it from `planSource` when `git` is true before minting `timestamp`; pass resolved `baseRef` and `plan/${ready.name}`.
-- [ ] Add regression tests in `src/execution/plan-workflow-steps.test.ts` (or `publication-workflow-steps.test.ts`) with a real git fixture: branch carries a landed matching dir, rebuild returns the same `specPath`/`landing.durablePath`; mint when branch missing; reject suffix-only slug and base-ref-preexisting same-regex tree.
-- [ ] Update `docs/workflow-runner.md` and `docs/v1-behaviors.md` per intent.
+- [x] Add an exported selector (co-located with plan builder code) that implements the decisions above using injectable Git reads for tests.
+- [x] Call it from `planSource` when `git` is true before minting `timestamp`; pass resolved `baseRef` and `plan/${ready.name}`.
+- [x] Add regression tests in `src/execution/plan-workflow-steps.test.ts` (or `publication-workflow-steps.test.ts`) with a real git fixture: branch carries a landed matching dir, rebuild returns the same `specPath`/`landing.durablePath`; mint when branch missing; reject suffix-only slug and base-ref-preexisting same-regex tree.
+- [x] Update `docs/workflow-runner.md` and `docs/v1-behaviors.md` per intent.
 
 ## Acceptance criteria
 

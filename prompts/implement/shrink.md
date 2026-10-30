@@ -3,7 +3,7 @@ id: implement.prompt.shrink
 behavior: implement
 kind: step
 fragmentPolicy: global
-revision: 7
+revision: 8
 remove: [global.documentation, global.naming]
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, ALLOWLIST:string!, BRANCH_DIFF:string!, RUN_SCOPED_DIFF:string!, STEP_RULES:string!]
 ---
@@ -73,8 +73,8 @@ Write the narrative to `.scratch/shrink-narrative.md`:
 ```
 mkdir -p .scratch
 cat > .scratch/shrink-narrative.md << 'EOF'
-What changed and why — intent captured and verification path.
-Multiple lines OK.
+Whole PR vs merge base: what the branch changes, why, how to verify (orient from BRANCH_DIFF / <<<BRANCH_SUMMARY_BEGIN>>>).
+Optional final line only: shrink-pass note if needed.
 EOF
 ```
 

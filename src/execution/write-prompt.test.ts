@@ -178,6 +178,10 @@ describe("write prompt", () => {
     expect(narrativeSection).toMatch(/do not lead with or center/i);
     expect(narrativeSection).toMatch(/at most one trailing line/i);
     expect(narrativeSection).toMatch(/must not primarily describe shrink cleanup/i);
+    expect(narrativeSection).not.toContain("Multiple lines OK.");
+    expect(narrativeSection).not.toMatch(/What changed and why — intent captured/);
+    expect(narrativeSection).toMatch(/Whole PR vs merge base:/);
+    expect(narrativeSection).toMatch(/Optional final line only:/);
   });
 
   test("write.execute isolates the shared human-only step rules", () => {
